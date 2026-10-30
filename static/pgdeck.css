@@ -50,7 +50,25 @@ nav.compact { padding-top: 10px; }
 nav.compact.below { margin-top: auto; padding: 8px 12px; border-top: 1px solid var(--line); }
 .sidebar-tree + nav.compact.below { margin-top: 0; }
 a.brand { text-decoration: none; }
-body.has-tree aside { width: 330px; }
+/* Resizable, collapsible sidebar. Width and collapsed state are remembered (see app.js). */
+:root { --sidebar-w: 330px; }
+body.has-tree aside { width: var(--sidebar-w); transition: none; }
+.sidebar-resizer { position: absolute; top: 0; right: -4px; bottom: 0; width: 8px; cursor: col-resize; z-index: 12; touch-action: none; }
+.sidebar-resizer::after { content: ""; position: absolute; left: 3px; top: 0; bottom: 0; width: 2px; background: transparent; transition: background .15s, box-shadow .15s; }
+.sidebar-resizer:hover::after, .sidebar-resizer:focus-visible::after, body.resizing .sidebar-resizer::after { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+.sidebar-resizer:focus-visible { outline: none; }
+body.resizing { user-select: none; cursor: col-resize; }
+@media (min-width: 801px) { html.sidebar-collapsed aside { display: none; } }
+@media (max-width: 800px) { .sidebar-resizer { display: none; } }
+
+/* Scrollbars that match the dark theme (instead of the browser's white ones). */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: #03101f; border-left: 1px solid #0a2a45; }
+::-webkit-scrollbar-thumb { background: linear-gradient(90deg, #0b5f99, #0a4a7a); border: 1px solid #1695e6; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(90deg, #17a2f0, #0e6aa8); box-shadow: 0 0 8px var(--accent); }
+::-webkit-scrollbar-thumb:active { background: #17a2f0; }
+::-webkit-scrollbar-corner { background: #03101f; }
+@supports (-moz-appearance: none) { * { scrollbar-width: thin; scrollbar-color: #0e6aa8 #03101f; } }
 .sidebar-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); margin-top: 8px; }
 .sidebar-tree .nav-label { padding: 14px 18px 8px; }
 .sidebar-tree .tree { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 12px 12px; font-size: 13px; }

@@ -6,6 +6,8 @@
   <title>{% block title %}PgDeck{% endblock %}</title>
   <link rel="stylesheet" href="{% static 'adminweb-theme.css' %}">
   <link rel="stylesheet" href="{% static 'pgdeck.css' %}">
+  {# Restore the sidebar width / collapsed state before the page paints, so it does not jump. #}
+  <script>try{var w=parseInt(localStorage.getItem("pgdeck.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdeck.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed")}catch(e){}</script>
 </head>
 <body class="{% if user.is_authenticated %}has-tree{% endif %}">
 <div class="scanlines"></div>
@@ -26,10 +28,12 @@
     </nav>
     {% endif %}
     <div class="sidebar-bottom"><div><span class="dot"></span> READ-ONLY MODE</div><small>PgDeck · Phase 1</small></div>
+    <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" tabindex="0"
+         aria-label="Resize sidebar (drag, or use the arrow keys; double-click to reset)" title="Drag to resize · double-click to reset"></div>
   </aside>
   <main>
     <header>
-      <button class="icon-btn" id="toggle" type="button" aria-label="Toggle menu">☰</button>
+      <button class="icon-btn" id="toggle" type="button" aria-label="Show or hide the sidebar" title="Show or hide the sidebar">☰</button>
       <div class="head-right">
         <span class="who">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn" type="submit">Sign out</button></form>

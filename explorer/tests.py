@@ -294,6 +294,22 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertIn("function pathTo(target)", script)                              # browser page: open ancestors, select node
         self.assertIn('twist.addEventListener("click"', script)                       # the arrow only opens/closes
 
+    def test_sidebar_is_resizable_and_collapsible_and_remembers_it(self):
+        html = self.client.get(reverse("server_list")).content.decode()
+        sidebar = html[html.index("<aside"):html.index("</aside>")]
+        self.assertIn('id="sidebarResizer"', sidebar)
+        self.assertIn('role="separator"', sidebar)
+        self.assertIn('tabindex="0"', sidebar[sidebar.index("sidebarResizer"):])        # keyboard reachable
+        head = html[:html.index("</head>")]
+        self.assertIn("pgdeck.sidebarWidth", head)                                       # restored before first paint
+        self.assertIn("pgdeck.sidebarCollapsed", head)
+        script = open("static/app.js", encoding="utf-8").read()
+        for needle in ('"pointerdown"', '"dblclick"', "ArrowLeft", "sidebar-collapsed", "localStorage.setItem"):
+            self.assertIn(needle, script)
+        css = open("static/pgdeck.css", encoding="utf-8").read()
+        for needle in ("--sidebar-w", ".sidebar-resizer", "::-webkit-scrollbar-thumb", "html.sidebar-collapsed aside"):
+            self.assertIn(needle, css)
+
     def test_login_page_has_no_tree(self):
         self.client.logout()
         page = self.client.get(reverse("login"))
