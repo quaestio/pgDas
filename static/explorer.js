@@ -54,10 +54,14 @@
       .catch(function () { list.innerHTML = ""; list.appendChild(note("Could not load.", true)); done(false); });
   }
 
+  var overview = document.getElementById("servers-overview");
+
   function select(row, node) {
     if (selected) selected.classList.remove("selected");
     selected = row;
     row.classList.add("selected");
+    // The title, "Add server" button and tiles belong to the top "Servers" node only.
+    if (overview) overview.hidden = node.type !== "servers";
     showDetail(query(node));
   }
 

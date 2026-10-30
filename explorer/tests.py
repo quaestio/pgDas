@@ -246,6 +246,22 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertNotIn('<span class="ico">▦</span> Object Browser', sidebar)
         self.assertGreater(sidebar.index("Audit log"), sidebar.index('id="tree"'))
 
+    def test_overview_header_belongs_to_the_servers_node_only(self):
+        # The title, Add server button and tiles sit in one block that explorer.js shows only for the top node.
+        self.user.is_staff = True
+        self.user.save()
+        plain = self.client.get(reverse("server_list")).content.decode()
+        block = plain[plain.index('id="servers-overview"'):plain.index('id="explorer"')]
+        for text in ("Object Browser</h1>", "Add server", "saved connections", "recorded in the audit log"):
+            self.assertIn(text, block)
+            self.assertNotIn(text, plain[plain.index('id="explorer"'):])  # nothing of it outside that block
+        self.assertNotIn('id="servers-overview" hidden', plain)
+        # Opened straight onto a server (deep link / old address): the block starts hidden.
+        deep = self.client.get(reverse("server_list"), {"server": self.server.pk}).content.decode()
+        self.assertIn('id="servers-overview" hidden', deep)
+        script = open("static/explorer.js", encoding="utf-8").read()
+        self.assertIn('overview.hidden = node.type !== "servers"', script)
+
     def test_audit_link_is_staff_only_in_the_sidebar(self):
         html = self.client.get(reverse("server_list")).content.decode()
         self.assertNotIn("Audit log", html[html.index("<aside"):html.index("</aside>")])

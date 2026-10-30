@@ -9,15 +9,18 @@
 </div>
 {% endblock %}
 {% block content %}
-<div class="title-row">
-  <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
-    <p class="muted">Pick an object in the sidebar to see its details here. Everything runs read-only.</p></div>
-  {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
-</div>
-<div class="metrics three">
-  <div class="panel metric"><div><small>SERVERS</small><strong>{{ server_count }}</strong><span class="green">saved connections</span></div></div>
-  <div class="panel metric"><div><small>USERS</small><strong>{{ user_count }}</strong><span class="green">can sign in</span></div></div>
-  <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
+{# Shown only while the top "Servers" node is selected; explorer.js hides it for every other node. #}
+<div id="servers-overview"{% if preselect %} hidden{% endif %}>
+  <div class="title-row">
+    <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
+      <p class="muted">Pick an object in the sidebar to see its details here. Everything runs read-only.</p></div>
+    {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
+  </div>
+  <div class="metrics three">
+    <div class="panel metric"><div><small>SERVERS</small><strong>{{ server_count }}</strong><span class="green">saved connections</span></div></div>
+    <div class="panel metric"><div><small>USERS</small><strong>{{ user_count }}</strong><span class="green">can sign in</span></div></div>
+    <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
+  </div>
 </div>
 <div id="explorer" data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-preselect="{{ preselect }}">
   <section class="panel detail-panel" id="detail" aria-live="polite"><p class="muted">Loading…</p></section>
