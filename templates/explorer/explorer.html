@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ server.name }} · PgDeck{% endblock %}
+{% block content %}
+<div class="title-row">
+  <div><div class="eyebrow">SERVERS / <span>{{ server.name|upper }}</span></div><h1>{{ server.name }}</h1>
+    <p class="muted">{{ server.username }}@{{ server.host }}:{{ server.port }}</p></div>
+  <div><a class="btn" href="{% url 'sql_runner' server.pk %}">SQL runner</a> <span class="badge ok">read-only</span></div>
+</div>
+<div class="explorer" id="explorer" data-tree-url="{% url 'tree' server.pk %}" data-detail-url="{% url 'detail' server.pk %}" data-server-name="{{ server.name }}">
+  <section class="panel tree-panel">
+    <h2>OBJECT BROWSER</h2>
+    <ul class="tree" id="tree" role="tree" aria-label="Server objects"></ul>
+  </section>
+  <section class="panel detail-panel" id="detail" aria-live="polite"><p class="muted">Loading…</p></section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{% static 'explorer.js' %}"></script>{% endblock %}

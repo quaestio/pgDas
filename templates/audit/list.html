@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Audit log · PgDeck{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">CONSOLE / <span>AUDIT LOG</span></div><h1>Audit log</h1>
+  <p class="muted">Every SQL run and server change, newest first.</p></div></div>
+<section class="panel pad scroll">
+  <table>
+    <thead><tr><th>WHEN (UTC)</th><th>USER</th><th>SERVER</th><th>ACTION</th><th>DETAIL</th><th>ROWS</th><th>RESULT</th></tr></thead>
+    <tbody>
+    {% for entry in page %}
+      <tr>
+        <td class="muted" style="white-space:nowrap">{{ entry.created_at|date:"Y-m-d H:i:s" }}</td>
+        <td>{{ entry.username }}</td><td>{{ entry.server_name }}</td><td>{{ entry.action }}</td>
+        <td>{% if entry.detail %}<pre class="sql">{{ entry.detail }}</pre>{% endif %}</td>
+        <td class="muted">{{ entry.rows|default_if_none:"" }}</td>
+        <td>{% if entry.ok %}<span class="badge ok">ok</span>{% else %}<span class="badge bad">failed</span>{% endif %}</td>
+      </tr>
+    {% empty %}<tr><td colspan="7" class="muted">Nothing recorded yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+  <div class="pager">
+    {% if page.has_previous %}<a class="btn" href="?page={{ page.previous_page_number }}">← Newer</a>{% endif %}
+    <span class="muted">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>
+    {% if page.has_next %}<a class="btn" href="?page={{ page.next_page_number }}">Older →</a>{% endif %}
+  </div>
+</section>
+{% endblock %}

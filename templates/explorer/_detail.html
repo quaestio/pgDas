@@ -1,0 +1,77 @@
+{% if error %}
+  <ul class="messages"><li class="error">{{ error }}</li></ul>
+{% elif kind == "root" %}
+  <h2>{{ server.name }}</h2>
+  <dl class="props">
+    <dt>PostgreSQL</dt><dd>{{ summary.version }}</dd>
+    <dt>Connected as</dt><dd>{{ summary.user }}</dd>
+    <dt>Default database</dt><dd>{{ summary.database }}</dd>
+  </dl>
+  <p class="muted" style="margin-top:18px">Expand <strong>Databases</strong> in the tree to browse schemas, tables, columns, constraints and indexes.</p>
+{% elif kind == "databases" %}
+  <h2>Databases</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>NAME</th><th>OWNER</th><th>ENCODING</th><th>SIZE</th></tr></thead>
+    <tbody>{% for d in databases %}<tr><td>{{ d.name }}</td><td class="muted">{{ d.owner }}</td><td class="muted">{{ d.encoding }}</td><td class="muted">{{ d.size_text }}</td></tr>
+    {% empty %}<tr><td colspan="4" class="muted">No databases you can connect to.</td></tr>{% endfor %}</tbody>
+  </table></div>
+{% elif kind == "database" %}
+  <h2>{{ database.name }}</h2>
+  <dl class="props"><dt>Owner</dt><dd>{{ database.owner }}</dd><dt>Encoding</dt><dd>{{ database.encoding }}</dd><dt>Size</dt><dd>{{ database.size_text }}</dd></dl>
+  <p class="muted" style="margin-top:18px">Expand <strong>Schemas</strong> under this database to continue.</p>
+{% elif kind == "schemas" %}
+  <h2>Schemas in {{ node.db }}</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>NAME</th><th>OWNER</th></tr></thead>
+    <tbody>{% for s in schemas %}<tr><td>{{ s.name }}</td><td class="muted">{{ s.owner }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+{% elif kind == "schema" or kind == "tables" %}
+  <h2>{% if kind == "schema" %}Schema {{ node.schema }}{% else %}Tables in {{ node.schema }}{% endif %}</h2>
+  {% if kind == "schema" %}<dl class="props"><dt>Owner</dt><dd>{{ owner }}</dd><dt>Database</dt><dd>{{ node.db }}</dd></dl><h2 style="margin-top:22px">Tables</h2>{% endif %}
+  <div class="scroll"><table>
+    <thead><tr><th>NAME</th><th>TYPE</th><th>ROWS (ESTIMATE)</th></tr></thead>
+    <tbody>{% for t in tables %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td><td class="muted">{{ t.estimate }}</td></tr>
+    {% empty %}<tr><td colspan="3" class="muted">No tables in this schema.</td></tr>{% endfor %}</tbody>
+  </table></div>
+{% elif tabs %}
+  <h2>{{ title }}</h2>
+  <div class="tabs">{% for key, label in tabs %}<a href="#" data-detail="{{ base }}&tab={{ key }}" class="{% if key == tab %}active{% endif %}">{{ label }}</a>{% endfor %}</div>
+  {% if tab == "properties" %}
+    <dl class="props">
+      <dt>Table</dt><dd>{{ title }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ info.owner }}</dd>
+      <dt>Type</dt><dd>{{ info.kind }}</dd><dt>Rows (estimate)</dt><dd>{{ info.estimate }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>
+      {% if info.comment %}<dt>Comment</dt><dd>{{ info.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "columns" %}
+    <div class="scroll"><table>
+      <thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>NULLABLE</th><th>DEFAULT</th></tr></thead>
+      <tbody>{% for c in columns %}<tr><td class="muted">{{ forloop.counter }}</td><td>{{ c.name }}</td><td class="muted">{{ c.type }}</td>
+        <td>{% if c.nullable %}yes{% else %}<span class="badge">not null</span>{% endif %}</td><td class="cell">{{ c.default }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif tab == "constraints" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>TYPE</th><th>DEFINITION</th></tr></thead>
+      <tbody>{% for c in constraints %}<tr><td>{{ c.name }}</td><td><span class="badge">{{ c.type }}</span></td><td class="cell">{{ c.definition }}</td></tr>
+      {% empty %}<tr><td colspan="3" class="muted">No constraints.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif tab == "indexes" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>KIND</th><th>DEFINITION</th></tr></thead>
+      <tbody>{% for i in indexes %}<tr><td>{{ i.name }}</td><td>{% if i.primary %}<span class="badge ok">primary</span>{% elif i.unique %}<span class="badge">unique</span>{% endif %}</td><td class="cell">{{ i.definition }}</td></tr>
+      {% empty %}<tr><td colspan="3" class="muted">No indexes.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif tab == "data" %}
+    <div class="scroll"><table>
+      <thead><tr>{% for c in data.columns %}<th>{{ c.name }}<br><span class="muted" style="font-weight:400">{{ c.type }}</span></th>{% endfor %}</tr></thead>
+      <tbody>{% for row in data.rows %}<tr>{% for value in row %}{% if value is None %}<td class="null">NULL</td>{% else %}<td class="cell">{{ value }}</td>{% endif %}{% endfor %}</tr>
+      {% empty %}<tr><td colspan="{{ data.columns|length }}" class="muted">No rows on this page.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="pager">
+      {% if data.page > 1 %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'-1' }}">← Previous</a>{% endif %}
+      <span class="muted">Page {{ data.page }}</span>
+      {% if data.has_next %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'1' }}">Next →</a>{% endif %}
+    </div>
+  {% elif tab == "sql" %}
+    <pre class="sql">{{ ddl }}</pre>
+  {% endif %}
+{% endif %}

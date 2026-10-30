@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Remove {{ server.name }} · PgDeck{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">SERVERS / <span>REMOVE</span></div><h1>Remove {{ server.name }}?</h1></div></div>
+<section class="panel pad" style="max-width:600px">
+  <p>This removes the saved connection from PgDeck only. The database itself is not touched.</p>
+  <form method="post">{% csrf_token %}
+    <button class="btn danger" type="submit">Remove server</button>
+    <a class="btn" href="{% url 'server_list' %}">Cancel</a>
+  </form>
+</section>
+{% endblock %}

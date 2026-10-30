@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · PgDeck{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">SERVERS / <span>{{ title|upper }}</span></div><h1>{{ title }}</h1></div></div>
+<section class="panel pad" style="max-width:600px">
+  <form method="post" autocomplete="off">{% csrf_token %}
+    {{ form.as_p }}
+    <button class="btn primary" type="submit">Save</button>
+    <a class="btn" href="{% url 'server_list' %}">Cancel</a>
+  </form>
+  <p class="muted" style="margin-top:18px">PgDeck only reads from your databases. Use a PostgreSQL role with read access.</p>
+</section>
+{% endblock %}

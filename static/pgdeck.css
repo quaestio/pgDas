@@ -1,0 +1,74 @@
+/* PgDeck additions on top of adminweb-theme.css (the dark "cyber" template). No external fonts, icons or CDNs. */
+.brand .glyph { color: var(--accent); font-size: 26px; text-shadow: 0 0 14px var(--accent); }
+nav a .ico { width: 20px; text-align: center; color: var(--accent); }
+a { color: var(--accent); }
+.head-right .who { color: #7bbadf; font-family: monospace; }
+.head-right form { margin: 0; }
+.content { padding-bottom: 48px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }
+.toolbar .spacer { flex: 1; }
+.toolbar h1 { margin: 0; }
+
+.btn, button.btn-plain { display: inline-block; border: 1px solid #1266a2; background: #03264a; color: var(--accent); font: inherit; font-size: 12px; letter-spacing: .5px; padding: 7px 13px; cursor: pointer; text-decoration: none; }
+.btn:hover { background: #07568d; color: #fff; }
+.btn.primary { background: linear-gradient(90deg, #005c9b, #00a8eb); color: #fff; border-color: #00cfff; font-weight: 700; }
+.btn.danger { color: #ff7b8d; border-color: #7a2c3a; }
+button.cyber-primary { width: auto; padding: 10px 22px; margin-top: 6px; }
+
+.muted { color: var(--muted); }
+.scroll { overflow-x: auto; }
+.panel.pad { padding: 20px 22px; }
+.metrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 800px) { .metrics.three { grid-template-columns: 1fr; } }
+
+.messages { list-style: none; padding: 0; margin: 0 0 18px; }
+.messages li { padding: 11px 16px; margin-bottom: 8px; border: 1px solid var(--line); background: #04162b; color: #c8e9ff; }
+.messages li.error { border-color: #ff6676; color: #ff8d9b; }
+.messages li.success { border-color: #00ed96; color: #5ff0b4; }
+
+form p { margin: 0 0 14px; }
+form label { display: block; color: #5dc9ff; font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 6px; }
+input[type=text], input[type=password], input[type=number], input[type=email], select.field, textarea {
+  display: block; width: 100%; background: #031125; border: 1px solid #125079; color: #e6f8ff; padding: 10px 12px; border-radius: 3px; outline: 0; font: inherit; }
+input:focus, textarea:focus, select.field:focus { border-color: #00c8ff; box-shadow: 0 0 12px #00bfff45; }
+form select { width: 100%; padding: 10px 12px; font-size: 14px; }
+textarea { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; min-height: 190px; }
+.helptext { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.errorlist { color: #ff738e; list-style: none; padding: 0; margin: 4px 0 0; font-size: 12px; }
+
+.badge { display: inline-block; padding: 1px 9px; border: 1px solid #12507a; color: #7fc4ea; font-size: 11px; letter-spacing: .5px; }
+.badge.bad { color: #ff7b8d; border-color: #7a2c3a; }
+.badge.ok { color: #00e99c; border-color: #0b6a4b; }
+td.cell { max-width: 420px; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+td.null { color: var(--muted); font-style: italic; }
+pre.sql { background: #031125; border: 1px solid #0e3a5e; padding: 10px 12px; white-space: pre-wrap; margin: 0; font-size: 12px; color: #bfe6ff; overflow-x: auto; }
+
+/* Explorer */
+.explorer { display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 1000px) { .explorer { grid-template-columns: 1fr; } }
+.tree-panel { padding: 14px 8px 14px 14px; max-height: calc(100vh - 190px); overflow: auto; }
+.tree-panel h2 { padding-right: 8px; }
+.tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+.tree ul { margin-left: 16px; border-left: 1px solid #0e3a5e; }
+.tree .row { display: flex; align-items: center; gap: 6px; padding: 3px 6px; cursor: pointer; white-space: nowrap; }
+.tree .row:hover { background: #03264a; }
+.tree .row.selected { background: #03335d; box-shadow: inset 0 0 12px #007eff40; color: #fff; }
+.tree .twist { width: 14px; text-align: center; color: var(--accent); font-size: 10px; flex: none; }
+.tree .twist.leaf { color: #1f5f8a; }
+.tree .kind { color: var(--accent); width: 18px; text-align: center; flex: none; }
+.tree .label { overflow: hidden; text-overflow: ellipsis; }
+.tree .hint { color: var(--muted); font-size: 11px; margin-left: auto; padding-left: 10px; }
+.tree .note { color: var(--muted); padding: 3px 8px; font-size: 12px; }
+.tree .note.err { color: #ff8d9b; white-space: normal; }
+.detail-panel { padding: 18px 22px; min-height: 420px; min-width: 0; }
+.detail-panel h2 { text-transform: none; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; border-bottom: 1px solid #11466a; }
+.tabs a { padding: 8px 14px; color: #92c8e8; text-decoration: none; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid transparent; border-bottom: 0; }
+.tabs a:hover { color: #fff; }
+.tabs a.active { color: #fff; background: #03335d; border-color: var(--accent); }
+dl.props { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; margin: 0; }
+dl.props dt { color: var(--muted); }
+dl.props dd { margin: 0; color: #e6f8ff; overflow-wrap: anywhere; }
+.pager { display: flex; gap: 12px; align-items: center; margin-top: 14px; }
+.login-card .errorlist { margin-bottom: 8px; }
+.login-card form p { margin: 0; }

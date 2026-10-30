@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Servers · PgDeck{% endblock %}
+{% block content %}
+<div class="title-row">
+  <div><div class="eyebrow">CONSOLE / <span>SERVERS</span></div><h1>Servers</h1>
+    <p class="muted">PostgreSQL servers you can browse. Everything runs read-only.</p></div>
+  {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
+</div>
+<div class="metrics three">
+  <div class="panel metric"><div><small>SERVERS</small><strong>{{ servers|length }}</strong><span class="green">saved connections</span></div></div>
+  <div class="panel metric"><div><small>USERS</small><strong>{{ user_count }}</strong><span class="green">can sign in</span></div></div>
+  <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
+</div>
+<section class="panel pad scroll">
+{% if servers %}
+<table>
+  <thead><tr><th>NAME</th><th>CONNECTION</th><th>SSL</th><th></th></tr></thead>
+  <tbody>
+  {% for server in servers %}
+    <tr>
+      <td><a href="{% url 'explorer' server.pk %}"><strong>{{ server.name }}</strong></a></td>
+      <td class="muted">{{ server.username }}@{{ server.host }}:{{ server.port }}/{{ server.database }}</td>
+      <td><span class="badge">{{ server.sslmode }}</span></td>
+      <td style="text-align:right; white-space:nowrap">
+        <a class="btn" href="{% url 'explorer' server.pk %}">Open</a>
+        <a class="btn" href="{% url 'sql_runner' server.pk %}">SQL</a>
+        <form method="post" action="{% url 'server_test' server.pk %}" style="display:inline">{% csrf_token %}<button class="btn" type="submit">Test</button></form>
+        {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' server.pk %}">Edit</a>
+        <a class="btn danger" href="{% url 'server_delete' server.pk %}">Remove</a>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+  <p class="muted">No servers yet.{% if user.is_staff %} <a href="{% url 'server_add' %}">Add your first PostgreSQL server.</a>{% else %} Ask an administrator to add one.{% endif %}</p>
+{% endif %}
+</section>
+{% endblock %}

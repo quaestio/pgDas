@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}SQL · {{ server.name }} · PgDeck{% endblock %}
+{% block content %}
+<div class="title-row">
+  <div><div class="eyebrow">SERVERS / <span>{{ server.name|upper }}</span> / SQL</div><h1>SQL runner</h1>
+    <p class="muted">{{ server.name }}{% if db %} · database {{ db }}{% endif %}</p></div>
+  <div><a class="btn" href="{% url 'explorer' server.pk %}">← Object browser</a> <span class="badge ok">read-only</span></div>
+</div>
+<section class="panel pad">
+  <form method="post">{% csrf_token %}
+    <input type="hidden" name="db" value="{{ db }}">
+    <label for="sql">SQL</label>
+    <textarea id="sql" name="sql" spellcheck="false" placeholder="SELECT * FROM my_table LIMIT 10;">{{ sql }}</textarea>
+    <p class="muted" style="margin-top:10px">Runs read-only: PostgreSQL rejects any statement that would change data. Results are capped and time-limited, and every run is recorded in the audit log.</p>
+    <button class="btn primary" type="submit">Run</button>
+  </form>
+</section>
+{% if error %}<ul class="messages" style="margin-top:18px"><li class="error">{{ error }}</li></ul>{% endif %}
+{% if result %}
+<section class="panel pad scroll" style="margin-top:18px">
+  <p class="muted">{% if result.columns %}{{ result.count }} row{{ result.count|pluralize }}{% if result.truncated %} (limited — more rows exist){% endif %}{% else %}{{ result.message }}{% endif %} · {{ result.ms }} ms</p>
+  {% if result.columns %}
+  <table>
+    <thead><tr>{% for name in result.columns %}<th>{{ name }}</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for row in result.rows %}<tr>{% for value in row %}{% if value is None %}<td class="null">NULL</td>{% else %}<td class="cell">{{ value }}</td>{% endif %}{% endfor %}</tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

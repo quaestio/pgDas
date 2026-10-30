@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Sign in · PgDeck{% endblock %}
+{% block anonymous %}
+<div class="login-screen">
+  <div class="login-card">
+    <div class="login-symbol">⬡</div>
+    <div class="login-kicker">SECURE ACCESS TERMINAL</div>
+    <h1>PG<span>DECK</span></h1>
+    <p>POSTGRESQL WEB ADMIN</p>
+    <form method="post">{% csrf_token %}
+      {{ form.non_field_errors }}
+      <label for="{{ form.username.id_for_label }}">USERNAME</label>
+      {{ form.username }}{{ form.username.errors }}
+      <label for="{{ form.password.id_for_label }}">PASSWORD</label>
+      {{ form.password }}{{ form.password.errors }}
+      <input type="hidden" name="next" value="{{ next }}">
+      <button type="submit" class="cyber-primary">SIGN IN <span>↗</span></button>
+    </form>
+    <div class="login-foot"><span class="dot"></span> READ-ONLY BY DESIGN</div>
+  </div>
+</div>
+{% endblock %}
