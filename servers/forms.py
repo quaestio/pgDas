@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import DEFAULT_DATABASE, ServerConnection
+from .models import ServerConnection
 
 
 class ServerForm(forms.ModelForm):
@@ -9,11 +9,9 @@ class ServerForm(forms.ModelForm):
 
     class Meta:
         model = ServerConnection
-        fields = ["name", "host", "port", "database", "username", "password", "sslmode"]
-
-    def clean_database(self):
-        # Store the real name, so the server list, details and audit log never show an empty database.
-        return (self.cleaned_data.get("database") or "").strip() or DEFAULT_DATABASE
+        # No Database field: PgDeck picks a database this login can open (see explorer.pg.connect),
+        # and the tree lists only the databases the login is allowed to connect to.
+        fields = ["name", "host", "port", "username", "password", "sslmode"]
 
     def clean(self):
         data = super().clean()

@@ -24,15 +24,45 @@ def _message(error):
     return reason.group(1).strip() if reason and "connection failed" in text else text
 
 
+def _database_unusable(message):
+    """True when a connection failed only because that particular database is missing or off limits to this login."""
+    return "does not exist" in message or "permission denied for database" in message
+
+
+def _open(server, dbname):
+    return psycopg.connect(
+        host=server.host, port=server.port, dbname=dbname, user=server.username,
+        password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
+        application_name="PgDeck", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
+    )
+
+
+def _connect_first_usable(server):
+    """The server entry has no database to type in, so PgDeck picks one this login can open.
+
+    It tries the saved database (older entries), then the standard `postgres`, a database named after the login
+    (PostgreSQL's own default), then `template1`. Only a missing or forbidden database moves on to the next one;
+    a wrong password, host or port is reported straight away. If none works, the first reason is shown.
+    """
+    candidates = list(dict.fromkeys([server.database_name, "postgres", server.username, "template1"]))
+    first_reason = None
+    for dbname in candidates:
+        try:
+            return _open(server, dbname)
+        except psycopg.Error as error:
+            reason = _message(error)
+            if not _database_unusable(reason):
+                raise PgError(reason)
+            first_reason = first_reason or reason
+    raise PgError(first_reason)
+
+
 @contextmanager
 def connect(server, database=None):
-    """Open a read-only connection; `database` browses another database on the same server."""
+    """Open a read-only connection. Without `database` PgDeck picks one the login can open; with it, exactly that one
+    (this is how the tree opens another database on the same server)."""
     try:
-        conn = psycopg.connect(
-            host=server.host, port=server.port, dbname=database or server.database_name, user=server.username,
-            password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
-            application_name="PgDeck", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
-        )
+        conn = _connect_first_usable(server) if not database else _open(server, database)
     except psycopg.Error as error:
         raise PgError(_message(error))
     except ValueError as error:

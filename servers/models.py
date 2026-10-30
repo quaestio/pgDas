@@ -13,10 +13,9 @@ class ServerConnection(models.Model):
     name = models.CharField(max_length=100, unique=True)
     host = models.CharField(max_length=255)
     port = models.PositiveIntegerField(default=5432)
-    # Optional: PostgreSQL needs some database to log into, so blank means the standard "postgres" database.
-    database = models.CharField(max_length=100, blank=True, default=DEFAULT_DATABASE,
-                                help_text=f"The database to log into first. Leave blank to use {DEFAULT_DATABASE}; "
-                                          "every other database on the server is still listed in the tree.")
+    # Not on the Add/Edit form. PostgreSQL needs some database to log into, so PgDeck uses this one first (older entries
+    # may have one saved) and otherwise falls back to postgres and friends; see explorer.pg._connect_first_usable.
+    database = models.CharField(max_length=100, blank=True, default=DEFAULT_DATABASE)
     username = models.CharField(max_length=100)
     password_encrypted = models.TextField(blank=True)
     sslmode = models.CharField(max_length=20, choices=SSL_MODES, default="prefer")

@@ -37,8 +37,12 @@ waitress-serve --listen=127.0.0.1:8000 pgdeck.wsgi:application
 Create the settings database first, for example `CREATE ROLE pgdeck LOGIN PASSWORD '…'; CREATE DATABASE pgdeck OWNER pgdeck;`
 
 ## Connecting to the databases you manage
-Use **Add server** and give a PostgreSQL role with read access (for example `GRANT pg_read_all_data TO pgdeck_reader;`).
-PgDeck never needs write access. Use `sslmode=require` or stronger for remote servers.
+Use **Add server** and give a name, host, port, a PostgreSQL role with read access (for example
+`GRANT pg_read_all_data TO pgdeck_reader;`), its password and an SSL mode. There is no database to fill in:
+PgDeck logs into a database the role can open (it tries `postgres`, then a database named after the role, then
+`template1`) and the tree lists only the databases that role is allowed to connect to. Adding a server never
+creates or changes anything on it. PgDeck never needs write access. Use `sslmode=require` or stronger for
+remote servers.
 
 ## Security notes
 - Never expose PgDeck on the public internet without https and access restrictions (VPN or IP allow-list).

@@ -75,11 +75,59 @@ class PgLayerTests(PgFixture, TestCase):
     def test_connection_reports_version(self):
         self.assertRegex(pg.test_connection(make_server()), r"^\d+")
 
-    def test_blank_database_connects_to_postgres(self):
+    def test_without_a_saved_database_the_connection_picks_one_that_works(self):
         server = make_server()
-        server.database = ""
+        for saved in ("", "no_such_database_xyz"):       # blank, or a database that does not exist on this server
+            server.database = saved
+            with self.subTest(saved=saved), pg.connect(server) as conn:
+                self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], "postgres")
+        server.database = connection.settings_dict["NAME"]   # an older entry that does name a usable database
         with pg.connect(server) as conn:
-            self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], "postgres")
+            self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], connection.settings_dict["NAME"])
+
+    def test_a_wrong_password_is_not_hidden_by_trying_other_databases(self):
+        server = make_server()
+        server.set_password("definitely-wrong-password")
+        with self.assertRaisesRegex(pg.PgError, "password authentication failed") as caught:
+            pg.test_connection(server)
+        self.assertNotIn("definitely-wrong-password", str(caught.exception))
+
+    def test_an_explicitly_chosen_database_is_never_replaced(self):
+        # Opening a database from the tree must show that database's own error, not quietly use another one.
+        with self.assertRaisesRegex(pg.PgError, 'database "no_such_database_xyz" does not exist'):
+            with pg.connect(make_server(), "no_such_database_xyz"):
+                pass
+
+    def test_only_databases_the_login_may_connect_to_are_listed(self):
+        params = connection.settings_dict
+        admin = dict(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, user=params["USER"],
+                     password=params["PASSWORD"] or "", autocommit=True)
+        try:
+            with psycopg.connect(dbname=params["NAME"], **admin) as conn:
+                conn.execute("DROP DATABASE IF EXISTS pgdeck_hidden")
+                conn.execute("DROP DATABASE IF EXISTS pgdeck_open")
+                conn.execute("DROP ROLE IF EXISTS pgdeck_limited")
+                conn.execute("CREATE ROLE pgdeck_limited LOGIN PASSWORD 'limited-pw-123' NOSUPERUSER")
+                conn.execute("CREATE DATABASE pgdeck_hidden")
+                conn.execute("REVOKE CONNECT ON DATABASE pgdeck_hidden FROM PUBLIC")
+                conn.execute("CREATE DATABASE pgdeck_open")
+        except psycopg.Error:
+            self.skipTest("this test needs a role that can create databases and roles")
+        try:
+            limited = ServerConnection(name="limited", host=admin["host"], port=int(admin["port"]), username="pgdeck_limited", sslmode="prefer")
+            limited.set_password("limited-pw-123")
+            with pg.connect(limited) as conn:
+                names = [d["name"] for d in pg.list_databases(conn)]
+            self.assertIn("pgdeck_open", names)
+            self.assertNotIn("pgdeck_hidden", names)               # exists, but this login may not connect to it
+            self.assertNotIn("template0", names)
+            with pg.connect(make_server()) as conn:
+                self.assertIn("pgdeck_hidden", [d["name"] for d in pg.list_databases(conn)])   # the admin sees it
+        finally:
+            with psycopg.connect(dbname=params["NAME"], **admin) as conn:
+                conn.execute("DROP DATABASE IF EXISTS pgdeck_hidden")
+                conn.execute("DROP DATABASE IF EXISTS pgdeck_open")
+                conn.execute("DROP ROLE IF EXISTS pgdeck_limited")
 
     def test_schemas_exclude_system_schemas(self):
         with pg.connect(make_server()) as conn:
