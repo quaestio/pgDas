@@ -46,13 +46,22 @@
     return fetch(url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}});
   }
 
+  // Error tone (see sound.js) when something could not be loaded; silent if sounds are muted or unavailable.
+  function errorTone() { if (window.pgdeckSound) window.pgdeckSound.play("error"); }
+
   function showDetail(qs) {
     if (showSystem && qs.indexOf("system=") < 0) qs += "&system=1";
     detailEl.innerHTML = '<p class="muted">Loading…</p>';
     get(detailUrl + "?" + qs)
       .then(function (r) { return r.text(); })
-      .then(function (html) { detailEl.innerHTML = html; })
-      .catch(function () { detailEl.innerHTML = '<ul class="messages"><li class="error">Could not load details.</li></ul>'; });
+      .then(function (html) {
+        detailEl.innerHTML = html;
+        if (detailEl.querySelector(".messages .error")) errorTone();
+      })
+      .catch(function () {
+        detailEl.innerHTML = '<ul class="messages"><li class="error">Could not load details.</li></ul>';
+        errorTone();
+      });
   }
 
   function note(text, isError) {
@@ -71,12 +80,12 @@
       .then(function (r) { return r.json().then(function (body) { return {ok: r.ok, body: body}; }); })
       .then(function (res) {
         list.innerHTML = "";
-        if (!res.ok) { list.appendChild(note(res.body.error || "Could not load.", true)); done(false); return; }
+        if (!res.ok) { list.appendChild(note(res.body.error || "Could not load.", true)); errorTone(); done(false); return; }
         if (!res.body.nodes.length) list.appendChild(note("(empty)"));
         res.body.nodes.forEach(function (child) { list.appendChild(renderNode(child)); });
         done(true);
       })
-      .catch(function () { list.innerHTML = ""; list.appendChild(note("Could not load.", true)); done(false); });
+      .catch(function () { list.innerHTML = ""; list.appendChild(note("Could not load.", true)); errorTone(); done(false); });
   }
 
   function select(row, node) {

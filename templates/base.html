@@ -36,6 +36,13 @@
     <header>
       <button class="icon-btn" id="toggle" type="button" aria-label="Show or hide the sidebar" title="Show or hide the sidebar">☰</button>
       <div class="head-right">
+        <button class="icon-btn" id="soundToggle" type="button" title="Mute sounds" aria-label="Mute sounds" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor"/>
+            <path class="wave" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/>
+            <path class="slash" d="M17 9l5 6M22 9l-5 6"/>
+          </svg>
+        </button>
         <span class="who">{{ user.username }}</span>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn" type="submit">Sign out</button></form>
       </div>
@@ -51,6 +58,7 @@
   {% block anonymous %}{% endblock %}
 {% endif %}
 <script src="{% static 'app.js' %}"></script>
+<script src="{% static 'sound.js' %}"></script>
 {% if user.is_authenticated %}<script src="{% static 'explorer.js' %}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>

@@ -3,6 +3,11 @@
 nav a .ico { width: 20px; text-align: center; color: var(--accent); }
 a { color: var(--accent); }
 .head-right .who { color: #7bbadf; font-family: monospace; }
+#soundToggle { display: inline-flex; align-items: center; padding: 4px; }
+#soundToggle .slash { display: none; stroke: #ff7b8d; }
+#soundToggle.muted { color: var(--muted); }
+#soundToggle.muted .wave { display: none; }
+#soundToggle.muted .slash { display: block; }
 .head-right form { margin: 0; }
 .content { padding-bottom: 48px; }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 16px; }

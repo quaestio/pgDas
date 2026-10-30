@@ -17,7 +17,11 @@ class PgError(Exception):
 
 def _message(error):
     diag = getattr(error, "diag", None)
-    return (getattr(diag, "message_primary", None) or str(error)).strip()
+    text = (getattr(diag, "message_primary", None) or str(error)).strip()
+    # "localhost" resolves to several addresses, and psycopg repeats the same failure for each one:
+    # keep just the server's reason, e.g. `database "x" does not exist`.
+    reason = re.search(r"FATAL:\s*(.*?)(?=\s*(?:Multiple connection attempts|- host:|\n|$))", text)
+    return reason.group(1).strip() if reason and "connection failed" in text else text
 
 
 @contextmanager

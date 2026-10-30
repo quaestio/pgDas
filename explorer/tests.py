@@ -462,6 +462,29 @@ class ExplorerViewTests(PgFixture, TestCase):
         for needle in ("--sidebar-w", ".sidebar-resizer", "::-webkit-scrollbar-thumb", "html.sidebar-collapsed aside"):
             self.assertIn(needle, css)
 
+    def test_interface_sounds_from_the_template_are_wired_in(self):
+        html = self.client.get(reverse("server_list")).content.decode()
+        header = html[html.index("<header"):html.index("</header>")]
+        self.assertIn('id="soundToggle"', header)                     # the speaker (mute) button
+        self.assertIn('aria-pressed="false"', header)
+        self.assertIn("sound.js", html)
+        script = open("static/sound.js", encoding="utf-8").read()
+        for needle in ("click: [420, 580]", "success: [620, 960]", "error: [180, 120]",   # the template's tones
+                       'createOscillator', "exponentialRampToValueAtTime(0.055", "pgdeck.sound", "localStorage.setItem",
+                       'closest("button, a, .metric, .row, input[type=checkbox], select")', "Mute sounds"):
+            self.assertIn(needle, script)
+        self.assertNotIn(".mp3", script)                               # no audio files: tones are generated
+        explorer = open("static/explorer.js", encoding="utf-8").read()
+        self.assertIn('pgdeckSound.play("error")', explorer)           # failed loads sound the error tone
+        css = open("static/pgdeck.css", encoding="utf-8").read()
+        self.assertIn("#soundToggle.muted .slash", css)
+
+    def test_login_page_gets_click_sounds_but_no_mute_button(self):
+        self.client.logout()
+        page = self.client.get(reverse("login"))
+        self.assertContains(page, "sound.js")
+        self.assertNotContains(page, 'id="soundToggle"')
+
     def test_login_page_has_no_tree(self):
         self.client.logout()
         page = self.client.get(reverse("login"))
@@ -514,7 +537,8 @@ class ExplorerViewTests(PgFixture, TestCase):
     def test_tree_reports_unreachable_database_as_error_json(self):
         response = self.client.get(reverse("tree"), {"type": "schemas", "server": self.server.pk, "db": "no_such_db_xyz"})
         self.assertEqual(response.status_code, 502)
-        self.assertIn("no_such_db_xyz", response.json()["error"])
+        self.assertEqual(response.json()["error"], 'database "no_such_db_xyz" does not exist')   # just the reason, once
+        self.assertNotIn("Multiple connection attempts", response.json()["error"])
 
     def test_detail_for_each_level(self):
         db = self.server.database
