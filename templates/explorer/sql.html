@@ -29,6 +29,22 @@
     <button class="btn primary" type="submit" id="runButton">Run</button>
   </form>
 </section>
+{% if history %}
+<section class="panel pad" style="margin-top:18px">
+  <details id="sqlHistory">
+    <summary>My recent statements on this server ({{ history|length }})</summary>
+    <p class="muted" style="margin:8px 0">Click one to put it back in the box above. Nothing runs until you press Run.</p>
+    <ul class="history-list" style="list-style:none;padding:0;margin:0">
+    {% for entry in history %}
+      <li><button type="button" class="btn history-item" data-sql="{{ entry.detail }}" style="width:100%;text-align:left;margin-bottom:6px">
+        <span class="muted">{{ entry.created_at|date:"Y-m-d H:i" }}</span>
+        {% if not entry.ok %}<span class="badge bad">failed</span>{% endif %}
+        <code>{{ entry.detail|truncatechars:110 }}</code></button></li>
+    {% endfor %}
+    </ul>
+  </details>
+</section>
+{% endif %}
 {% if error %}<ul class="messages" style="margin-top:18px"><li class="error">{{ error }}{% if hint %}<br><span class="muted">{{ hint }}</span>{% endif %}</li></ul>{% endif %}
 <div id="changeResult" style="margin-top:18px" aria-live="polite"></div>
 {% if result %}
@@ -72,4 +88,14 @@
 </div>
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}{% endblock %}
+{% block scripts %}{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}
+<script>
+document.querySelectorAll(".history-item").forEach(function (button) {
+  button.addEventListener("click", function () {
+    var box = document.getElementById("sql");
+    box.value = button.dataset.sql;
+    box.focus();
+    window.scrollTo({top: 0, behavior: "smooth"});
+  });
+});
+</script>{% endblock %}

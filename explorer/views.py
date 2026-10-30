@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from audit.models import record
+from audit.models import AuditEntry, record
 from servers.models import ServerConnection
 
 from . import changes, pg, tree
@@ -305,4 +305,21 @@ def sql_runner(request, pk):
             else:
                 record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])
                 context["result"] = result
+    context["history"] = _history(request.user, server)
     return render(request, "explorer/sql.html", context)
+
+
+HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter")
+
+
+def _history(user, server, limit=20):
+    """The signed-in person's own latest statements on this server, newest first, each statement once."""
+    seen, found = set(), []
+    for entry in AuditEntry.objects.filter(user=user, server=server, action__in=HISTORY_ACTIONS).order_by("-created_at", "-pk")[:300]:
+        key = " ".join(entry.detail.split())
+        if key and key not in seen:
+            seen.add(key)
+            found.append(entry)
+            if len(found) == limit:
+                break
+    return found

@@ -20,6 +20,7 @@ planned next (see the roadmap).
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
 - SQL runner: read-only, 30 s timeout, 1000-row cap. Optional, per server: INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with
   warning popups and typed confirmation (see "Changing data").
+- Query history: the SQL page lists your own latest 20 statements on that server; click one to reuse it.
 - Audit log of every SQL run, server change and data change (staff only), as JSON, with a Re-insert button for deletes and an Undo button for updates.
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
 
@@ -137,7 +138,7 @@ Without a reachable PostgreSQL those tests are skipped and say why.
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
 2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
-   and re-insert for deletes and undo for updates are done**; next: finer per-user permissions, query history.
+   and re-insert for deletes and undo for updates are done**; query history is done; next: finer per-user permissions.
 3. Backups: scheduled `pg_dump`, restore, retention, download.
 4. Monitoring: sessions, locks, slow queries, size trends, alerts.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
