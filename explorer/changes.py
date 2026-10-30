@@ -32,7 +32,7 @@ from .writes import SAMPLE_ROWS, _IDENT, _in_table_order, _resolve_table, _side_
 
 # The word to type. ALTER asks for its word only when the change is risky (see _alter_is_risky); CREATE never does.
 CONFIRM_WORDS = {"delete": writes.CONFIRM_WORD, "update": None, "insert": None, "truncate": "TRUNCATE", "drop": "DROP",
-                 "create": None, "alter": "ALTER"}
+                 "create": None, "alter": "ALTER", "grant": None, "revoke": None}
 STRUCTURE_KINDS = ("truncate", "drop", "create", "alter")   # these need the server's second switch, "Also allow CREATE, ALTER, TRUNCATE and DROP"
 _TABLE_REF = rf"{_IDENT}(?:\s*\.\s*{_IDENT})?"
 
@@ -42,7 +42,7 @@ def classify(text):
     bare = sqlparse.format(text or "", strip_comments=True).strip()
     kind = (bare.split(None, 1)[0].upper().rstrip(";").lower() if bare else "")
     if kind not in CONFIRM_WORDS:
-        raise PgError("Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER can change things here; everything else runs read-only.")
+        raise PgError("Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE, ALTER, GRANT and REVOKE can change things here; everything else runs read-only.")
     return kind
 
 
@@ -432,7 +432,7 @@ _PLAIN_TABLE_NAME = re.compile(rf"^{_TABLE_REF}$")
 def parse_drop(text):
     cleaned, _ = prepare_statement(text, "DROP", allow_returning=True)
     if _DROP_REFUSED.match(cleaned):
-        raise PgError("DROP DATABASE, ROLE and TABLESPACE are not available here; run those in psql.")
+        raise PgError("DROP TABLESPACE and DROP OWNED are not available here; run those in psql.")
     match = _DROP.match(cleaned)
     if not match:
         raise PgError("PgDeck can drop tables, views, materialized views, indexes, sequences, schemas, functions, procedures, "
@@ -546,7 +546,7 @@ def _target_names(object_type, rest):
 def parse_create(text):
     cleaned, _ = prepare_statement(text, "CREATE", allow_returning=True)
     if _CREATE_REFUSED.match(cleaned):
-        raise PgError("CREATE DATABASE, ROLE, TABLESPACE and similar server-level objects are not available here; run those in psql.")
+        raise PgError("CREATE TABLESPACE, SERVER and similar server-level objects are not available here; run those in psql.")
     match = _CREATE.match(cleaned)
     if not match:
         raise PgError("PgDeck can create tables, views, materialized views, indexes, sequences, schemas, types, domains, "
@@ -565,7 +565,7 @@ def parse_create(text):
 def parse_alter(text):
     cleaned, _ = prepare_statement(text, "ALTER", allow_returning=True)
     if _ALTER_REFUSED.match(cleaned):
-        raise PgError("ALTER DATABASE, ROLE, SYSTEM, TABLESPACE and similar server-level settings are not available here; run those in psql.")
+        raise PgError("ALTER SYSTEM, TABLESPACE and similar server-level settings are not available here; run those in psql.")
     match = _ALTER.match(cleaned)
     if not match:
         raise PgError("PgDeck can alter tables, indexes, sequences, views, materialized views, schemas, types, domains, functions, "
@@ -844,6 +844,11 @@ def preview(server, database, text):
     kind = classify(text)
     if kind == "insert":
         raise PgError("INSERT runs straight away, so there is nothing to preview.")
+    from . import server_admin                      # imported here because server_admin builds on this module
+    if server_admin.is_admin_statement(text):
+        return server_admin.preview(server, database, text)
+    if kind in ("grant", "revoke"):
+        raise PgError("Write it as GRANT … TO … or REVOKE … FROM ….")
     if kind in ("create", "alter"):
         return _preview_ddl(server, database, text, kind)
     return {"delete": _preview_delete, "update": _preview_update, "truncate": _preview_truncate, "drop": _preview_drop}[kind](
@@ -854,6 +859,10 @@ def execute(server, database, text, fingerprint, confirm, user):
     """Run a changing statement for real. `fingerprint` is what preview() reported; `confirm` is the word that was typed."""
     kind = classify(text)
     fingerprint = fingerprint if isinstance(fingerprint, dict) else {}
+    from . import server_admin
+    if server_admin.is_admin_statement(text):
+        result = server_admin.execute(server, database, text, fingerprint, confirm, user)
+        return {**result, "kind": kind}
     if kind == "insert":
         result = _execute_insert(server, database, text, user)
     elif kind == "update":

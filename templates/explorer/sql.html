@@ -8,6 +8,7 @@
   <div><a class="btn" href="{% url 'explorer' server.pk %}">← Object browser</a>
     {% if can_write %}<span class="badge bad" title="INSERT, UPDATE and DELETE are allowed on this server">changes allowed</span>
     {% if can_structure %}<span class="badge bad" title="CREATE, ALTER, TRUNCATE and DROP are allowed on this server">+ CREATE / ALTER / TRUNCATE / DROP</span>{% endif %}
+    {% if can_admin %}<span class="badge bad" title="Databases, users (roles) and GRANT / REVOKE are allowed on this server">+ DATABASES / USERS / GRANTS</span>{% endif %}
     {% else %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
 <section class="panel pad">
@@ -22,7 +23,8 @@
       <strong>INSERT</strong> runs at once; <strong>UPDATE</strong> shows how many rows it changes and warns if it has no WHERE;
       <strong>DELETE</strong> asks you to type {{ confirm_words.delete }} (the rows are saved and can be re-inserted){% if can_structure %};
       <strong>TRUNCATE</strong> and <strong>DROP</strong> show a warning and ask you to type {{ confirm_words.truncate }} or {{ confirm_words.drop }};
-      <strong>CREATE</strong> and <strong>ALTER</strong> list exactly what would be created or changed (a risky ALTER asks you to type {{ confirm_words.alter }}){% else %}. CREATE, ALTER, TRUNCATE and DROP are switched off for this server{% endif %}.</p>
+      <strong>CREATE</strong> and <strong>ALTER</strong> list exactly what would be created or changed (a risky ALTER asks you to type {{ confirm_words.alter }}){% if can_admin %};
+      <strong>CREATE / ALTER / DROP DATABASE</strong> and <strong>ROLE</strong>, <strong>GRANT</strong> and <strong>REVOKE</strong> list what changes (dropping asks for {{ confirm_words.drop }}; passwords are never recorded){% endif %}{% else %}. CREATE, ALTER, TRUNCATE and DROP are switched off for this server{% endif %}.</p>
     {% else %}
     <p class="muted" style="margin-top:10px">Runs read-only: PostgreSQL rejects any statement that would change data. Results are capped and time-limited, and every run is recorded in the audit log.</p>
     {% endif %}

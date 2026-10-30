@@ -332,7 +332,7 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         self.assertEqual(self.count("parent"), 10)
         bad = self.post("write_preview", {"sql": "SELECT 1", "db": self.db})
         self.assertEqual((bad.status_code, bad.json()["ok"]), (400, False))
-        self.assertIn("Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER", bad.json()["error"])
+        self.assertIn("Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE, ALTER, GRANT and REVOKE", bad.json()["error"])
         self.assertEqual(self.post("write_preview", "not an object").status_code, 400)
         self.assertEqual(self.client.generic("POST", reverse("write_preview", args=[self.server.pk]), "{broken", "application/json").status_code, 400)
 

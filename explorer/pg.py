@@ -99,6 +99,39 @@ def connect_rw(server, database=None):
         conn.close()
 
 
+@contextmanager
+def connect_maintenance(server, avoid=None, writable=False):
+    """A connection to a database other than `avoid`, for CREATE DATABASE and DROP DATABASE (PostgreSQL will not drop the
+    database you are connected to). `writable` gives an autocommit connection, because these statements cannot run inside
+    a transaction; otherwise the connection is read-only."""
+    last = None
+    conn = None
+    for dbname in dict.fromkeys(["postgres", "template1", server.database_name, server.username]):
+        if not dbname or dbname == avoid:
+            continue
+        try:
+            conn = _open(server, dbname)
+            break
+        except psycopg.Error as error:
+            last = _message(error)
+            if not _database_unusable(last):
+                raise PgError(last)
+    if conn is None:
+        raise PgError(last or "No other database could be opened to run this from.")
+    try:
+        if writable:
+            conn.autocommit = True
+        else:
+            conn.read_only = True
+        yield conn
+    except psycopg.Error as error:
+        raise PgError(_message(error))
+    finally:
+        if not writable:
+            conn.rollback()
+        conn.close()
+
+
 def test_connection(server):
     with connect(server) as conn:
         return conn.execute("SHOW server_version").fetchone()[0]

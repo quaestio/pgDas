@@ -31,6 +31,12 @@ class ServerConnection(models.Model):
         help_text="Lets staff create and change tables, views, indexes and so on (CREATE, ALTER) and run TRUNCATE (empty a "
                   "table) and DROP (remove objects). Each shows a warning popup first, and the dangerous ones ask for a word "
                   "to be typed. Needs 'Allow changing data'.")
+    # A third switch for the server itself: databases, users (roles) and who may do what (GRANT, REVOKE). Needs allow_structure.
+    allow_admin = models.BooleanField(
+        default=False, verbose_name="Also allow databases, users and grants",
+        help_text="Lets staff create, change and drop databases and users (roles), and run GRANT and REVOKE. Each shows a "
+                  "warning popup first; dropping asks for a word to be typed. Passwords are never written to the audit log. "
+                  "Needs 'Also allow CREATE, ALTER, TRUNCATE and DROP'.")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

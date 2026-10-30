@@ -11,7 +11,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from audit.models import AuditEntry, record
 from servers.models import ServerConnection
 
-from . import changes, pg, tree
+from . import changes, pg, server_admin, tree
 
 TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
@@ -215,6 +215,11 @@ def _can_structure(user, server):
     return bool(_can_write(user, server) and server.allow_structure)
 
 
+def _can_admin(user, server):
+    """Databases, users and grants need the third switch as well, 'Also allow databases, users and grants'."""
+    return bool(_can_structure(user, server) and server.allow_admin)
+
+
 def _refuse(message, status=403):
     return JsonResponse({"ok": False, "error": message}, status=status)
 
@@ -240,6 +245,9 @@ def _write_request(request, pk):
     if kind in changes.STRUCTURE_KINDS and not server.allow_structure:
         return None, None, None, _refuse(f"{kind.upper()} is switched off for this server. "
                                          "Turn on 'Also allow CREATE, ALTER, TRUNCATE and DROP' in Edit server first.")
+    if server_admin.is_admin_statement(str(data.get("sql") or "")) and not server.allow_admin:
+        return None, None, None, _refuse("Databases, users and grants are switched off for this server. "
+                                         "Turn on 'Also allow databases, users and grants' in Edit server first.")
     return server, kind, data, None
 
 
@@ -279,7 +287,8 @@ def sql_runner(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
     db = request.GET.get("db") or request.POST.get("db") or ""
     context = {"server": server, "sql": "", "db": db, "can_write": _can_write(request.user, server),
-               "can_structure": _can_structure(request.user, server), "confirm_words": changes.CONFIRM_WORDS}
+               "can_structure": _can_structure(request.user, server), "can_admin": _can_admin(request.user, server),
+               "confirm_words": changes.CONFIRM_WORDS}
     if request.method == "POST":
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
@@ -289,7 +298,7 @@ def sql_runner(request, pk):
             except pg.PgError as error:
                 record(request.user, "sql.run", server, statement, ok=False)
                 context["error"] = str(error)
-                verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter)\b", statement, re.I)
+                verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter|grant|revoke)\b", statement, re.I)
                 if verb and ("read-only transaction" in str(error)):
                     word = verb.group(1).upper()
                     if not request.user.is_staff:
@@ -297,7 +306,9 @@ def sql_runner(request, pk):
                     elif not server.allow_writes:
                         context["hint"] = ("Changing data is switched off here: a staff user can allow it with "
                                            "'Allow changing data' in Edit server.")
-                    elif word in ("TRUNCATE", "DROP", "CREATE", "ALTER") and not server.allow_structure:
+                    elif server_admin.is_admin_statement(statement) and not server.allow_admin:
+                        context["hint"] = f"{word} on databases, users and grants is switched off here: turn on 'Also allow databases, users and grants' in Edit server."
+                    elif word in ("TRUNCATE", "DROP", "CREATE", "ALTER", "GRANT", "REVOKE") and not server.allow_structure:
                         context["hint"] = f"{word} is switched off here: turn on 'Also allow CREATE, ALTER, TRUNCATE and DROP' in Edit server."
                     else:
                         context["hint"] = (f"{word} asks for confirmation first, and that popup needs JavaScript. "
@@ -309,7 +320,7 @@ def sql_runner(request, pk):
     return render(request, "explorer/sql.html", context)
 
 
-HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter")
+HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter", "grant", "revoke")
 
 
 def _history(user, server, limit=20):

@@ -1,4 +1,5 @@
 import json
+import re
 
 from django.conf import settings
 from django.db import models
@@ -59,6 +60,9 @@ class AuditEntry(models.Model):
             return f"INSERT · {rows(p.get('count', 0))} into {where}"
         if kind == "restore":
             return f"re-insert · {rows(p.get('count', 0))} into {where}"
+        if kind in ("grant", "revoke"):
+            n = len(p.get("changes", []))
+            return f"{kind.upper()} · {n} change{'' if n == 1 else 's'}"
         if kind == "undo":
             return f"undo · {rows(p.get('count', 0))} in {where}"
         if kind == "truncate":
@@ -89,6 +93,12 @@ class AuditEntry(models.Model):
 
 MAX_DETAIL = 5000
 PREVIEW_ROWS = 10
+_PASSWORD_LITERAL = re.compile(r"(\bPASSWORD\s+)(?:E|U&)?'(?:[^']|'')*'", re.I)
+
+
+def redact_secrets(text):
+    """Passwords written in SQL (CREATE ROLE x PASSWORD '...') never reach the audit log or the history."""
+    return _PASSWORD_LITERAL.sub(r"\1'********'", text or "")
 
 
 def record(user, action, server=None, detail="", ok=True, rows=None, payload=None):
@@ -96,5 +106,5 @@ def record(user, action, server=None, detail="", ok=True, rows=None, payload=Non
         user=user if getattr(user, "pk", None) else None,
         username=getattr(user, "username", "") or "anonymous",
         server=server, server_name=server.name if server else "",
-        action=action, detail=(detail or "")[:MAX_DETAIL], ok=ok, rows=rows, payload=payload,
+        action=action, detail=redact_secrets(detail)[:MAX_DETAIL], ok=ok, rows=rows, payload=payload,
     )

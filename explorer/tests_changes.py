@@ -16,13 +16,14 @@ class ClassifyAndParseTests(SimpleTestCase):
     def test_classify_finds_the_seven_changing_statements(self):
         cases = {"INSERT INTO t VALUES (1)": "insert", "  update t set a = 1": "update", "-- note\nDELETE FROM t": "delete",
                  "/* x */ Truncate t": "truncate", "drop table t;": "drop", "DROP": "drop",
-                 "CREATE TABLE t (a int)": "create", "alter table t add c int": "alter"}
+                 "CREATE TABLE t (a int)": "create", "alter table t add c int": "alter",
+                 "GRANT SELECT ON t TO u": "grant", "revoke all on t from u": "revoke"}
         for text, kind in cases.items():
             with self.subTest(text=text):
                 self.assertEqual(changes.classify(text), kind)
         for text in ("SELECT 1", "WITH x AS (SELECT 1) DELETE FROM t", "EXPLAIN SELECT 1", "", "   ", "COPY t FROM stdin",
-                     "GRANT ALL ON t TO u", "COMMENT ON TABLE t IS 'x'", "VACUUM t"):
-            with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, "Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER"):
+                     "COMMENT ON TABLE t IS 'x'", "VACUUM t"):
+            with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, "Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE, ALTER, GRANT and REVOKE"):
                 changes.classify(text)
 
     def test_parse_update(self):
@@ -480,7 +481,7 @@ class DropTests(ChangeFixture, TestCase):
         self.assertFalse(AuditEntry.objects.exists())
 
     def test_what_is_refused(self):
-        for sql, message in (("DROP DATABASE pgdeck_w", "not available here"), ("DROP ROLE x", "not available here"),
+        for sql, message in (("DROP TABLESPACE x", "not available here"), ("DROP OWNED BY x", "not available here"),
                              ("DROP WIDGET w", "PgDeck can drop tables"), ("DROP TABLE pgdeck_w.a; DROP TABLE pgdeck_w.b", "one DROP statement"),
                              ("DROP TABLE pgdeck_w.nope", "does not exist")):
             with self.subTest(sql=sql), self.assertRaisesRegex(pg.PgError, message):
@@ -560,10 +561,10 @@ class CreateAlterTests(ChangeFixture, TestCase):
         self.assertFalse(AuditEntry.objects.exists())
 
     def test_what_is_refused(self):
-        for sql, message in (("CREATE DATABASE x", "not available here"), ("CREATE ROLE x", "not available here"),
+        for sql, message in (("CREATE TABLESPACE x LOCATION '/tmp'", "not available here"), ("CREATE SERVER s FOREIGN DATA WRAPPER w", "not available here"),
                              ("CREATE TEMP TABLE x (a int)", "Temporary objects"), ("CREATE INDEX CONCURRENTLY i ON pgdeck_w.logged (id)", "CONCURRENTLY"),
                              ("CREATE TABLE pgdeck_w.a (a int); CREATE TABLE pgdeck_w.b (a int)", "one CREATE statement"),
-                             ("ALTER DATABASE x SET a = 1", "not available here"), ("ALTER ROLE x LOGIN", "not available here")):
+                             ("ALTER SYSTEM SET work_mem = '8MB'", "not available here"), ("ALTER TABLESPACE x RENAME TO y", "not available here")):
             with self.subTest(sql=sql), self.assertRaisesRegex(pg.PgError, message):
                 self.preview(sql)
 
@@ -664,5 +665,5 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
             self.assertContains(page, text)
         script = open("static/write_flow.js", encoding="utf-8").read()
         for needle in ('kind === "insert"', "preview.confirm_word", "preview.fingerprint", "preview.objects", "preview.notes",
-                       "(insert|update|delete|truncate|drop|create|alter)", "tone(\"error\")", "tone(\"success\")"):
+                       "(insert|update|delete|truncate|drop|create|alter|grant|revoke)", "tone(\"error\")", "tone(\"success\")"):
             self.assertIn(needle, script)

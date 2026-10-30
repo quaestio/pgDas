@@ -25,14 +25,15 @@ planned next (see the roadmap).
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
 
 ## Changing data (opt-in, with popups and a safety net)
-PgDeck is read-only until you switch changes on **per server**, with two separate switches in **Edit server**:
+PgDeck is read-only until you switch changes on **per server**, with three separate switches in **Edit server**:
 
 | Switch | Allows | How each one asks |
 |---|---|---|
 | **Allow changing data** | `INSERT`, `UPDATE`, `DELETE` | `INSERT` runs at once. `UPDATE` shows a popup with the **number of rows** it changes and a warning if it has **no WHERE**, then a button. `DELETE` shows its popup and asks you to type **`ZAP`**. |
 | **Also allow CREATE, ALTER, TRUNCATE and DROP** (needs the first) | `CREATE`, `ALTER`, `TRUNCATE`, `DROP` | A warning popup. `TRUNCATE` and `DROP` need you to type **`TRUNCATE`** or **`DROP`**; `CREATE` and `ALTER` list what changes (a risky `ALTER` asks for **`ALTER`**). |
+| **Also allow databases, users and grants** (needs the second) | `CREATE`/`ALTER`/`DROP` `DATABASE` and `ROLE` (`USER`, `GROUP`), `GRANT`, `REVOKE` | A popup listing what changes. Dropping asks for **`DROP`**; a role with `SUPERUSER`, `CREATEROLE`, `REPLICATION` or `BYPASSRLS` asks for **`CREATE`**/**`ALTER`**. |
 
-Both are off by default, only staff users can use them, and turning either on or off is written to the audit log. Every
+All three are off by default, only staff users can use them, and turning either on or off is written to the audit log. Every
 change is checked first in a transaction that is always rolled back, run for real only if the facts you were shown are
 still true, and recorded in the audit log (as JSON) *before* it is committed, so nothing changes without a record. Any
 other statement, and anything typed with scripting switched off, still runs read-only.
@@ -50,6 +51,7 @@ other statement, and anything typed with scripting switched off, still runs read
   would take along. The audit record keeps the `CREATE` statement of dropped tables for reference. `DROP DATABASE`,
   `ROLE` and `TABLESPACE` are not available here.
 - **CREATE / ALTER:** the statement is tried in the rolled-back transaction and the popup lists exactly what would be created or changed (tables, columns, indexes, constraints, sequences...). A plain `CREATE` or `ALTER` needs just a button; an `ALTER` that drops, renames, changes a type or owner, or takes another object with it asks you to type **`ALTER`**. The audit record keeps the changes and the previous `CREATE` of an altered table or view. `CREATE DATABASE/ROLE/TABLESPACE`, temporary objects and `CONCURRENTLY` are not available.
+- **Databases, users and grants:** roles and grants are tried in the rolled-back transaction and the popup lists the roles, memberships and privileges that change. ``CREATE DATABASE`` and ``DROP DATABASE`` cannot run inside a transaction, so they are described from the catalogs and cannot be rolled back (``DROP DATABASE`` shows the size and open connections). **Passwords are never kept:** the popup, the audit log and the history show ``PASSWORD '********'``. The login saved for the server needs the matching PostgreSQL rights (``CREATEDB``, ``CREATEROLE``, grant option).
 - Each takes **one plain statement at a time** (no `WITH`, no `RETURNING` on UPDATE/DELETE) and, for row changes,
   ordinary tables only.
 

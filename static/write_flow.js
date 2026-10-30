@@ -25,7 +25,7 @@
 
   function kindOf(text) {
     var bare = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "").trim();
-    var match = /^(insert|update|delete|truncate|drop|create|alter)\b/i.exec(bare);
+    var match = /^(insert|update|delete|truncate|drop|create|alter|grant|revoke)\b/i.exec(bare);
     return match ? match[1].toLowerCase() : null;
   }
 
