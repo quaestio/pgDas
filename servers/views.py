@@ -34,7 +34,7 @@ def server_add(request):
         server = form.save(commit=False)
         server.created_by = request.user
         server.save()
-        record(request.user, "server.add", server, f"{server.username}@{server.host}:{server.port}/{server.database}")
+        record(request.user, "server.add", server, f"{server.username}@{server.host}:{server.port}/{server.database_name}")
         messages.success(request, f"Server {server.name} saved.")
         return redirect("server_list")
     return render(request, "servers/form.html", {"form": form, "title": "Add server"})
@@ -47,7 +47,7 @@ def server_edit(request, pk):
     form = ServerForm(request.POST or None, instance=server)
     if request.method == "POST" and form.is_valid():
         form.save()
-        record(request.user, "server.edit", server, f"{server.username}@{server.host}:{server.port}/{server.database}")
+        record(request.user, "server.edit", server, f"{server.username}@{server.host}:{server.port}/{server.database_name}")
         messages.success(request, f"Server {server.name} updated.")
         return redirect("server_list")
     return render(request, "servers/form.html", {"form": form, "title": f"Edit {server.name}"})

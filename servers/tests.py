@@ -48,6 +48,34 @@ class ServerViewTests(TestCase):
         self.assertEqual((entry.username, entry.server_name), ("admin", "prod"))
         self.assertNotIn("s3cret-value", entry.detail)
 
+    def test_database_is_optional_and_blank_means_postgres(self):
+        self.client.force_login(self.staff)
+        for blank in ("", "   "):
+            ServerConnection.objects.all().delete()
+            response = self.client.post(reverse("server_add"), {**FORM, "database": blank})
+            self.assertRedirects(response, reverse("server_list"))
+            server = ServerConnection.objects.get(name="prod")
+            self.assertEqual(server.database, "postgres")            # stored as the real name, never empty
+            self.assertEqual(server.database_name, "postgres")
+            self.assertTrue(AuditEntry.objects.filter(action="server.add", detail__endswith="/postgres").exists())
+        # Editing and clearing the field goes back to postgres too; a name that was typed is kept.
+        self.client.post(reverse("server_edit", args=[server.pk]), {**FORM, "database": "reports", "password": ""})
+        server.refresh_from_db()
+        self.assertEqual(server.database, "reports")
+        self.client.post(reverse("server_edit", args=[server.pk]), {**FORM, "database": "", "password": ""})
+        server.refresh_from_db()
+        self.assertEqual(server.database, "postgres")
+
+    def test_form_says_the_database_is_optional(self):
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("server_add"))
+        self.assertContains(page, "Leave blank to use postgres")
+        self.assertNotContains(page, 'name="database" value="postgres" maxlength="100" required')   # no longer a required field
+
+    def test_database_name_falls_back_even_for_an_old_blank_row(self):
+        self.assertEqual(ServerConnection(database="").database_name, "postgres")
+        self.assertEqual(ServerConnection(database=" sales ").database_name, "sales")
+
     def test_password_required_on_add_but_optional_on_edit(self):
         self.client.force_login(self.staff)
         self.assertContains(self.client.post(reverse("server_add"), {**FORM, "password": ""}), "Enter the password")

@@ -75,6 +75,12 @@ class PgLayerTests(PgFixture, TestCase):
     def test_connection_reports_version(self):
         self.assertRegex(pg.test_connection(make_server()), r"^\d+")
 
+    def test_blank_database_connects_to_postgres(self):
+        server = make_server()
+        server.database = ""
+        with pg.connect(server) as conn:
+            self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], "postgres")
+
     def test_schemas_exclude_system_schemas(self):
         with pg.connect(make_server()) as conn:
             schemas = pg.list_schemas(conn)

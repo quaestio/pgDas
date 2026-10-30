@@ -29,7 +29,7 @@ def connect(server, database=None):
     """Open a read-only connection; `database` browses another database on the same server."""
     try:
         conn = psycopg.connect(
-            host=server.host, port=server.port, dbname=database or server.database, user=server.username,
+            host=server.host, port=server.port, dbname=database or server.database_name, user=server.username,
             password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
             application_name="PgDeck", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
         )

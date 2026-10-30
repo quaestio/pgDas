@@ -8,7 +8,7 @@
     {% for s in servers %}
       <tr>
         <td><a href="#" data-open-server="{{ s.pk }}"><strong>{{ s.name }}</strong></a></td>
-        <td class="muted">{{ s.username }}@{{ s.host }}:{{ s.port }}/{{ s.database }}</td>
+        <td class="muted">{{ s.username }}@{{ s.host }}:{{ s.port }}/{{ s.database_name }}</td>
         <td><span class="badge">{{ s.sslmode }}</span></td>
         <td style="text-align:right; white-space:nowrap">
           <a class="btn" href="#" data-open-server="{{ s.pk }}">Open</a>
@@ -26,7 +26,7 @@
 {% elif kind == "server" %}
   <h2>{{ server.name }}</h2>
   <dl class="props">
-    <dt>Connection</dt><dd>{{ server.username }}@{{ server.host }}:{{ server.port }}/{{ server.database }}</dd>
+    <dt>Connection</dt><dd>{{ server.username }}@{{ server.host }}:{{ server.port }}/{{ server.database_name }}</dd>
     <dt>SSL mode</dt><dd>{{ server.sslmode }}</dd>
     <dt>PostgreSQL</dt><dd>{{ summary.version }}</dd>
     <dt>Connected as</dt><dd>{{ summary.user }}</dd>

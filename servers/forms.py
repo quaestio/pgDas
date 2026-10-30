@@ -1,6 +1,6 @@
 from django import forms
 
-from .models import ServerConnection
+from .models import DEFAULT_DATABASE, ServerConnection
 
 
 class ServerForm(forms.ModelForm):
@@ -10,6 +10,10 @@ class ServerForm(forms.ModelForm):
     class Meta:
         model = ServerConnection
         fields = ["name", "host", "port", "database", "username", "password", "sslmode"]
+
+    def clean_database(self):
+        # Store the real name, so the server list, details and audit log never show an empty database.
+        return (self.cleaned_data.get("database") or "").strip() or DEFAULT_DATABASE
 
     def clean(self):
         data = super().clean()
