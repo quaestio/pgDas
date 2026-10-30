@@ -47,6 +47,9 @@ pre.sql { background: #031125; border: 1px solid #0e3a5e; padding: 10px 12px; wh
 nav.compact a { padding: 8px 12px; margin: 2px 0; font-size: 13px; }
 nav.compact a .ico { font-size: 14px; }
 nav.compact { padding-top: 10px; }
+nav.compact.below { margin-top: auto; padding: 8px 12px; border-top: 1px solid var(--line); }
+.sidebar-tree + nav.compact.below { margin-top: 0; }
+a.brand { text-decoration: none; }
 body.has-tree aside { width: 330px; }
 .sidebar-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); margin-top: 8px; }
 .sidebar-tree .nav-label { padding: 14px 18px 8px; }

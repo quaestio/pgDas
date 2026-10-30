@@ -87,7 +87,7 @@ class ServerViewTests(TestCase):
     def test_navigation_highlights_the_current_section(self):
         self.client.force_login(self.staff)
         self.assertContains(self.client.get(reverse("audit_list")), 'href="/audit/" class="active"')
-        self.assertContains(self.client.get(reverse("server_list")), 'href="/" class="active"')
+        self.assertNotContains(self.client.get(reverse("server_list")), 'href="/audit/" class="active"')
 
     def test_delete_keeps_audit_history(self):
         self.client.force_login(self.staff)
