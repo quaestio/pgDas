@@ -18,9 +18,33 @@ planned next (see the roadmap).
   - A **system** switch in the sidebar also shows built-in `pg_*` roles and objects installed by extensions.
 - Sign in with local accounts; staff users manage servers and see the audit log, everyone signed in can browse.
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
-- SQL runner: read-only, 30 s timeout, 1000-row cap.
-- Audit log of every SQL run and every server change (staff only).
+- SQL runner: read-only, 30 s timeout, 1000-row cap. Optional, per server: confirmed deletes (see below).
+- Audit log of every SQL run, server change and delete (staff only), with the deleted rows as JSON and a Re-insert button.
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
+
+## Deleting rows (opt-in, with a popup and a safety net)
+PgDeck is read-only until you switch deleting on **per server**: **Edit server → Allow deleting rows**. It is off by
+default, only staff users can use it, and turning it on or off is written to the audit log.
+
+On such a server, a `DELETE` typed into the SQL runner works like this:
+1. **Check:** PgDeck runs it inside a transaction that is always rolled back, and shows a popup with the **number of
+   records** that would be deleted, a sample of them, whether the statement has no `WHERE`, and any *other* tables it
+   would also change (`ON DELETE CASCADE`, triggers).
+2. **Warning:** the popup says there is **no rollback** and asks you to type **`ZAP`** in capital letters (`zap`, `Zap`
+   or a stray space does not count). The Delete button stays disabled until the box holds exactly `ZAP`.
+3. **Delete:** PgDeck runs it again and commits only if the number of rows and the side effects are still exactly what
+   you confirmed; otherwise nothing is deleted and you are asked to check again.
+4. **Record:** every deleted row is saved in the audit log as **JSON** (database, schema, table, the statement, the
+   column names and each row, with types kept: numbers, nested JSON, arrays, NULLs). The record is saved *before* the
+   delete is committed: if it cannot be saved, nothing is deleted. A failed or refused attempt is logged too.
+5. **Re-insert:** in the audit log, **Re-insert N rows** (after a confirmation popup) puts the rows back, all or nothing,
+   once per record. **Download JSON** gives the whole record.
+
+Limits, on purpose: one plain `DELETE FROM table …` at a time (no `WITH`, no `RETURNING`); ordinary tables only; at most
+`PGDECK_MAX_DELETE_ROWS` (default 10,000) rows per delete, because each is stored for re-insertion. Rows removed by
+`ON DELETE CASCADE` or a trigger are shown in the popup but are **not** saved, so re-insert cannot bring them back.
+Re-insert fails, and changes nothing, if a row with the same key now exists or a column was dropped. Give the PostgreSQL
+login only the rights it needs (`DELETE` on the tables staff may clear). INSERT, UPDATE and DDL are not available yet.
 
 ## Where PgDeck keeps its own data
 PgDeck needs **no database server of its own**. Its users, saved servers, audit log and sessions are stored in one
@@ -85,7 +109,8 @@ Without a reachable PostgreSQL those tests are skipped and say why.
 
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
-2. Safety: opt-in write mode, confirmations for destructive SQL, per-server permissions, query history.
+2. Safety: opt-in write mode — **DELETE with confirmation, JSON audit and re-insert is done**; next INSERT/UPDATE,
+   other destructive SQL, finer per-user permissions, query history.
 3. Backups: scheduled `pg_dump`, restore, retention, download.
 4. Monitoring: sessions, locks, slow queries, size trends, alerts.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.

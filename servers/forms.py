@@ -11,7 +11,7 @@ class ServerForm(forms.ModelForm):
         model = ServerConnection
         # No Database field: PgDeck picks a database this login can open (see explorer.pg.connect),
         # and the tree lists only the databases the login is allowed to connect to.
-        fields = ["name", "host", "port", "username", "password", "sslmode"]
+        fields = ["name", "host", "port", "username", "password", "sslmode", "allow_writes"]
 
     def clean(self):
         data = super().clean()

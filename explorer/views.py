@@ -1,15 +1,17 @@
+import json
+import re
 from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
-from django.views.decorators.http import require_GET, require_http_methods
+from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from audit.models import record
 from servers.models import ServerConnection
 
-from . import pg, tree
+from . import pg, tree, writes
 
 TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
@@ -203,12 +205,69 @@ def detail(request):
     return render(request, "explorer/_detail.html", context)
 
 
+def _can_delete(user, server):
+    """Deleting rows needs both: a staff user, and the server's own 'Allow deleting rows' switch."""
+    return bool(user.is_staff and server.allow_writes)
+
+
+def _write_request(request, pk):
+    """Common checks for the delete endpoints: returns (server, data, None) or (None, None, error response)."""
+    server = get_object_or_404(ServerConnection, pk=pk)
+    if not request.user.is_staff:
+        return None, None, JsonResponse({"ok": False, "error": "Only staff users can delete rows."}, status=403)
+    if not server.allow_writes:
+        return None, None, JsonResponse({"ok": False, "error": "Deleting rows is switched off for this server. "
+                                         "Turn on 'Allow deleting rows' in Edit server first."}, status=403)
+    try:
+        data = json.loads(request.body or b"{}")
+        if not isinstance(data, dict):
+            raise ValueError
+    except ValueError:
+        return None, None, JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+    return server, data, None
+
+
+@login_required
+@require_POST
+def delete_preview(request, pk):
+    """Step 1 of a delete: what it would do. Nothing is changed (the transaction is always rolled back)."""
+    server, data, failure = _write_request(request, pk)
+    if failure:
+        return failure
+    try:
+        preview = writes.preview_delete(server, str(data.get("db") or ""), str(data.get("sql") or ""))
+    except pg.PgError as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    return JsonResponse({"ok": True, **preview}, json_dumps_params={"default": str})
+
+
+@login_required
+@require_POST
+def delete_execute(request, pk):
+    """Step 2: delete for real, once the person has typed ZAP and the data is still what they were shown."""
+    server, data, failure = _write_request(request, pk)
+    if failure:
+        return failure
+    try:
+        expected = int(data.get("expected_count"))
+        result = writes.execute_delete(
+            server, str(data.get("db") or ""), str(data.get("sql") or ""), expected,
+            data.get("expected_side_effects") or [], data.get("confirm"), request.user)
+    except (TypeError, ValueError):
+        return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+    except pg.PgError as error:
+        record(request.user, "delete", server, str(data.get("sql") or "")[:2000], ok=False)
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    return JsonResponse({"ok": True, **result})
+
+
 @login_required
 @require_http_methods(["GET", "POST"])
 def sql_runner(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
     db = request.GET.get("db") or request.POST.get("db") or ""
-    context = {"server": server, "sql": "", "db": db}
+    context = {"server": server, "sql": "", "db": db, "can_delete": _can_delete(request.user, server),
+               "confirm_word": writes.CONFIRM_WORD}
     if request.method == "POST":
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
@@ -218,6 +277,15 @@ def sql_runner(request, pk):
             except pg.PgError as error:
                 record(request.user, "sql.run", server, statement, ok=False)
                 context["error"] = str(error)
+                if "read-only transaction" in str(error) and re.match(r"\s*delete\b", statement, re.I):
+                    if not server.allow_writes:
+                        context["hint"] = ("Deleting rows is switched off here: a staff user can allow it with "
+                                           "'Allow deleting rows' in Edit server.")
+                    elif not request.user.is_staff:
+                        context["hint"] = "Only staff users can delete rows."
+                    else:
+                        context["hint"] = ("Deleting asks for confirmation first, and the confirmation popup needs JavaScript. "
+                                           "Turn it on and press Run again.")
             else:
                 record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])
                 context["result"] = result

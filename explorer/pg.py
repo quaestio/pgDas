@@ -77,6 +77,28 @@ def connect(server, database=None):
         conn.close()
 
 
+@contextmanager
+def connect_rw(server, database=None):
+    """A connection that may change data, used only by the confirmed-delete and re-insert flows (explorer.writes).
+
+    Everything runs in one transaction that is rolled back when the block ends unless the caller commits it first.
+    """
+    try:
+        conn = _connect_first_usable(server) if not database else _open(server, database)
+    except psycopg.Error as error:
+        raise PgError(_message(error))
+    except ValueError as error:
+        raise PgError(str(error))
+    try:
+        conn.read_only = False
+        yield conn
+    except psycopg.Error as error:
+        raise PgError(_message(error))
+    finally:
+        conn.rollback()
+        conn.close()
+
+
 def test_connection(server):
     with connect(server) as conn:
         return conn.execute("SHOW server_version").fetchone()[0]

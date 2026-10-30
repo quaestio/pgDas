@@ -2,7 +2,7 @@
 {% block title %}Audit log · PgDeck{% endblock %}
 {% block content %}
 <div class="title-row"><div><div class="eyebrow">CONSOLE / <span>AUDIT LOG</span></div><h1>Audit log</h1>
-  <p class="muted">Every SQL run and server change, newest first.</p></div></div>
+  <p class="muted">Every SQL run, server change and delete, newest first. Deleted rows are kept here as JSON and can be re-inserted.</p></div></div>
 <section class="panel pad scroll">
   <table>
     <thead><tr><th>WHEN (UTC)</th><th>USER</th><th>SERVER</th><th>ACTION</th><th>DETAIL</th><th>ROWS</th><th>RESULT</th></tr></thead>
@@ -11,7 +11,26 @@
       <tr>
         <td class="muted" style="white-space:nowrap">{{ entry.created_at|date:"Y-m-d H:i:s" }}</td>
         <td>{{ entry.username }}</td><td>{{ entry.server_name }}</td><td>{{ entry.action }}</td>
-        <td>{% if entry.detail %}<pre class="sql">{{ entry.detail }}</pre>{% endif %}</td>
+        <td>
+          {% if entry.detail %}<pre class="sql">{{ entry.detail }}</pre>{% endif %}
+          {% if entry.payload %}
+          <details class="json-record">
+            <summary>JSON record{% if entry.is_delete_record %} · {{ entry.payload.count }} row{{ entry.payload.count|pluralize }} from {{ entry.payload.schema }}.{{ entry.payload.table }}{% endif %}</summary>
+            {% if entry.payload.no_where %}<p class="muted">The statement had no WHERE clause.</p>{% endif %}
+            {% if entry.payload.side_effects %}<p class="muted">Also changed (not recorded here, so not restored): {% for e in entry.payload.side_effects %}{{ e.table }} ({{ e.deleted }} deleted){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+            <pre class="sql json">{{ entry.payload_preview }}</pre>
+          </details>
+          <div class="record-actions">
+            <a class="btn" href="{% url 'audit_json' entry.pk %}">Download JSON</a>
+            {% if entry.can_reinsert %}
+              <button type="button" class="btn danger" data-reinsert="{% url 'audit_reinsert' entry.pk %}" data-count="{{ entry.payload.count }}"
+                      data-table="{{ entry.payload.schema }}.{{ entry.payload.table }}">Re-insert {{ entry.payload.count }} row{{ entry.payload.count|pluralize }}</button>
+            {% elif entry.restored_at %}
+              <span class="badge ok">re-inserted {{ entry.restored_at|date:"Y-m-d H:i" }} by {{ entry.restored_by }}</span>
+            {% endif %}
+          </div>
+          {% endif %}
+        </td>
         <td class="muted">{{ entry.rows|default_if_none:"" }}</td>
         <td>{% if entry.ok %}<span class="badge ok">ok</span>{% else %}<span class="badge bad">failed</span>{% endif %}</td>
       </tr>
@@ -24,4 +43,45 @@
     {% if page.has_next %}<a class="btn" href="?page={{ page.next_page_number }}">Older →</a>{% endif %}
   </div>
 </section>
+
+{# Re-insert confirmation popup #}
+<div id="reinsertModal" class="cyber-modal" hidden>
+  <div class="cyber-dialog" role="dialog" aria-modal="true" aria-labelledby="reinsertTitle">
+    <div class="modal-top"><span id="reinsertTitle">RE-INSERT ROWS</span><button type="button" id="reinsertClose" aria-label="Close">✕</button></div>
+    <div class="modal-icon">↺</div>
+    <p id="reinsertMessage"></p>
+    <p class="muted">All rows go back together or none do. If a row with the same key exists now, nothing is changed and you are told why.</p>
+    <form method="post" id="reinsertForm">{% csrf_token %}
+      <input type="hidden" name="page" value="{{ page.number }}">
+      <div class="modal-buttons">
+        <button type="button" class="btn" id="reinsertCancel">Cancel</button>
+        <button type="submit" class="btn primary">Re-insert</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var modal = document.getElementById("reinsertModal");
+  if (!modal) return;
+  var form = document.getElementById("reinsertForm");
+  function close() { modal.hidden = true; }
+  document.querySelectorAll("[data-reinsert]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var count = button.dataset.count;
+      document.getElementById("reinsertMessage").textContent =
+        "Put " + count + " deleted row" + (count === "1" ? "" : "s") + " back into " + button.dataset.table + "?";
+      form.action = button.dataset.reinsert;
+      modal.hidden = false;
+      form.querySelector("button[type=submit]").focus();
+    });
+  });
+  document.getElementById("reinsertClose").addEventListener("click", close);
+  document.getElementById("reinsertCancel").addEventListener("click", close);
+  modal.addEventListener("click", function (event) { if (event.target === modal) close(); });
+  document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !modal.hidden) close(); });
+})();
+</script>
 {% endblock %}

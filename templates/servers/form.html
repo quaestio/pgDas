@@ -8,6 +8,6 @@
     <button class="btn primary" type="submit">Save</button>
     <a class="btn" href="{% url 'server_list' %}">Cancel</a>
   </form>
-  <p class="muted" style="margin-top:18px">PgDeck only reads from your databases. Use a PostgreSQL role with read access.</p>
+  <p class="muted" style="margin-top:18px">PgDeck only reads from your databases unless you switch on <strong>Allow deleting rows</strong>. Use a PostgreSQL role with just the access it needs: read for browsing, plus DELETE on the tables you want staff to be able to clear.</p>
 </section>
 {% endblock %}

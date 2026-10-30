@@ -34,7 +34,8 @@ def server_add(request):
         server = form.save(commit=False)
         server.created_by = request.user
         server.save()
-        record(request.user, "server.add", server, f"{server.username}@{server.host}:{server.port}")
+        record(request.user, "server.add", server,
+               f"{server.username}@{server.host}:{server.port}" + (" · deleting rows allowed" if server.allow_writes else ""))
         messages.success(request, f"Server {server.name} saved.")
         return redirect("server_list")
     return render(request, "servers/form.html", {"form": form, "title": "Add server"})
@@ -44,10 +45,14 @@ def server_add(request):
 @staff_required
 def server_edit(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
+    was_allowed = server.allow_writes            # read now: validating the form changes the instance
     form = ServerForm(request.POST or None, instance=server)
     if request.method == "POST" and form.is_valid():
         form.save()
-        record(request.user, "server.edit", server, f"{server.username}@{server.host}:{server.port}")
+        detail = f"{server.username}@{server.host}:{server.port}"
+        if server.allow_writes != was_allowed:   # turning deletes on or off is a security change: say so in the log
+            detail += " · deleting rows " + ("switched ON" if server.allow_writes else "switched OFF")
+        record(request.user, "server.edit", server, detail)
         messages.success(request, f"Server {server.name} updated.")
         return redirect("server_list")
     return render(request, "servers/form.html", {"form": form, "title": f"Edit {server.name}"})

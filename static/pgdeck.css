@@ -108,5 +108,23 @@ dl.props { display: grid; grid-template-columns: 170px 1fr; gap: 8px 16px; margi
 dl.props dt { color: var(--muted); }
 dl.props dd { margin: 0; color: #e6f8ff; overflow-wrap: anywhere; }
 .pager { display: flex; gap: 12px; align-items: center; margin-top: 14px; }
+/* Delete warning popup (built on the template's .cyber-modal / .cyber-dialog) and the audit log's JSON records */
+.cyber-dialog.wide { width: min(100%, 680px); max-height: 92vh; overflow-y: auto; }
+.cyber-dialog .modal-icon { color: #ff8d9b; text-shadow: 0 0 20px #ff4d6a; font-size: 48px; line-height: 1.1; }
+.count-big { text-align: center; font-size: 46px; font-weight: 800; color: #ff8d9b; line-height: 1.1; }
+.cyber-dialog p { text-align: center; }
+.warn-box { border: 1px solid #7a2c3a; background: #2a0f18; color: #ffc2cb; padding: 10px 14px; margin: 12px 0; text-align: left; font-size: 13px; line-height: 1.5; }
+.warn-line { color: #ffb3be !important; text-align: left !important; font-size: 13px; margin: 6px 0; }
+.cyber-dialog pre.sql { text-align: left; margin: 10px 0; max-height: 110px; overflow: auto; }
+.cyber-dialog table { font-size: 11px; }
+.cyber-dialog label { display: block; text-align: center; color: #9cd4f5; font-size: 12px; letter-spacing: 1px; margin-bottom: 8px; }
+input.zap { text-align: center; letter-spacing: 8px; font-size: 22px; font-weight: 700; max-width: 220px; margin: 0 auto; }
+.modal-error { color: #ff8d9b; background: #2a0f18; border: 1px solid #7a2c3a; padding: 8px 12px; }
+.modal-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 16px; }
+.modal-buttons .btn[disabled] { opacity: .4; cursor: not-allowed; }
+details.json-record { margin-top: 8px; }
+details.json-record summary { cursor: pointer; color: var(--accent); }
+pre.sql.json { max-height: 280px; overflow: auto; }
+.record-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .login-card .errorlist { margin-bottom: 8px; }
 .login-card form p { margin: 0; }
