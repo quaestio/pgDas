@@ -2,7 +2,7 @@
 {% block title %}Audit log · PgDeck{% endblock %}
 {% block content %}
 <div class="title-row"><div><div class="eyebrow">CONSOLE / <span>AUDIT LOG</span></div><h1>Audit log</h1>
-  <p class="muted">Every SQL run, server change and delete, newest first. Deleted rows are kept here as JSON and can be re-inserted.</p></div></div>
+  <p class="muted">Every SQL run, server change and data change, newest first. Each change is kept here as JSON; deleted rows can be re-inserted.</p></div></div>
 <section class="panel pad scroll">
   <table>
     <thead><tr><th>WHEN (UTC)</th><th>USER</th><th>SERVER</th><th>ACTION</th><th>DETAIL</th><th>ROWS</th><th>RESULT</th></tr></thead>
@@ -15,8 +15,9 @@
           {% if entry.detail %}<pre class="sql">{{ entry.detail }}</pre>{% endif %}
           {% if entry.payload %}
           <details class="json-record">
-            <summary>JSON record{% if entry.is_delete_record %} · {{ entry.payload.count }} row{{ entry.payload.count|pluralize }} from {{ entry.payload.schema }}.{{ entry.payload.table }}{% endif %}</summary>
+            <summary>JSON record{% if entry.record_label %} · {{ entry.record_label }}{% endif %}</summary>
             {% if entry.payload.no_where %}<p class="muted">The statement had no WHERE clause.</p>{% endif %}
+            {% if entry.payload.kind == "truncate" or entry.payload.kind == "drop" or entry.payload.kind == "update" %}<p class="muted">These rows cannot be re-inserted from the audit log: it keeps the statement and what it affected.</p>{% endif %}
             {% if entry.payload.side_effects %}<p class="muted">Also changed (not recorded here, so not restored): {% for e in entry.payload.side_effects %}{{ e.table }} ({{ e.deleted }} deleted){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
             <pre class="sql json">{{ entry.payload_preview }}</pre>
           </details>

@@ -44,10 +44,10 @@ class ParseDeleteTests(SimpleTestCase):
         cases = {
             "": "Enter a DELETE",
             "   ;  ": "Enter a DELETE",
-            "SELECT 1": "Only DELETE",
-            "DROP TABLE t": "Only DELETE",
-            "UPDATE t SET x = 1": "Only DELETE",
-            "TRUNCATE t": "Only DELETE",
+            "SELECT 1": "not a DELETE",
+            "DROP TABLE t": "not a DELETE",
+            "UPDATE t SET x = 1": "not a DELETE",
+            "TRUNCATE t": "not a DELETE",
             "DELETE FROM t; DROP TABLE u": "one DELETE statement",
             "DELETE FROM t WHERE x = 1; DELETE FROM u": "one DELETE statement",
             "WITH x AS (SELECT 1) DELETE FROM t": "WITH clause",
@@ -318,69 +318,76 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         super().setUp()
         self.client.force_login(self.staff)
 
+    def execute_data(self, sql, count, effects=None, confirm="ZAP"):
+        return {"sql": sql, "db": self.db, "fingerprint": {"count": count, "side_effects": effects or []}, "confirm": confirm}
+
     def test_preview_endpoint(self):
-        response = self.post("delete_preview", {"sql": "DELETE FROM pgdeck_w.parent WHERE id < 4", "db": self.db})
+        response = self.post("write_preview", {"sql": "DELETE FROM pgdeck_w.parent WHERE id < 4", "db": self.db})
         body = response.json()
-        self.assertEqual((response.status_code, body["ok"], body["count"], body["table"]), (200, True, 3, "parent"))
+        self.assertEqual((response.status_code, body["ok"], body["count"], body["table"], body["kind"]), (200, True, 3, "parent", "delete"))
         self.assertEqual(len(body["sample"]), 3)
+        self.assertEqual((body["confirm_word"], body["title"], body["button"]), ("ZAP", "DELETE 3 RECORDS?", "Delete 3 records"))
+        self.assertEqual(body["fingerprint"]["count"], 3)
+        self.assertIn("no rollback", body["warning"])
         self.assertEqual(self.count("parent"), 10)
-        bad = self.post("delete_preview", {"sql": "SELECT 1", "db": self.db})
+        bad = self.post("write_preview", {"sql": "SELECT 1", "db": self.db})
         self.assertEqual((bad.status_code, bad.json()["ok"]), (400, False))
-        self.assertIn("Only DELETE", bad.json()["error"])
-        self.assertEqual(self.post("delete_preview", "not an object").status_code, 400)
-        self.assertEqual(self.client.generic("POST", reverse("delete_preview", args=[self.server.pk]), "{broken", "application/json").status_code, 400)
+        self.assertIn("Only INSERT, UPDATE, DELETE, TRUNCATE and DROP", bad.json()["error"])
+        self.assertEqual(self.post("write_preview", "not an object").status_code, 400)
+        self.assertEqual(self.client.generic("POST", reverse("write_preview", args=[self.server.pk]), "{broken", "application/json").status_code, 400)
 
     def test_execute_endpoint_requires_the_word_and_records_everything(self):
-        data = {"sql": "DELETE FROM pgdeck_w.ident WHERE id IN (1, 2)", "db": self.db, "expected_count": 2, "expected_side_effects": []}
-        refused = self.post("delete_execute", {**data, "confirm": "zap"})
+        sql = "DELETE FROM pgdeck_w.ident WHERE id IN (1, 2)"
+        refused = self.post("write_execute", self.execute_data(sql, 2, confirm="zap"))
         self.assertEqual((refused.status_code, refused.json()["ok"]), (400, False))
         self.assertIn("capital letters", refused.json()["error"])
         self.assertEqual(self.count("ident"), 5)
         failed = AuditEntry.objects.get(action="delete")
         self.assertFalse(failed.ok)                                              # a refused attempt is in the log too
-        done = self.post("delete_execute", {**data, "confirm": "ZAP"})
-        self.assertEqual((done.status_code, done.json()["ok"], done.json()["count"]), (200, True, 2))
+        done = self.post("write_execute", self.execute_data(sql, 2))
+        self.assertEqual((done.status_code, done.json()["ok"], done.json()["count"], done.json()["kind"]), (200, True, 2, "delete"))
+        self.assertIn("Deleted 2 rows from pgdeck_w.ident", done.json()["message"])
         self.assertEqual(self.count("ident"), 3)
         entry = AuditEntry.objects.get(pk=done.json()["entry_id"])
         self.assertTrue(entry.ok and entry.can_reinsert)
 
     def test_execute_endpoint_rejects_a_stale_count_and_junk(self):
-        data = {"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "expected_side_effects": [], "confirm": "ZAP"}
-        stale = self.post("delete_execute", {**data, "expected_count": 4})
+        stale = self.post("write_execute", self.execute_data("DELETE FROM pgdeck_w.ident", 4))
         self.assertIn("changed since you checked", stale.json()["error"])
-        for junk in ({**data}, {**data, "expected_count": "many"}):
-            self.assertEqual(self.post("delete_execute", junk).status_code, 400)
+        for junk in ({"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "confirm": "ZAP"},
+                     {"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "confirm": "ZAP", "fingerprint": {"count": "many"}},
+                     {"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "confirm": "ZAP", "fingerprint": "nope"}):
+            self.assertEqual(self.post("write_execute", junk).status_code, 400)
         self.assertEqual(self.count("ident"), 5)
 
     def test_who_may_use_it(self):
-        payload = {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db}
+        payload = self.execute_data("DELETE FROM pgdeck_w.ident WHERE id = 1", 1)
         # a signed-in user who is not staff
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         other = Client()
         other.force_login(plain)
-        for name in ("delete_preview", "delete_execute"):
-            response = self.post(name, {**payload, "expected_count": 1, "confirm": "ZAP"}, client=other)
+        for name in ("write_preview", "write_execute"):
+            response = self.post(name, payload, client=other)
             self.assertEqual(response.status_code, 403, name)
             self.assertIn("Only staff", response.json()["error"])
-        # staff, but the server has not been opened for deleting
+        # staff, but the server has not been opened for changes
         self.server.allow_writes = False
         self.server.save()
-        for name in ("delete_preview", "delete_execute"):
-            response = self.post(name, {**payload, "expected_count": 1, "confirm": "ZAP"})
+        for name in ("write_preview", "write_execute"):
+            response = self.post(name, payload)
             self.assertEqual(response.status_code, 403, name)
             self.assertIn("switched off", response.json()["error"])
         # not signed in at all
-        for name in ("delete_preview", "delete_execute"):
+        for name in ("write_preview", "write_execute"):
             self.assertEqual(self.post(name, payload, client=Client()).status_code, 302, name)
         self.assertEqual(self.count("ident"), 5)
 
     def test_get_is_not_allowed_and_csrf_is_enforced(self):
-        url = reverse("delete_execute", args=[self.server.pk])
+        url = reverse("write_execute", args=[self.server.pk])
         self.assertEqual(self.client.get(url).status_code, 405)
         strict = Client(enforce_csrf_checks=True)
         strict.force_login(self.staff)
-        response = strict.post(url, json.dumps({"sql": "DELETE FROM pgdeck_w.ident", "confirm": "ZAP", "expected_count": 5}),
-                               content_type="application/json")
+        response = strict.post(url, json.dumps(self.execute_data("DELETE FROM pgdeck_w.ident", 5)), content_type="application/json")
         self.assertEqual(response.status_code, 403)                              # no CSRF token: refused before anything runs
         self.assertEqual(self.count("ident"), 5)
 
@@ -390,23 +397,31 @@ class PagesTests(WriteFixture, TestCase):
         super().setUp()
         self.client.force_login(self.staff)
 
-    def test_sql_page_has_the_delete_popup_only_for_staff_on_an_allowed_server(self):
+    def test_sql_page_has_the_popup_only_for_staff_on_an_allowed_server(self):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
-        for text in ("deletes allowed", 'data-can-delete="1"', 'id="deleteModal"', "There is no rollback", "delete_flow.js",
-                     'id="deleteConfirm"', "capital letters", reverse("delete_preview", args=[self.server.pk])):
+        for text in ("changes allowed", 'data-can-write="1"', 'id="changeModal"', "write_flow.js", 'id="changeConfirm"',
+                     "capital letters", reverse("write_preview", args=[self.server.pk]), reverse("write_execute", args=[self.server.pk])):
             self.assertContains(page, text)
-        self.assertContains(page, 'data-confirm-word="ZAP"')
+        self.assertContains(page, 'data-can-structure="0"')                      # TRUNCATE / DROP not switched on yet
+        self.assertContains(page, "TRUNCATE and DROP are switched off for this server")
+        self.assertNotContains(page, "+ TRUNCATE / DROP")
+        self.server.allow_structure = True
+        self.server.save()
+        both = self.client.get(reverse("sql_runner", args=[self.server.pk]))
+        self.assertContains(both, 'data-can-structure="1"')
+        self.assertContains(both, "+ TRUNCATE / DROP")
         self.server.allow_writes = False
+        self.server.allow_structure = False
         self.server.save()
         off = self.client.get(reverse("sql_runner", args=[self.server.pk]))
-        for text in ("deleteModal", "delete_flow.js", "deletes allowed", "data-can-delete"):
+        for text in ("changeModal", "write_flow.js", "changes allowed", "data-can-write"):
             self.assertNotContains(off, text)
         self.assertContains(off, "read-only")
         self.server.allow_writes = True
         self.server.save()
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         self.client.force_login(plain)
-        self.assertNotContains(self.client.get(reverse("sql_runner", args=[self.server.pk])), "deleteModal")
+        self.assertNotContains(self.client.get(reverse("sql_runner", args=[self.server.pk])), "changeModal")
 
     def test_a_delete_typed_into_the_normal_form_still_cannot_write(self):
         response = self.client.post(reverse("sql_runner", args=[self.server.pk]),
@@ -418,16 +433,28 @@ class PagesTests(WriteFixture, TestCase):
         self.client.force_login(plain)
         other = self.client.post(reverse("sql_runner", args=[self.server.pk]),
                                  {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db})
-        self.assertContains(other, "Only staff users can delete rows")
+        self.assertContains(other, "Only staff users can change data")
         self.assertEqual(self.count("ident"), 5)
 
-    def test_the_hint_after_a_blocked_delete(self):
+    def test_the_hint_after_a_blocked_change(self):
         self.server.allow_writes = False
         self.server.save()
-        response = self.client.post(reverse("sql_runner", args=[self.server.pk]),
-                                    {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db})
-        self.assertContains(response, "Deleting rows is switched off here")
+        for statement in ("DELETE FROM pgdeck_w.ident WHERE id = 1", "UPDATE pgdeck_w.ident SET label = 'x'",
+                          "INSERT INTO pgdeck_w.ident (label) VALUES ('x')", "TRUNCATE pgdeck_w.ident", "DROP TABLE pgdeck_w.ident"):
+            with self.subTest(statement=statement):
+                response = self.client.post(reverse("sql_runner", args=[self.server.pk]), {"sql": statement, "db": self.db})
+                self.assertContains(response, "Changing data is switched off here")
         self.assertEqual(self.count("ident"), 5)
+        self.server.allow_writes = True                                          # data changes on, TRUNCATE / DROP still off
+        self.server.save()
+        response = self.client.post(reverse("sql_runner", args=[self.server.pk]), {"sql": "TRUNCATE pgdeck_w.ident", "db": self.db})
+        self.assertContains(response, "TRUNCATE is switched off here")
+        self.assertEqual(self.count("ident"), 5)
+
+    def post_delete(self):
+        return self.client.post(reverse("write_execute", args=[self.server.pk]), json.dumps(
+            {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db,
+             "fingerprint": {"count": 1, "side_effects": []}, "confirm": "ZAP"}), content_type="application/json").json()
 
     def test_audit_log_shows_the_json_record_and_offers_reinsert(self):
         entry = AuditEntry.objects.get(pk=self.post_delete()["entry_id"])
@@ -436,11 +463,6 @@ class PagesTests(WriteFixture, TestCase):
                      '&quot;kind&quot;: &quot;delete&quot;', "&quot;label&quot;: &quot;label 1&quot;"):
             self.assertContains(page, text)
         self.assertContains(page, reverse("audit_reinsert", args=[entry.pk]))
-
-    def post_delete(self):
-        return self.client.post(reverse("delete_execute", args=[self.server.pk]), json.dumps(
-            {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db, "expected_count": 1, "expected_side_effects": [],
-             "confirm": "ZAP"}), content_type="application/json").json()
 
     def test_reinsert_from_the_audit_log(self):
         entry = AuditEntry.objects.get(pk=self.post_delete()["entry_id"])
@@ -481,23 +503,37 @@ class PagesTests(WriteFixture, TestCase):
         self.assertNotIn('"id": 24', entry.payload_preview)
         self.assertIn('"id": 9', entry.payload_preview)
 
-    def test_turning_deletes_on_or_off_is_audited(self):
+    def test_turning_changes_on_or_off_is_audited(self):
         url = reverse("server_edit", args=[self.server.pk])
         form = {"name": "test", "host": self.server.host, "port": self.server.port, "username": self.server.username,
                 "password": "", "sslmode": "prefer"}
-        self.client.post(url, form)                                              # the checkbox is left out: switched off
-        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="deleting rows switched OFF").exists())
+        self.client.post(url, form)                                              # the checkboxes are left out: both switched off
+        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="data changes switched OFF").exists())
         self.client.post(url, {**form, "allow_writes": "on"})
-        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="deleting rows switched ON").exists())
-        self.client.post(url, {**form, "allow_writes": "on"})                    # unchanged: no extra note
-        self.assertEqual(AuditEntry.objects.filter(action="server.edit", detail__contains="switched").count(), 2)
+        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="data changes switched ON").exists())
+        self.client.post(url, {**form, "allow_writes": "on", "allow_structure": "on"})
+        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="TRUNCATE/DROP switched ON").exists())
+        self.client.post(url, {**form, "allow_writes": "on", "allow_structure": "on"})   # unchanged: no extra note
+        self.assertEqual(AuditEntry.objects.filter(action="server.edit", detail__contains="switched").count(), 3)
+        self.client.post(url, {**form})                                                  # both off again
+        self.server.refresh_from_db()
+        self.assertEqual((self.server.allow_writes, self.server.allow_structure), (False, False))
+
+    def test_truncate_and_drop_need_data_changes_to_be_on_as_well(self):
+        url = reverse("server_edit", args=[self.server.pk])
+        form = {"name": "test", "host": self.server.host, "port": self.server.port, "username": self.server.username,
+                "password": "", "sslmode": "prefer", "allow_structure": "on"}      # allow_writes left out
+        page = self.client.post(url, form)
+        self.assertContains(page, "Turn on &#x27;Allow changing data&#x27; first")
+        self.server.refresh_from_db()
+        self.assertFalse(self.server.allow_structure)
 
     def test_the_popup_script_checks_the_word_and_writes_values_as_text(self):
-        script = open("static/delete_flow.js", encoding="utf-8").read()
-        self.assertIn("confirmInput.value !== CONFIRM", script)                    # exact, case-sensitive
-        self.assertIn("goButton.disabled = confirmInput.value !== CONFIRM", script)
-        self.assertNotIn("innerHTML = row", script)
+        script = open("static/write_flow.js", encoding="utf-8").read()
+        self.assertIn("confirmInput.value !== checked.word", script)               # exact, case-sensitive, whatever the word is
+        self.assertNotIn(".innerHTML = row", script)
         self.assertNotIn(".innerHTML = preview", script)
         self.assertIn("textContent", script)
-        self.assertIn("expected_count", script)
+        self.assertIn("fingerprint", script)
         self.assertIn("X-CSRFToken", script)
+        self.assertIn("insert|update|delete|truncate|drop", script)

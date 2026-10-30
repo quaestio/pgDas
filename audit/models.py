@@ -37,6 +37,30 @@ class AuditEntry(models.Model):
         return self.is_delete_record and self.ok and self.restored_at is None and bool(self.payload.get("rows"))
 
     @property
+    def record_label(self):
+        """One line saying what the JSON record is about, for the audit log."""
+        p = self.payload or {}
+        kind, where = p.get("kind"), f"{p.get('schema')}.{p.get('table')}"
+
+        def rows(n):
+            return f"{n} row{'' if n == 1 else 's'}"
+
+        if kind == "delete":
+            return f"{rows(p.get('count', 0))} from {where}"
+        if kind == "update":
+            return f"UPDATE · {rows(p.get('count', 0))} in {where}"
+        if kind == "insert":
+            return f"INSERT · {rows(p.get('count', 0))} into {where}"
+        if kind == "restore":
+            return f"re-insert · {rows(p.get('count', 0))} into {where}"
+        if kind == "truncate":
+            tables = p.get("tables", [])
+            return f"TRUNCATE · {len(tables)} table{'' if len(tables) == 1 else 's'}, {rows(p.get('total_rows', 0))}"
+        if kind == "drop":
+            return f"DROP {p.get('object_type', '')}"
+        return ""
+
+    @property
     def payload_preview(self):
         """The JSON shown in the audit log: the first few rows only; the whole record can be downloaded."""
         if not self.payload:

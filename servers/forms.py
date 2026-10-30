@@ -11,12 +11,14 @@ class ServerForm(forms.ModelForm):
         model = ServerConnection
         # No Database field: PgDeck picks a database this login can open (see explorer.pg.connect),
         # and the tree lists only the databases the login is allowed to connect to.
-        fields = ["name", "host", "port", "username", "password", "sslmode", "allow_writes"]
+        fields = ["name", "host", "port", "username", "password", "sslmode", "allow_writes", "allow_structure"]
 
     def clean(self):
         data = super().clean()
         if not self.instance.pk and not data.get("password"):
             self.add_error("password", "Enter the password for this server.")
+        if data.get("allow_structure") and not data.get("allow_writes"):
+            self.add_error("allow_structure", "Turn on 'Allow changing data' first: TRUNCATE and DROP are an extra step on top of it.")
         return data
 
     def save(self, commit=True):

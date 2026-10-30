@@ -34,8 +34,10 @@ def server_add(request):
         server = form.save(commit=False)
         server.created_by = request.user
         server.save()
-        record(request.user, "server.add", server,
-               f"{server.username}@{server.host}:{server.port}" + (" · deleting rows allowed" if server.allow_writes else ""))
+        detail = f"{server.username}@{server.host}:{server.port}"
+        if server.allow_writes:
+            detail += " · data changes allowed" + (" · TRUNCATE/DROP allowed" if server.allow_structure else "")
+        record(request.user, "server.add", server, detail)
         messages.success(request, f"Server {server.name} saved.")
         return redirect("server_list")
     return render(request, "servers/form.html", {"form": form, "title": "Add server"})
@@ -45,13 +47,16 @@ def server_add(request):
 @staff_required
 def server_edit(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
-    was_allowed = server.allow_writes            # read now: validating the form changes the instance
+    was_writes, was_structure = server.allow_writes, server.allow_structure   # read now: validating the form changes the instance
     form = ServerForm(request.POST or None, instance=server)
     if request.method == "POST" and form.is_valid():
         form.save()
         detail = f"{server.username}@{server.host}:{server.port}"
-        if server.allow_writes != was_allowed:   # turning deletes on or off is a security change: say so in the log
-            detail += " · deleting rows " + ("switched ON" if server.allow_writes else "switched OFF")
+        # Turning changes on or off is a security change: say so in the log.
+        if server.allow_writes != was_writes:
+            detail += " · data changes " + ("switched ON" if server.allow_writes else "switched OFF")
+        if server.allow_structure != was_structure:
+            detail += " · TRUNCATE/DROP " + ("switched ON" if server.allow_structure else "switched OFF")
         record(request.user, "server.edit", server, detail)
         messages.success(request, f"Server {server.name} updated.")
         return redirect("server_list")

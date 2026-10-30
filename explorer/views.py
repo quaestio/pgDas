@@ -11,7 +11,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from audit.models import record
 from servers.models import ServerConnection
 
-from . import pg, tree, writes
+from . import changes, pg, tree
 
 TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
@@ -205,60 +205,72 @@ def detail(request):
     return render(request, "explorer/_detail.html", context)
 
 
-def _can_delete(user, server):
-    """Deleting rows needs both: a staff user, and the server's own 'Allow deleting rows' switch."""
+def _can_write(user, server):
+    """Changing data needs both: a staff user, and the server's own 'Allow changing data' switch."""
     return bool(user.is_staff and server.allow_writes)
 
 
+def _can_structure(user, server):
+    """TRUNCATE and DROP need the second switch as well, 'Also allow TRUNCATE and DROP'."""
+    return bool(_can_write(user, server) and server.allow_structure)
+
+
+def _refuse(message, status=403):
+    return JsonResponse({"ok": False, "error": message}, status=status)
+
+
 def _write_request(request, pk):
-    """Common checks for the delete endpoints: returns (server, data, None) or (None, None, error response)."""
+    """Common checks for the endpoints that change data: returns (server, kind, data, None) or (None, None, None, error response)."""
     server = get_object_or_404(ServerConnection, pk=pk)
     if not request.user.is_staff:
-        return None, None, JsonResponse({"ok": False, "error": "Only staff users can delete rows."}, status=403)
-    if not server.allow_writes:
-        return None, None, JsonResponse({"ok": False, "error": "Deleting rows is switched off for this server. "
-                                         "Turn on 'Allow deleting rows' in Edit server first."}, status=403)
+        return None, None, None, _refuse("Only staff users can change data.")
     try:
         data = json.loads(request.body or b"{}")
         if not isinstance(data, dict):
             raise ValueError
     except ValueError:
-        return None, None, JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
-    return server, data, None
+        return None, None, None, _refuse("That request was not understood.", 400)
+    try:
+        kind = changes.classify(str(data.get("sql") or ""))
+    except pg.PgError as error:
+        return None, None, None, _refuse(str(error), 400)
+    if not server.allow_writes:
+        return None, None, None, _refuse("Changing data is switched off for this server. "
+                                         "Turn on 'Allow changing data' in Edit server first.")
+    if kind in changes.STRUCTURE_KINDS and not server.allow_structure:
+        return None, None, None, _refuse(f"{kind.upper()} is switched off for this server. "
+                                         "Turn on 'Also allow TRUNCATE and DROP' in Edit server first.")
+    return server, kind, data, None
 
 
 @login_required
 @require_POST
-def delete_preview(request, pk):
-    """Step 1 of a delete: what it would do. Nothing is changed (the transaction is always rolled back)."""
-    server, data, failure = _write_request(request, pk)
+def write_preview(request, pk):
+    """Step 1 of UPDATE, DELETE, TRUNCATE and DROP: what the statement would do. Nothing is changed (always rolled back)."""
+    server, kind, data, failure = _write_request(request, pk)
     if failure:
         return failure
     try:
-        preview = writes.preview_delete(server, str(data.get("db") or ""), str(data.get("sql") or ""))
+        preview = changes.preview(server, str(data.get("db") or ""), str(data.get("sql") or ""))
     except pg.PgError as error:
-        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+        return _refuse(str(error), 400)
     return JsonResponse({"ok": True, **preview}, json_dumps_params={"default": str})
 
 
 @login_required
 @require_POST
-def delete_execute(request, pk):
-    """Step 2: delete for real, once the person has typed ZAP and the data is still what they were shown."""
-    server, data, failure = _write_request(request, pk)
+def write_execute(request, pk):
+    """Step 2 (the only step for INSERT): run it for real. The word typed in the popup and the facts shown are checked again."""
+    server, kind, data, failure = _write_request(request, pk)
     if failure:
         return failure
     try:
-        expected = int(data.get("expected_count"))
-        result = writes.execute_delete(
-            server, str(data.get("db") or ""), str(data.get("sql") or ""), expected,
-            data.get("expected_side_effects") or [], data.get("confirm"), request.user)
-    except (TypeError, ValueError):
-        return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+        result = changes.execute(server, str(data.get("db") or ""), str(data.get("sql") or ""),
+                                 data.get("fingerprint"), data.get("confirm"), request.user)
     except pg.PgError as error:
-        record(request.user, "delete", server, str(data.get("sql") or "")[:2000], ok=False)
-        return JsonResponse({"ok": False, "error": str(error)}, status=400)
-    return JsonResponse({"ok": True, **result})
+        record(request.user, kind, server, str(data.get("sql") or "")[:2000], ok=False)    # a refused attempt is logged too
+        return _refuse(str(error), 400)
+    return JsonResponse({"ok": True, **result}, json_dumps_params={"default": str})
 
 
 @login_required
@@ -266,8 +278,8 @@ def delete_execute(request, pk):
 def sql_runner(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
     db = request.GET.get("db") or request.POST.get("db") or ""
-    context = {"server": server, "sql": "", "db": db, "can_delete": _can_delete(request.user, server),
-               "confirm_word": writes.CONFIRM_WORD}
+    context = {"server": server, "sql": "", "db": db, "can_write": _can_write(request.user, server),
+               "can_structure": _can_structure(request.user, server), "confirm_words": changes.CONFIRM_WORDS}
     if request.method == "POST":
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
@@ -277,14 +289,18 @@ def sql_runner(request, pk):
             except pg.PgError as error:
                 record(request.user, "sql.run", server, statement, ok=False)
                 context["error"] = str(error)
-                if "read-only transaction" in str(error) and re.match(r"\s*delete\b", statement, re.I):
-                    if not server.allow_writes:
-                        context["hint"] = ("Deleting rows is switched off here: a staff user can allow it with "
-                                           "'Allow deleting rows' in Edit server.")
-                    elif not request.user.is_staff:
-                        context["hint"] = "Only staff users can delete rows."
+                verb = re.match(r"\s*(insert|update|delete|truncate|drop)\b", statement, re.I)
+                if verb and ("read-only transaction" in str(error)):
+                    word = verb.group(1).upper()
+                    if not request.user.is_staff:
+                        context["hint"] = "Only staff users can change data."
+                    elif not server.allow_writes:
+                        context["hint"] = ("Changing data is switched off here: a staff user can allow it with "
+                                           "'Allow changing data' in Edit server.")
+                    elif word in ("TRUNCATE", "DROP") and not server.allow_structure:
+                        context["hint"] = f"{word} is switched off here: turn on 'Also allow TRUNCATE and DROP' in Edit server."
                     else:
-                        context["hint"] = ("Deleting asks for confirmation first, and the confirmation popup needs JavaScript. "
+                        context["hint"] = (f"{word} asks for confirmation first, and that popup needs JavaScript. "
                                            "Turn it on and press Run again.")
             else:
                 record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])

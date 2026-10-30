@@ -33,28 +33,28 @@ _ALIAS = re.compile(rf"^\s+(?:AS\s+)?(?P<alias>{_IDENT})(?=\s|$)", re.I)
 _NOT_ALIASES = {"USING", "WHERE", "RETURNING"}
 
 
-def parse_delete(text):
-    """Check that `text` is exactly one plain DELETE and pull out the table it deletes from.
+def prepare_statement(text, verb, allow_returning=False):
+    """The checks every changing statement goes through. Returns (statement text without comments, sqlparse tree).
 
-    Returns {"statement", "table_ref", "target", "has_where"}. Anything else is refused with a plain message: PgDeck
-    wraps the statement to capture the deleted rows, so it must be one self-contained DELETE.
+    It must be exactly one `verb` statement (DELETE, UPDATE, ...) with balanced parentheses, and no WITH in front. PgDeck wraps
+    some statements to capture what they change, so each must be one self-contained statement.
     """
     statements = [s for s in sqlparse.split(text or "") if s.strip(" \t\r\n;")]
     if not statements:
-        raise PgError("Enter a DELETE statement.")
+        raise PgError(f"Enter a {verb} statement.")
     if len(statements) > 1:
-        raise PgError("Run one DELETE statement at a time.")
+        raise PgError(f"Run one {verb} statement at a time.")
     cleaned = sqlparse.format(statements[0], strip_comments=True).strip().rstrip(";").strip()
     first_word = cleaned.split(None, 1)[0].upper() if cleaned else ""
     if first_word == "WITH":
-        raise PgError("DELETE with a WITH clause is not supported yet. Write it as DELETE FROM table WHERE …")
-    if first_word != "DELETE":
-        raise PgError("Only DELETE can change data so far; other statements run read-only.")
+        raise PgError(f"{verb} with a WITH clause is not supported yet. Write it as a plain {verb} statement.")
+    if first_word != verb:
+        raise PgError(f"This is not a {verb} statement.")
     parsed = sqlparse.parse(cleaned)[0]
     depth = 0
     for token in parsed.flatten():
-        if token.ttype in T.Keyword and token.value.upper() == "RETURNING":
-            raise PgError("Remove the RETURNING clause: PgDeck records the deleted rows itself.")
+        if token.ttype in T.Keyword and token.value.upper() == "RETURNING" and not allow_returning:
+            raise PgError("Remove the RETURNING clause: PgDeck records what changed itself.")
         if token.ttype in T.Punctuation:
             if token.value == "(":
                 depth += 1
@@ -63,9 +63,18 @@ def parse_delete(text):
                 if depth < 0:
                     raise PgError("The parentheses in this statement do not match.")
             elif token.value == ";":
-                raise PgError("Run one DELETE statement at a time.")
+                raise PgError(f"Run one {verb} statement at a time.")
     if depth != 0:
         raise PgError("The parentheses in this statement do not match.")
+    return cleaned, parsed
+
+
+def parse_delete(text):
+    """Check that `text` is exactly one plain DELETE and pull out the table it deletes from.
+
+    Returns {"statement", "table_ref", "target", "has_where"}. Anything else is refused with a plain message.
+    """
+    cleaned, parsed = prepare_statement(text, "DELETE")
     match = _DELETE.match(cleaned)
     if not match:
         raise PgError("Write it as DELETE FROM table [AS alias] [USING …] [WHERE …].")
@@ -84,7 +93,7 @@ def _resolve_table(conn, table_ref):
         raise PgError(f"Table {table_ref} was not found.")
     schema, table, relkind = row
     if relkind not in ("r", "p"):
-        raise PgError("Only rows of ordinary tables can be deleted, and later re-inserted.")
+        raise PgError("Only ordinary tables are supported here (not views, sequences or foreign tables).")
     return schema, table
 
 
@@ -108,16 +117,23 @@ def _in_table_order(conn, schema, table, rows):
     return order, ordered
 
 
-def _side_effects(conn, schema, table):
-    """Other tables changed by this transaction so far (cascades, triggers): [{"table", "inserted", "updated", "deleted"}]."""
+def _side_effects(conn, schema, table, own="deleted"):
+    """Other tables changed by this transaction so far (cascades, triggers): [{"table", "inserted", "updated", "deleted"}].
+
+    `own` is what the statement itself does to its own table ("deleted", "updated" or "inserted"): that is the count the
+    person is shown, so only anything else happening to that table is reported here.
+    """
     changed = conn.execute(
         """SELECT schemaname, relname, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_xact_user_tables
            WHERE n_tup_ins + n_tup_upd + n_tup_del > 0 ORDER BY 1, 2""").fetchall()
     effects = []
     for s, t, inserted, updated, deleted in changed:
-        if (s, t) == (schema, table) and not (inserted or updated):
-            continue                                   # the table being deleted from: only its deletes, which we count
-        effects.append({"table": f"{s}.{t}", "inserted": inserted, "updated": updated, "deleted": deleted})
+        counts = {"inserted": inserted, "updated": updated, "deleted": deleted}
+        if (s, t) == (schema, table):
+            counts[own] = 0
+            if not any(counts.values()):
+                continue                               # only its own change, which is already counted
+        effects.append({"table": f"{s}.{t}", **counts})
     return effects
 
 

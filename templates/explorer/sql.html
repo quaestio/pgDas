@@ -6,18 +6,22 @@
   <div><div class="eyebrow">SERVERS / <span>{{ server.name|upper }}</span> / SQL</div><h1>SQL runner</h1>
     <p class="muted">{{ server.name }}{% if db %} · database {{ db }}{% endif %}</p></div>
   <div><a class="btn" href="{% url 'explorer' server.pk %}">← Object browser</a>
-    {% if can_delete %}<span class="badge bad" title="DELETE asks for confirmation and is recorded in the audit log">deletes allowed</span>
+    {% if can_write %}<span class="badge bad" title="INSERT, UPDATE and DELETE are allowed on this server">changes allowed</span>
+    {% if can_structure %}<span class="badge bad" title="TRUNCATE and DROP are allowed on this server">+ TRUNCATE / DROP</span>{% endif %}
     {% else %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
 <section class="panel pad">
-  <form method="post" id="sqlForm"{% if can_delete %} data-can-delete="1" data-preview-url="{% url 'delete_preview' server.pk %}"
-        data-execute-url="{% url 'delete_execute' server.pk %}" data-confirm-word="{{ confirm_word }}"
+  <form method="post" id="sqlForm"{% if can_write %} data-can-write="1" data-can-structure="{% if can_structure %}1{% else %}0{% endif %}"
+        data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">
     <label for="sql">SQL</label>
     <textarea id="sql" name="sql" spellcheck="false" placeholder="SELECT * FROM my_table LIMIT 10;">{{ sql }}</textarea>
-    {% if can_delete %}
-    <p class="muted" style="margin-top:10px">Queries run read-only. A <strong>DELETE</strong> first shows how many rows it would remove, then asks you to type {{ confirm_word }}; the deleted rows are saved in the audit log and can be re-inserted from there. Everything run is recorded.</p>
+    {% if can_write %}
+    <p class="muted" style="margin-top:10px">Queries run read-only. Changes are allowed here, one statement at a time, and every one is recorded in the audit log:
+      <strong>INSERT</strong> runs at once; <strong>UPDATE</strong> shows how many rows it changes and warns if it has no WHERE;
+      <strong>DELETE</strong> asks you to type {{ confirm_words.delete }} (the rows are saved and can be re-inserted){% if can_structure %};
+      <strong>TRUNCATE</strong> and <strong>DROP</strong> show a warning and ask you to type {{ confirm_words.truncate }} or {{ confirm_words.drop }}{% else %}. TRUNCATE and DROP are switched off for this server{% endif %}.</p>
     {% else %}
     <p class="muted" style="margin-top:10px">Runs read-only: PostgreSQL rejects any statement that would change data. Results are capped and time-limited, and every run is recorded in the audit log.</p>
     {% endif %}
@@ -25,7 +29,7 @@
   </form>
 </section>
 {% if error %}<ul class="messages" style="margin-top:18px"><li class="error">{{ error }}{% if hint %}<br><span class="muted">{{ hint }}</span>{% endif %}</li></ul>{% endif %}
-<div id="deleteResult" style="margin-top:18px" aria-live="polite"></div>
+<div id="changeResult" style="margin-top:18px" aria-live="polite"></div>
 {% if result %}
 <section class="panel pad scroll" style="margin-top:18px">
   <p class="muted">{% if result.columns %}{{ result.count }} row{{ result.count|pluralize }}{% if result.truncated %} (limited — more rows exist){% endif %}{% else %}{{ result.message }}{% endif %} · {{ result.ms }} ms</p>
@@ -40,32 +44,31 @@
 </section>
 {% endif %}
 
-{% if can_delete %}
-{# The delete warning popup. explorer's delete_flow.js fills it in from the preview. #}
-<div id="deleteModal" class="cyber-modal" hidden>
-  <div class="cyber-dialog wide" role="dialog" aria-modal="true" aria-labelledby="deleteTitle">
-    <div class="modal-top"><span id="deleteTitle">DELETE — WARNING</span><button type="button" id="deleteClose" aria-label="Close">✕</button></div>
+{% if can_write %}
+{# The warning popup for UPDATE, DELETE, TRUNCATE and DROP. write_flow.js fills it in from the preview. #}
+<div id="changeModal" class="cyber-modal" hidden>
+  <div class="cyber-dialog wide" role="dialog" aria-modal="true" aria-labelledby="changeTitle">
+    <div class="modal-top"><span id="changeTitle">WARNING</span><button type="button" id="changeClose" aria-label="Close">✕</button></div>
     <div class="modal-icon">⚠</div>
-    <div class="count-big" id="deleteCount"></div>
-    <p id="deleteMessage"></p>
-    <div class="warn-box">
-      <strong>There is no rollback.</strong> Once you confirm, the rows are deleted for good. PgDeck saves a copy of every deleted row in the audit log (as JSON), where a staff user can re-insert them, but nothing else is undone.
+    <div class="count-big" id="changeCount"></div>
+    <p id="changeLabel"></p>
+    <div class="warn-box" id="changeWarning"></div>
+    <div id="changeNotes"></div>
+    <ul class="object-list" id="changeObjects" hidden></ul>
+    <div class="scroll" id="changeSampleBox" hidden><table><thead id="changeSampleHead"></thead><tbody id="changeSampleBody"></tbody></table></div>
+    <pre class="sql" id="changeStatement"></pre>
+    <div id="changeConfirmBox">
+      <label for="changeConfirm">Type <strong id="changeWord"></strong> (capital letters) to confirm</label>
+      <input type="text" id="changeConfirm" class="zap" autocomplete="off" spellcheck="false" maxlength="12">
+      <p class="muted" style="margin:6px 0 0">Case matters: lower case will not work.</p>
     </div>
-    <div id="deleteNotes"></div>
-    <div class="scroll" id="deleteSampleBox" hidden><table><thead id="deleteSampleHead"></thead><tbody id="deleteSampleBody"></tbody></table></div>
-    <pre class="sql" id="deleteStatement"></pre>
-    <div id="deleteConfirmBox">
-      <label for="deleteConfirm">Type <strong>{{ confirm_word }}</strong> (capital letters) to confirm</label>
-      <input type="text" id="deleteConfirm" class="zap" autocomplete="off" spellcheck="false" maxlength="10">
-      <p class="muted" id="deleteConfirmHint" style="margin:6px 0 0">Case matters: “zap” will not work.</p>
-    </div>
-    <p id="deleteError" class="modal-error" hidden></p>
+    <p id="changeError" class="modal-error" hidden></p>
     <div class="modal-buttons">
-      <button type="button" class="btn" id="deleteCancel">Cancel</button>
-      <button type="button" class="btn danger" id="deleteGo" disabled>Delete</button>
+      <button type="button" class="btn" id="changeCancel">Cancel</button>
+      <button type="button" class="btn danger" id="changeGo" disabled>Go</button>
     </div>
   </div>
 </div>
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if can_delete %}<script src="{% static 'delete_flow.js' %}"></script>{% endif %}{% endblock %}
+{% block scripts %}{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}{% endblock %}

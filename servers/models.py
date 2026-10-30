@@ -19,12 +19,17 @@ class ServerConnection(models.Model):
     username = models.CharField(max_length=100)
     password_encrypted = models.TextField(blank=True)
     sslmode = models.CharField(max_length=20, choices=SSL_MODES, default="prefer")
-    # Off by default: PgDeck only reads. When on, staff can delete rows with the SQL runner, after a popup that asks them to
-    # type ZAP. Every delete is recorded in the audit log as JSON and can be re-inserted from there.
+    # Off by default: PgDeck only reads. When on, staff can run INSERT, UPDATE and DELETE in the SQL runner (UPDATE and DELETE
+    # after a confirmation popup). Every change is recorded in the audit log; deleted rows can be re-inserted from there.
     allow_writes = models.BooleanField(
-        default=False, verbose_name="Allow deleting rows",
-        help_text="Lets staff run DELETE in the SQL runner on this server. Each delete asks for confirmation, "
-                  "and the deleted rows are saved in the audit log, where they can be re-inserted.")
+        default=False, verbose_name="Allow changing data",
+        help_text="Lets staff run INSERT, UPDATE and DELETE in the SQL runner on this server. UPDATE and DELETE show a "
+                  "warning popup first, and every change is recorded in the audit log.")
+    # A second, separate switch for the statements that cannot be undone from the audit log. Needs allow_writes.
+    allow_structure = models.BooleanField(
+        default=False, verbose_name="Also allow TRUNCATE and DROP",
+        help_text="Lets staff run TRUNCATE (empty a table) and DROP (remove tables, views, schemas, ...). Each asks for a "
+                  "warning popup and for the word to be typed. Needs 'Allow changing data'.")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

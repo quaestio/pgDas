@@ -18,14 +18,37 @@ planned next (see the roadmap).
   - A **system** switch in the sidebar also shows built-in `pg_*` roles and objects installed by extensions.
 - Sign in with local accounts; staff users manage servers and see the audit log, everyone signed in can browse.
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
-- SQL runner: read-only, 30 s timeout, 1000-row cap. Optional, per server: confirmed deletes (see below).
-- Audit log of every SQL run, server change and delete (staff only), with the deleted rows as JSON and a Re-insert button.
+- SQL runner: read-only, 30 s timeout, 1000-row cap. Optional, per server: INSERT, UPDATE, DELETE, TRUNCATE and DROP with
+  warning popups and typed confirmation (see "Changing data").
+- Audit log of every SQL run, server change and data change (staff only), as JSON, with a Re-insert button for deletes.
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
 
-## Deleting rows (opt-in, with a popup and a safety net)
-PgDeck is read-only until you switch deleting on **per server**: **Edit server → Allow deleting rows**. It is off by
-default, only staff users can use it, and turning it on or off is written to the audit log.
+## Changing data (opt-in, with popups and a safety net)
+PgDeck is read-only until you switch changes on **per server**, with two separate switches in **Edit server**:
 
+| Switch | Allows | How each one asks |
+|---|---|---|
+| **Allow changing data** | `INSERT`, `UPDATE`, `DELETE` | `INSERT` runs at once. `UPDATE` shows a popup with the **number of rows** it changes and a warning if it has **no WHERE**, then a button. `DELETE` shows its popup and asks you to type **`ZAP`**. |
+| **Also allow TRUNCATE and DROP** (needs the first) | `TRUNCATE`, `DROP` | A warning popup and you must type **`TRUNCATE`** or **`DROP`**. |
+
+Both are off by default, only staff users can use them, and turning either on or off is written to the audit log. Every
+change is checked first in a transaction that is always rolled back, run for real only if the facts you were shown are
+still true, and recorded in the audit log (as JSON) *before* it is committed, so nothing changes without a record. Any
+other statement, and anything typed with scripting switched off, still runs read-only.
+
+- **UPDATE:** the popup shows the count, a sample of the rows as they will look, and any other tables a trigger would
+  change. The old values are not saved; the audit log keeps the statement and the count.
+- **INSERT:** the audit record holds the statement and the number of rows. `INSERT … RETURNING` shows what came back.
+- **TRUNCATE:** the popup lists each table and its row count (with `CASCADE`, also the tables that point at it). The
+  rows are **not** saved, because a table can hold millions; the audit record keeps the tables and counts.
+- **DROP** (tables, views, materialized views, indexes, sequences, schemas, functions, procedures, types, domains,
+  triggers, extensions, publications): the popup shows the rows that go with a dropped table and everything `CASCADE`
+  would take along. The audit record keeps the `CREATE` statement of dropped tables for reference. `DROP DATABASE`,
+  `ROLE` and `TABLESPACE` are not available here.
+- Each takes **one plain statement at a time** (no `WITH`, no `RETURNING` on UPDATE/DELETE) and, for row changes,
+  ordinary tables only.
+
+### Deleting rows
 On such a server, a `DELETE` typed into the SQL runner works like this:
 1. **Check:** PgDeck runs it inside a transaction that is always rolled back, and shows a popup with the **number of
    records** that would be deleted, a sample of them, whether the statement has no `WHERE`, and any *other* tables it
@@ -44,7 +67,7 @@ Limits, on purpose: one plain `DELETE FROM table …` at a time (no `WITH`, no `
 `PGDECK_MAX_DELETE_ROWS` (default 10,000) rows per delete, because each is stored for re-insertion. Rows removed by
 `ON DELETE CASCADE` or a trigger are shown in the popup but are **not** saved, so re-insert cannot bring them back.
 Re-insert fails, and changes nothing, if a row with the same key now exists or a column was dropped. Give the PostgreSQL
-login only the rights it needs (`DELETE` on the tables staff may clear). INSERT, UPDATE and DDL are not available yet.
+login only the rights it needs (for example `DELETE` on the tables staff may clear): PgDeck can only do what that login may.
 
 ## Where PgDeck keeps its own data
 PgDeck needs **no database server of its own**. Its users, saved servers, audit log and sessions are stored in one
@@ -109,8 +132,8 @@ Without a reachable PostgreSQL those tests are skipped and say why.
 
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
-2. Safety: opt-in write mode — **DELETE with confirmation, JSON audit and re-insert is done**; next INSERT/UPDATE,
-   other destructive SQL, finer per-user permissions, query history.
+2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE and DROP with popups, typed confirmation, JSON audit
+   and re-insert for deletes are done**; next ALTER/CREATE, undo for UPDATE, finer per-user permissions, query history.
 3. Backups: scheduled `pg_dump`, restore, retention, download.
 4. Monitoring: sessions, locks, slow queries, size trends, alerts.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
