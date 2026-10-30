@@ -84,7 +84,7 @@ class PgLayerTests(PgFixture, TestCase):
             found = {c["type"]: c for c in pg.table_constraints(conn, "pgdeck_demo", "orders")}
         self.assertEqual(set(found), {"PRIMARY KEY", "FOREIGN KEY", "UNIQUE", "CHECK"})
         self.assertIn("REFERENCES pgdeck_demo.people(id)", found["FOREIGN KEY"]["definition"])
-        self.assertIn("amount >= 0", found["CHECK"]["definition"])
+        self.assertIn("amount >= (0)::numeric", found["CHECK"]["definition"])  # as PostgreSQL normalizes it
 
     def test_indexes_flag_primary_and_unique(self):
         with pg.connect(make_server()) as conn:
@@ -107,6 +107,8 @@ class PgLayerTests(PgFixture, TestCase):
             ddl = pg.table_ddl(conn, "pgdeck_demo", "orders")
         self.assertIn("CREATE TABLE pgdeck_demo.orders (", ddl)
         self.assertIn("NOT NULL", ddl)
+        self.assertIn("id serial NOT NULL", ddl)  # not nextval('..._seq'), which could not be replayed elsewhere
+        self.assertNotIn("nextval", ddl)
         self.assertIn("CONSTRAINT orders_pkey PRIMARY KEY (id)", ddl)
         self.assertIn("CREATE INDEX orders_person_idx", ddl)
         self.assertNotIn("CREATE UNIQUE INDEX orders_ref_key", ddl)  # already part of the UNIQUE constraint
@@ -116,7 +118,8 @@ class PgLayerTests(PgFixture, TestCase):
                              user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
             conn.execute("DROP SCHEMA IF EXISTS pgdeck_copy CASCADE")
             conn.execute("CREATE SCHEMA pgdeck_copy")
-            conn.execute(ddl.replace("pgdeck_demo.orders", "pgdeck_copy.orders").replace("pgdeck_demo.orders_", "pgdeck_copy.orders_"))
+            conn.execute(ddl.replace("pgdeck_demo.orders", "pgdeck_copy.orders"))
+            self.assertEqual(conn.execute("SELECT count(*) FROM pgdeck_copy.orders").fetchone()[0], 0)
             conn.execute("DROP SCHEMA pgdeck_copy CASCADE")
 
     def test_row_paging_and_null_display(self):

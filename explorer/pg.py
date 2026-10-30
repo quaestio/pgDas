@@ -1,5 +1,6 @@
 """PostgreSQL access for PgDeck. Everything here runs in a READ ONLY transaction enforced by the server."""
 import json
+import re
 import time
 from contextlib import contextmanager
 
@@ -96,6 +97,7 @@ def table_constraints(conn, schema, table):
         """SELECT k.conname, k.contype, pg_get_constraintdef(k.oid)
            FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = %s AND c.relname = %s
+             AND k.contype <> 'n'  -- PostgreSQL 18 records NOT NULL as a constraint; the Columns tab already shows it
            ORDER BY (k.contype = 'p') DESC, k.conname""", (schema, table)).fetchall()
     return [{"name": name, "type": CONSTRAINT_TYPES.get(kind, kind), "definition": definition} for name, kind, definition in rows]
 
@@ -111,6 +113,9 @@ def table_indexes(conn, schema, table):
             for name, definition, unique, primary in rows]
 
 
+SERIAL_TYPES = {"smallint": "smallserial", "integer": "serial", "bigint": "bigserial"}
+
+
 def _quote(conn, name):
     return conn.execute("SELECT quote_ident(%s)", (name,)).fetchone()[0]
 
@@ -121,9 +126,14 @@ def table_ddl(conn, schema, table):
     q = lambda name: _quote(conn, name)
     lines = []
     for column in table_columns(conn, schema, table):
-        line = f"    {q(column['name'])} {column['type']}"
-        if column["default"]:
-            line += f" DEFAULT {column['default']}"
+        column_type, default = column["type"], column["default"]
+        serial = SERIAL_TYPES.get(column_type)
+        if serial and re.fullmatch(
+                r"nextval\('(?:[\w\"]+\.)?\"?" + re.escape(f"{table}_{column['name']}_seq") + r"\"?'::regclass\)", default):
+            column_type, default = serial, ""  # a serial column: its sequence is created with it
+        line = f"    {q(column['name'])} {column_type}"
+        if default:
+            line += f" DEFAULT {default}"
         if not column["nullable"]:
             line += " NOT NULL"
         lines.append(line)
