@@ -55,23 +55,80 @@
     <thead><tr><th>NAME</th><th>OWNER</th></tr></thead>
     <tbody>{% for s in schemas %}<tr><td>{{ s.name }}</td><td class="muted">{{ s.owner }}</td></tr>{% endfor %}</tbody>
   </table></div>
-{% elif kind == "schema" or kind == "tables" %}
-  <h2>{% if kind == "schema" %}Schema {{ node.schema }}{% else %}Tables in {{ node.schema }}{% endif %}</h2>
+{% elif folder %}
+  <h2>{% if kind == "schema" %}Schema {{ node.schema }}{% else %}{{ folder }} in {{ node.schema }}{% endif %}</h2>
   {% if kind == "schema" %}<dl class="props"><dt>Owner</dt><dd>{{ owner }}</dd><dt>Database</dt><dd>{{ node.db }}</dd></dl><h2 style="margin-top:22px">Tables</h2>{% endif %}
-  <div class="scroll"><table>
-    <thead><tr><th>NAME</th><th>TYPE</th><th>ROWS (ESTIMATE)</th></tr></thead>
-    <tbody>{% for t in tables %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td><td class="muted">{{ t.estimate|default_if_none:"not analyzed yet" }}</td></tr>
-    {% empty %}<tr><td colspan="3" class="muted">No tables in this schema.</td></tr>{% endfor %}</tbody>
-  </table></div>
+  {% if kind == "functions" or kind == "procedures" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>ARGUMENTS</th><th>RETURNS</th><th>KIND</th><th>LANGUAGE</th></tr></thead>
+      <tbody>{% for f in functions %}<tr><td>{{ f.name }}</td><td class="cell">{{ f.args }}</td><td class="muted">{{ f.returns }}</td><td class="muted">{{ f.kind }}</td><td class="muted">{{ f.language }}</td></tr>
+      {% empty %}<tr><td colspan="5" class="muted">None in this schema.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "types" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>KIND</th></tr></thead>
+      <tbody>{% for t in types %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td></tr>
+      {% empty %}<tr><td colspan="2" class="muted">None in this schema.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% else %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>TYPE</th><th>ROWS (ESTIMATE)</th></tr></thead>
+      <tbody>{% for t in items %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td>
+        <td class="muted">{% if t.kind == "view" or t.kind == "sequence" %}—{% else %}{{ t.estimate|default_if_none:"not analyzed yet" }}{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="3" class="muted">None in this schema.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% endif %}
 {% elif tabs %}
   <h2>{{ title }}</h2>
   <div class="tabs">{% for key, label in tabs %}<a href="#" data-detail="{{ base }}&tab={{ key }}" class="{% if key == tab %}active{% endif %}">{{ label }}</a>{% endfor %}</div>
-  {% if tab == "properties" %}
+  {% if tab == "properties" and function %}
     <dl class="props">
-      <dt>Table</dt><dd>{{ title }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ info.owner }}</dd>
-      <dt>Type</dt><dd>{{ info.kind }}</dd><dt>Rows (estimate)</dt><dd>{{ info.estimate|default_if_none:"not analyzed yet" }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>
+      <dt>{{ function.kind|capfirst }}</dt><dd>{{ title }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd>
+      <dt>Owner</dt><dd>{{ function.owner }}</dd><dt>Language</dt><dd>{{ function.language }}</dd>
+      <dt>Arguments</dt><dd>{{ function.arguments|default:"(none)" }}</dd>
+      {% if function.returns %}<dt>Returns</dt><dd>{{ function.returns }}</dd>{% endif %}
+      <dt>Volatility</dt><dd>{{ function.volatility }}</dd><dt>Security</dt><dd>{{ function.security }}</dd>
+      <dt>Strict</dt><dd>{{ function.strict|yesno:"yes,no" }}</dd><dt>Parallel</dt><dd>{{ function.parallel }}</dd>
+      {% if function.comment %}<dt>Comment</dt><dd>{{ function.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "properties" and type_info %}
+    <dl class="props">
+      <dt>Type</dt><dd>{{ title }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd>
+      <dt>Kind</dt><dd>{{ type_info.kind }}</dd><dt>Owner</dt><dd>{{ type_info.owner }}</dd>
+      {% if type_info.kind == "enum" %}<dt>Labels</dt><dd>{% for label in type_info.labels %}<span class="badge">{{ label }}</span> {% endfor %}</dd>{% endif %}
+      {% if type_info.kind == "composite" %}<dt>Fields</dt><dd>{% for f in type_info.fields %}{{ f.name }} <span class="muted">{{ f.type }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}</dd>{% endif %}
+      {% if type_info.kind == "range" %}<dt>Subtype</dt><dd>{{ type_info.subtype }}</dd>{% endif %}
+      {% if type_info.kind == "domain" %}
+        <dt>Base type</dt><dd>{{ type_info.base }}</dd>
+        {% if type_info.default %}<dt>Default</dt><dd>{{ type_info.default }}</dd>{% endif %}
+        <dt>Not null</dt><dd>{{ type_info.not_null|yesno:"yes,no" }}</dd>
+        {% for c in type_info.constraints %}<dt>Constraint</dt><dd>{{ c.name }} <span class="muted">{{ c.definition }}</span></dd>{% endfor %}
+      {% endif %}
+      {% if type_info.comment %}<dt>Comment</dt><dd>{{ type_info.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "properties" %}
+    <dl class="props">
+      <dt>{{ relation_kind|capfirst }}</dt><dd>{{ title }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ info.owner }}</dd>
+      <dt>Type</dt><dd>{{ info.kind }}</dd>
+      {% if sequence %}
+        <dt>Data type</dt><dd>{{ sequence.type }}</dd><dt>Start</dt><dd>{{ sequence.start }}</dd><dt>Increment</dt><dd>{{ sequence.increment }}</dd>
+        <dt>Minimum</dt><dd>{{ sequence.min }}</dd><dt>Maximum</dt><dd>{{ sequence.max }}</dd><dt>Cache</dt><dd>{{ sequence.cache }}</dd>
+        <dt>Cycle</dt><dd>{{ sequence.cycle|yesno:"yes,no" }}</dd><dt>Last value</dt><dd>{{ sequence.last|default_if_none:"not used yet" }}</dd>
+        {% if sequence.owned_by %}<dt>Owned by</dt><dd>{{ sequence.owned_by }}</dd>{% endif %}
+      {% else %}
+        {% if relation_kind == "view" %}{% else %}<dt>Rows (estimate)</dt><dd>{{ info.estimate|default_if_none:"not analyzed yet" }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>{% endif %}
+        {% if relation_kind == "materialized view" %}<dt>Populated</dt><dd>{{ info.populated|yesno:"yes,no" }}</dd>{% endif %}
+      {% endif %}
       {% if info.comment %}<dt>Comment</dt><dd>{{ info.comment }}</dd>{% endif %}
     </dl>
+  {% elif tab == "triggers" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>WHEN</th><th>EVENTS</th><th>LEVEL</th><th>FUNCTION</th><th>STATE</th></tr></thead>
+      <tbody>{% for t in triggers %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.timing }}</td><td class="muted">{{ t.events }}</td><td class="muted">{{ t.level }}</td>
+        <td>{{ t.function }}</td><td>{% if t.state == "disabled" %}<span class="badge bad">disabled</span>{% else %}<span class="badge ok">{{ t.state }}</span>{% endif %}</td></tr>
+        <tr><td></td><td colspan="5"><pre class="sql">{{ t.definition }}</pre></td></tr>
+      {% empty %}<tr><td colspan="6" class="muted">No triggers.</td></tr>{% endfor %}</tbody>
+    </table></div>
   {% elif tab == "columns" %}
     <div class="scroll"><table>
       <thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>NULLABLE</th><th>DEFAULT</th></tr></thead>

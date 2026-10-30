@@ -71,6 +71,10 @@ body.resizing { user-select: none; cursor: col-resize; }
 @supports (-moz-appearance: none) { * { scrollbar-width: thin; scrollbar-color: #0e6aa8 #03101f; } }
 .sidebar-tree { flex: 1; min-height: 0; display: flex; flex-direction: column; border-top: 1px solid var(--line); margin-top: 8px; }
 .sidebar-tree .nav-label { padding: 14px 18px 8px; }
+.tree-head { display: flex; align-items: center; justify-content: space-between; }
+.sys-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+.sys-toggle input { accent-color: var(--accent); margin: 0; }
+.sys-toggle:hover { color: var(--accent); }
 .sidebar-tree .tree { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 12px 12px; font-size: 13px; }
 body.has-tree .sidebar-bottom { padding: 12px 18px; border-top: 1px solid var(--line); }
 body.has-tree .sidebar-bottom small { margin-top: 4px; }

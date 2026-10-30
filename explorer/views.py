@@ -11,12 +11,22 @@ from servers.models import ServerConnection
 
 from . import pg, tree
 
-# Which tab a node opens on when it is selected in the tree.
-TABLE_NODE_TABS = {"table": "properties", "columns": "columns", "column": "columns",
-                   "constraints": "constraints", "constraint": "constraints",
-                   "indexes": "indexes", "index": "indexes"}
-TABS = [("properties", "Properties"), ("columns", "Columns"), ("constraints", "Constraints"),
-        ("indexes", "Indexes"), ("data", "Data"), ("sql", "SQL")]
+TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
+              "triggers": "Triggers", "data": "Data", "sql": "SQL"}
+TABLE_TABS = ["properties", "columns", "constraints", "indexes", "triggers", "data", "sql"]
+# Which tabs each kind of relation offers.
+TABS_BY_KIND = {"table": TABLE_TABS, "partitioned table": TABLE_TABS,
+                "view": ["properties", "columns", "data", "sql"],
+                "materialized view": ["properties", "columns", "indexes", "data", "sql"],
+                "sequence": ["properties", "sql"]}
+NODE_TYPE_OF_KIND = {"table": "table", "partitioned table": "table", "view": "view",
+                     "materialized view": "matview", "sequence": "sequence"}
+RELATION_NODES = {"table", "view", "matview", "sequence"}
+# The folder or item under a relation selects the matching tab of that relation.
+SUBNODE_TABS = {"columns": "columns", "column": "columns", "constraints": "constraints", "constraint": "constraints",
+                "indexes": "indexes", "index": "indexes", "triggers": "triggers", "trigger": "triggers"}
+FOLDERS = {"tables": ("Tables", ("table", "partitioned table")), "views": ("Views", ("view",)),
+           "matviews": ("Materialized Views", ("materialized view",)), "sequences": ("Sequences", ("sequence",))}
 
 
 @login_required
@@ -35,35 +45,74 @@ def tree_nodes(request):
         return JsonResponse({"error": str(error)}, status=502)
 
 
-def _table_context(conn, node, request):
-    db, schema, table = node["db"], node["schema"], node["table"]
-    tab = request.GET.get("tab") or TABLE_NODE_TABS.get(node["type"], "properties")
-    if tab not in dict(TABS):
-        tab = "properties"
-    context = {"tab": tab, "tabs": TABS, "title": f"{schema}.{table}", "db": db,
-               "base": urlencode({"type": "table", "server": node["server"], "db": db, "schema": schema, "table": table})}
-    if tab == "properties":
-        context["info"] = pg.table_info(conn, schema, table)
+def _base(node, **identity):
+    """Query string that re-opens the same object; the tab and page links append to it."""
+    params = {"server": node["server"], "db": node["db"], "schema": node["schema"], **identity}
+    if node["system"]:
+        params["system"] = "1"
+    return urlencode(params)
+
+
+def _pick_tab(request, node, tabs):
+    wanted = request.GET.get("tab") or SUBNODE_TABS.get(node["type"], "properties")
+    return wanted if wanted in tabs else "properties"
+
+
+def _relation_context(conn, node, request):
+    schema, name = node["schema"], node["table"]
+    info = pg.relation_info(conn, schema, name)
+    tabs = TABS_BY_KIND[info["kind"]]
+    tab = _pick_tab(request, node, tabs)
+    context = {"tab": tab, "tabs": [(key, TAB_LABELS[key]) for key in tabs], "title": f"{schema}.{name}", "db": node["db"],
+               "info": info, "relation_kind": info["kind"],
+               "base": _base(node, type=NODE_TYPE_OF_KIND[info["kind"]], table=name)}
+    if tab == "properties" and info["relkind"] == "S":
+        context["sequence"] = pg.sequence_info(conn, schema, name)
     elif tab == "columns":
-        context["columns"] = pg.table_columns(conn, schema, table)
+        context["columns"] = pg.table_columns(conn, schema, name)
     elif tab == "constraints":
-        context["constraints"] = pg.table_constraints(conn, schema, table)
+        context["constraints"] = pg.table_constraints(conn, schema, name)
     elif tab == "indexes":
-        context["indexes"] = pg.table_indexes(conn, schema, table)
+        context["indexes"] = pg.table_indexes(conn, schema, name)
+    elif tab == "triggers":
+        context["triggers"] = pg.table_triggers(conn, schema, name)
     elif tab == "data":
-        pg.table_info(conn, schema, table)  # not found -> PgError, before any SELECT is built
-        context["data"] = pg.fetch_rows(conn, schema, table, request.GET.get("page"))
+        context["data"] = pg.fetch_rows(conn, schema, name, request.GET.get("page"))
     elif tab == "sql":
-        context["ddl"] = pg.table_ddl(conn, schema, table)
+        if info["relkind"] in ("v", "m"):
+            context["ddl"] = pg.view_ddl(conn, schema, name)
+        elif info["relkind"] == "S":
+            context["ddl"] = pg.sequence_ddl(conn, schema, name)
+        else:
+            context["ddl"] = pg.table_ddl(conn, schema, name)
+    return context
+
+
+def _function_context(conn, node, request):
+    info = pg.function_info(conn, node["schema"], node["oid"])
+    tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
+    return {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "SQL")], "title": f"{node['schema']}.{info['name']}",
+            "db": node["db"], "function": info, "ddl": info["ddl"],
+            "base": _base(node, type=node["type"], oid=node["oid"])}
+
+
+def _type_context(conn, node, request):
+    schema, name = node["schema"], node["name"]
+    info = pg.type_info(conn, schema, name)
+    tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
+    context = {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "SQL")], "title": f"{schema}.{name}",
+               "db": node["db"], "type_info": info, "base": _base(node, type="type", name=name)}
+    if tab == "sql":
+        context["ddl"] = pg.type_ddl(conn, schema, name)
     return context
 
 
 @login_required
 @require_GET
 def detail(request):
-    """HTML fragment for the right-hand pane."""
+    """HTML fragment for the main pane."""
     node = tree.parse_node(request.GET)
-    kind, db, schema = node["type"], node["db"], node["schema"]
+    kind, db, schema, system = node["type"], node["db"], node["schema"], node["system"]
     context = {"kind": kind, "node": node}
     if kind == "servers":
         context["servers"] = ServerConnection.objects.all()
@@ -85,15 +134,34 @@ def detail(request):
                 context["database"] = next((d for d in pg.list_databases(conn) if d["name"] == db), None)
             if context["database"] is None:
                 raise pg.PgError(f"Database {db} was not found or you cannot connect to it.")
-        elif kind in ("schemas", "schema", "tables"):
+        elif kind in ("schemas", "schema"):
             with pg.connect(server, db) as conn:
-                context["schemas"] = pg.schema_rows(conn)
-                if kind != "schemas":
+                context["schemas"] = pg.schema_rows(conn, system)
+                if kind == "schema":
                     context["owner"] = next((s["owner"] for s in context["schemas"] if s["name"] == schema), "")
-                    context["tables"] = [t for t in pg.list_tables(conn, schema) if t["kind"] in ("table", "partitioned table")]
-        elif kind in TABLE_NODE_TABS:
+                    context["folder"] = "Tables"
+                    context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in FOLDERS["tables"][1]]
+        elif kind in FOLDERS:
+            context["folder"], kinds = FOLDERS[kind]
             with pg.connect(server, db) as conn:
-                context.update(_table_context(conn, node, request))
+                context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in kinds]
+        elif kind in ("functions", "procedures"):
+            context["folder"] = kind.capitalize()
+            with pg.connect(server, db) as conn:
+                context["functions"] = pg.list_functions(conn, schema, procedures=kind == "procedures", system=system)
+        elif kind == "types":
+            context["folder"] = "Types / Domains"
+            with pg.connect(server, db) as conn:
+                context["types"] = pg.list_types(conn, schema, system)
+        elif kind in RELATION_NODES or kind in SUBNODE_TABS:
+            with pg.connect(server, db) as conn:
+                context.update(_relation_context(conn, node, request))
+        elif kind in ("function", "procedure"):
+            with pg.connect(server, db) as conn:
+                context.update(_function_context(conn, node, request))
+        elif kind == "type":
+            with pg.connect(server, db) as conn:
+                context.update(_type_context(conn, node, request))
     except pg.PgError as error:
         context["error"] = str(error)
     return render(request, "explorer/_detail.html", context)

@@ -18,7 +18,8 @@
     <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><span class="glyph">⬡</span> PG<span>DECK</span></a>
     {# The object tree is in the sidebar on every page; explorer.js fills it in. #}
     <div class="sidebar-tree">
-      <div class="nav-label">OBJECT BROWSER</div>
+      <div class="nav-label tree-head"><span>OBJECT BROWSER</span>
+        <label class="sys-toggle" title="Also show system schemas and objects that belong to extensions"><input type="checkbox" id="showSystem"> system</label></div>
       <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"
           data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-home-url="{% url 'server_list' %}"></ul>
     </div>

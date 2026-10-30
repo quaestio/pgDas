@@ -42,6 +42,22 @@ class PgFixture:
             conn.execute("""CREATE TABLE pgdeck_demo.items (
                 id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, price numeric(8, 2) NOT NULL,
                 tax numeric(8, 2) GENERATED ALWAYS AS (price * 0.1) STORED)""")
+            conn.execute("CREATE MATERIALIZED VIEW pgdeck_demo.people_mv AS SELECT id, name FROM pgdeck_demo.people WITH DATA")
+            conn.execute("CREATE UNIQUE INDEX people_mv_id ON pgdeck_demo.people_mv (id)")
+            conn.execute("CREATE FUNCTION pgdeck_demo.add_one(a int) RETURNS int LANGUAGE sql IMMUTABLE AS 'SELECT a + 1'")
+            conn.execute("CREATE FUNCTION pgdeck_demo.add_one(a numeric) RETURNS numeric LANGUAGE sql IMMUTABLE AS 'SELECT a + 1'")
+            conn.execute("CREATE PROCEDURE pgdeck_demo.do_nothing() LANGUAGE sql AS 'SELECT 1'")
+            conn.execute("CREATE AGGREGATE pgdeck_demo.mysum(int) (sfunc = int4pl, stype = int)")
+            conn.execute("CREATE SEQUENCE pgdeck_demo.demo_seq START 10 INCREMENT 5 MAXVALUE 1000 CYCLE")
+            conn.execute("CREATE TYPE pgdeck_demo.mood AS ENUM ('sad', 'ok', 'it''s great')")
+            conn.execute("CREATE TYPE pgdeck_demo.pair AS (a int, b text)")
+            conn.execute("CREATE DOMAIN pgdeck_demo.positive_int AS integer NOT NULL DEFAULT 1 CONSTRAINT positive CHECK (VALUE > 0)")
+            conn.execute("CREATE TYPE pgdeck_demo.span AS RANGE (subtype = int4)")
+            conn.execute("CREATE FUNCTION pgdeck_demo.touch() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$")
+            conn.execute("CREATE TRIGGER people_touch BEFORE INSERT OR UPDATE ON pgdeck_demo.people "
+                         "FOR EACH ROW EXECUTE FUNCTION pgdeck_demo.touch()")
+            conn.execute("CREATE TRIGGER people_audit AFTER DELETE ON pgdeck_demo.people "
+                         "FOR EACH STATEMENT EXECUTE FUNCTION pgdeck_demo.touch()")
             conn.execute("CREATE TABLE pgdeck_demo.fresh (a int)")
             conn.execute("ALTER TABLE pgdeck_demo.fresh SET (autovacuum_enabled = false)")
             conn.execute("ANALYZE pgdeck_demo.people")
@@ -71,8 +87,10 @@ class PgLayerTests(PgFixture, TestCase):
             tables = {item["name"]: item["kind"] for item in pg.list_tables(conn, "pgdeck_demo")}
             columns = {c["name"]: c for c in pg.table_columns(conn, "pgdeck_demo", "people")}
             view_columns = [c["name"] for c in pg.table_columns(conn, "pgdeck_demo", "people_view")]
-        self.assertEqual(tables, {"people": "table", "people_view": "view", "orders": "table",
-                                  "items": "table", "fresh": "table"})
+        expected = {"people": "table", "people_view": "view", "orders": "table", "items": "table", "fresh": "table",
+                    "people_mv": "materialized view", "demo_seq": "sequence", "orders_id_seq": "sequence"}
+        for name, kind in expected.items():
+            self.assertEqual(tables.get(name), kind, name)
         self.assertFalse(columns["name"]["nullable"])
         self.assertTrue(columns["note"]["nullable"])
         self.assertEqual(view_columns, ["id", "name"])
@@ -147,7 +165,136 @@ class PgLayerTests(PgFixture, TestCase):
             self.assertEqual(conn.execute("SELECT tax FROM pgdeck_copy.items").fetchone()[0], 1)
             conn.execute("DROP SCHEMA pgdeck_copy CASCADE")
 
-    def test_never_analyzed_table_has_no_estimate_instead_of_zero(self):
+    def replay(self, *statements, schema="pgdeck_copy"):
+        """Run generated DDL in a scratch schema to prove it is valid, then drop the schema."""
+        params = connection.settings_dict
+        with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
+                             user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
+            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+            conn.execute(f"CREATE SCHEMA {schema}")
+            try:
+                for statement in statements:
+                    conn.execute(statement)
+            finally:
+                conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+
+    def test_views_and_materialized_views(self):
+        with pg.connect(make_server()) as conn:
+            view_info = pg.relation_info(conn, "pgdeck_demo", "people_view")
+            mv_info = pg.relation_info(conn, "pgdeck_demo", "people_mv")
+            view = pg.view_ddl(conn, "pgdeck_demo", "people_view")
+            matview = pg.view_ddl(conn, "pgdeck_demo", "people_mv")
+            columns = [c["name"] for c in pg.table_columns(conn, "pgdeck_demo", "people_mv")]
+            with self.assertRaises(pg.PgError):
+                pg.view_ddl(conn, "pgdeck_demo", "people")  # a table is not a view
+        self.assertEqual((view_info["kind"], mv_info["kind"], mv_info["populated"]), ("view", "materialized view", True))
+        self.assertIn("CREATE OR REPLACE VIEW pgdeck_demo.people_view AS", view)
+        self.assertIn("CREATE MATERIALIZED VIEW pgdeck_demo.people_mv AS", matview)
+        self.assertIn("WITH DATA;", matview)
+        self.assertIn("CREATE UNIQUE INDEX people_mv_id", matview)
+        self.assertEqual(columns, ["id", "name"])
+        self.replay(view.replace("pgdeck_demo.people_view", "pgdeck_copy.people_view"),
+                    matview.replace("pgdeck_demo.people_mv", "pgdeck_copy.people_mv").replace("ON pgdeck_demo.people_mv", "ON pgdeck_copy.people_mv"))
+
+    def test_triggers(self):
+        with pg.connect(make_server()) as conn:
+            triggers = {t["name"]: t for t in pg.table_triggers(conn, "pgdeck_demo", "people")}
+            none = pg.table_triggers(conn, "pgdeck_demo", "orders")
+        self.assertEqual(set(triggers), {"people_touch", "people_audit"})
+        touch = triggers["people_touch"]
+        self.assertEqual((touch["timing"], touch["events"], touch["level"], touch["state"], touch["function"]),
+                         ("BEFORE", "INSERT OR UPDATE", "ROW", "enabled", "touch"))
+        audit = triggers["people_audit"]
+        self.assertEqual((audit["timing"], audit["events"], audit["level"]), ("AFTER", "DELETE", "STATEMENT"))
+        self.assertIn("EXECUTE FUNCTION pgdeck_demo.touch()", touch["definition"])
+        self.assertEqual(none, [])
+
+    def test_functions_procedures_and_aggregates(self):
+        with pg.connect(make_server()) as conn:
+            functions = {f["signature"]: f for f in pg.list_functions(conn, "pgdeck_demo")}
+            procedures = pg.list_functions(conn, "pgdeck_demo", procedures=True)
+            add_int = functions["add_one(a integer)"]
+            info = pg.function_info(conn, "pgdeck_demo", add_int["oid"])
+            aggregate = pg.function_info(conn, "pgdeck_demo", functions["mysum(integer)"]["oid"])
+            proc = pg.function_info(conn, "pgdeck_demo", procedures[0]["oid"])
+            with self.assertRaises(pg.PgError):
+                pg.function_info(conn, "public", add_int["oid"])           # right oid, wrong schema
+            with self.assertRaises(pg.PgError):
+                pg.function_info(conn, "pgdeck_demo", "1; DROP TABLE x")   # not a number
+        self.assertIn("add_one(a numeric)", functions)                      # overloads stay separate
+        self.assertEqual(functions["touch()"]["returns"], "trigger")
+        self.assertEqual(functions["mysum(integer)"]["kind"], "aggregate")
+        self.assertEqual([p["signature"] for p in procedures], ["do_nothing()"])
+        self.assertEqual(procedures[0]["returns"], "")
+        self.assertEqual((info["volatility"], info["language"], info["security"], info["kind"]), ("immutable", "sql", "invoker", "function"))
+        self.assertIn("CREATE OR REPLACE FUNCTION pgdeck_demo.add_one(a integer)", info["ddl"])
+        self.assertTrue(aggregate["ddl"].startswith("-- mysum is an aggregate"))
+        self.assertEqual(proc["kind"], "procedure")
+        self.assertIn("CREATE OR REPLACE PROCEDURE pgdeck_demo.do_nothing()", proc["ddl"])
+        self.replay(info["ddl"].replace("pgdeck_demo.add_one", "pgdeck_copy.add_one"))
+
+    def test_sequences(self):
+        with pg.connect(make_server()) as conn:
+            demo = pg.sequence_info(conn, "pgdeck_demo", "demo_seq")
+            owned = pg.sequence_info(conn, "pgdeck_demo", "orders_id_seq")
+            ddl = pg.sequence_ddl(conn, "pgdeck_demo", "demo_seq")
+            owned_ddl = pg.sequence_ddl(conn, "pgdeck_demo", "orders_id_seq")
+            with self.assertRaises(pg.PgError):
+                pg.sequence_info(conn, "pgdeck_demo", "people")
+        self.assertEqual((demo["start"], demo["increment"], demo["max"], demo["cycle"], demo["type"]), (10, 5, 1000, True, "bigint"))
+        self.assertEqual(owned["owned_by"], "orders.id")
+        self.assertIn("INCREMENT BY 5", ddl)
+        self.assertIn("\n    CYCLE;", ddl)
+        self.assertIn("OWNED BY pgdeck_demo.orders.id", owned_ddl)
+        self.replay(ddl.replace("pgdeck_demo.demo_seq", "pgdeck_copy.demo_seq"))
+
+    def test_types_and_domains(self):
+        with pg.connect(make_server()) as conn:
+            kinds = {t["name"]: t["kind"] for t in pg.list_types(conn, "pgdeck_demo")}
+            mood = pg.type_info(conn, "pgdeck_demo", "mood")
+            pair = pg.type_info(conn, "pgdeck_demo", "pair")
+            domain = pg.type_info(conn, "pgdeck_demo", "positive_int")
+            span = pg.type_info(conn, "pgdeck_demo", "span")
+            ddls = [pg.type_ddl(conn, "pgdeck_demo", name) for name in ("mood", "pair", "positive_int", "span")]
+            with self.assertRaises(pg.PgError):
+                pg.type_info(conn, "pgdeck_demo", "people")   # a table's row type is not listed
+        self.assertEqual(kinds, {"mood": "enum", "pair": "composite", "positive_int": "domain", "span": "range"})
+        self.assertEqual(mood["labels"], ["sad", "ok", "it's great"])
+        self.assertEqual([f["name"] for f in pair["fields"]], ["a", "b"])
+        self.assertEqual((domain["base"], domain["not_null"], domain["default"]), ("integer", True, "1"))
+        self.assertEqual(domain["constraints"][0]["name"], "positive")
+        self.assertEqual(span["subtype"], "integer")
+        self.assertIn("'it''s great'", ddls[0])                  # a quote inside a label is escaped
+        self.assertIn("CONSTRAINT positive CHECK", ddls[2])
+        self.replay(*[d.replace("pgdeck_demo.", "pgdeck_copy.") for d in ddls])
+
+    def test_system_objects_are_hidden_unless_asked_for(self):
+        with pg.connect(make_server()) as conn:
+            plain = [s["name"] for s in pg.schema_rows(conn)]
+            system = [s["name"] for s in pg.schema_rows(conn, system=True)]
+        self.assertNotIn("pg_catalog", plain)
+        self.assertNotIn("information_schema", plain)
+        self.assertIn("pg_catalog", system)
+        self.assertIn("information_schema", system)
+        self.assertIn("pgdeck_demo", plain)
+        self.assertFalse([name for name in system if name.startswith(("pg_toast", "pg_temp"))])
+
+    def test_extension_objects_are_hidden_unless_system_is_on(self):
+        params = connection.settings_dict
+        with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
+                             user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
+            try:
+                conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm SCHEMA pgdeck_demo")
+            except psycopg.Error:
+                self.skipTest("pg_trgm is not available on this PostgreSQL server")
+        with pg.connect(make_server()) as conn:
+            plain = {f["name"] for f in pg.list_functions(conn, "pgdeck_demo")}
+            everything = {f["name"] for f in pg.list_functions(conn, "pgdeck_demo", system=True)}
+        self.assertNotIn("similarity", plain)
+        self.assertIn("similarity", everything)
+        self.assertIn("add_one", plain)        # the schema's own functions are always listed
+
+    def test_never_analyzed_table_has_no_estimate_instead_of_zero(self):  # noqa: kept after the step 2 tests
         with pg.connect(make_server()) as conn:
             fresh = pg.table_info(conn, "pgdeck_demo", "fresh")["estimate"]
             people = pg.table_info(conn, "pgdeck_demo", "people")["estimate"]
@@ -293,6 +440,11 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertIn('window.location.href = homeUrl + "?" + query(node)', script)   # other page: go to the browser
         self.assertIn("function pathTo(target)", script)                              # browser page: open ancestors, select node
         self.assertIn('twist.addEventListener("click"', script)                       # the arrow only opens/closes
+        for needle in ("SCHEMA_FOLDER_OF", '"views"', '"matviews"', '"functions"', '"procedures"', '"sequences"', '"types"',
+                       '"triggers"', 'params.set("system", "1")', "pgdeck.showSystem"):
+            self.assertIn(needle, script)
+        html = self.client.get(reverse("server_list")).content.decode()
+        self.assertIn('id="showSystem"', html[html.index("<aside"):html.index("</aside>")])   # the "system" switch
 
     def test_sidebar_is_resizable_and_collapsible_and_remembers_it(self):
         html = self.client.get(reverse("server_list")).content.decode()
@@ -343,11 +495,12 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertIn(db, [n["label"] for n in self.nodes(type="databases")])
         self.assertEqual([n["label"] for n in self.nodes(type="database", db=db)], ["Schemas"])
         self.assertIn("pgdeck_demo", [n["label"] for n in self.nodes(type="schemas", db=db)])
-        self.assertEqual([n["label"] for n in self.nodes(type="schema", db=db, schema="pgdeck_demo")], ["Tables"])
+        self.assertEqual([n["label"] for n in self.nodes(type="schema", db=db, schema="pgdeck_demo")],
+                         ["Tables", "Views", "Materialized Views", "Functions", "Procedures", "Sequences", "Types / Domains"])
         tables = {n["label"] for n in self.nodes(type="tables", db=db, schema="pgdeck_demo")}
         self.assertEqual(tables, {"people", "orders", "items", "fresh"})  # views are not tables
         place = {"db": db, "schema": "pgdeck_demo", "table": "orders"}
-        self.assertEqual([n["label"] for n in self.nodes(type="table", **place)], ["Columns", "Constraints", "Indexes"])
+        self.assertEqual([n["label"] for n in self.nodes(type="table", **place)], ["Columns", "Constraints", "Indexes", "Triggers"])
         columns = [n["label"] for n in self.nodes(type="columns", **place)]
         self.assertEqual(columns[0], "id : integer")
         constraints = {n["label"]: n["hint"] for n in self.nodes(type="constraints", **place)}
@@ -396,6 +549,108 @@ class ExplorerViewTests(PgFixture, TestCase):
         place = {"db": self.server.database, "schema": "pgdeck_demo", "table": "orders"}
         self.assertContains(self.detail(type="index", **place), "orders_ref_key")
         self.assertContains(self.detail(type="constraint", **place), "PRIMARY KEY")
+
+    def test_schema_folders_list_their_objects(self):
+        db, where = self.server.database, {"db": self.server.database, "schema": "pgdeck_demo"}
+        views = self.detail(type="views", **where)
+        self.assertContains(views, "Views in pgdeck_demo")
+        self.assertContains(views, "people_view")
+        self.assertNotContains(views, "people_mv")
+        self.assertContains(self.detail(type="matviews", **where), "people_mv")
+        self.assertContains(self.detail(type="sequences", **where), "demo_seq")
+        functions = self.detail(type="functions", **where)
+        for text in ("add_one", "a numeric", "mysum", "aggregate", "trigger"):
+            self.assertContains(functions, text)
+        self.assertContains(self.detail(type="procedures", **where), "do_nothing")
+        types = self.detail(type="types", **where)
+        for text in ("mood", "enum", "positive_int", "domain", "pair", "span", "range"):
+            self.assertContains(types, text)
+
+    def test_tree_has_the_new_object_nodes(self):
+        db, where = self.server.database, {"db": self.server.database, "schema": "pgdeck_demo"}
+        views = self.nodes(type="views", **where)
+        self.assertEqual([(n["label"], n["type"]) for n in views], [("people_view", "view")])
+        self.assertEqual([n["label"] for n in self.nodes(type="view", table="people_view", **where)], ["Columns"])
+        self.assertEqual([n["rel"] for n in self.nodes(type="view", table="people_view", **where)], ["view"])
+        self.assertEqual([n["label"] for n in self.nodes(type="matview", table="people_mv", **where)], ["Columns", "Indexes"])
+        self.assertEqual([n["label"] for n in self.nodes(type="matviews", **where)], ["people_mv"])
+        sequences = {n["label"]: n for n in self.nodes(type="sequences", **where)}
+        self.assertIn("demo_seq", sequences)
+        self.assertFalse(sequences["demo_seq"]["expandable"])
+        functions = {n["label"]: n for n in self.nodes(type="functions", **where)}
+        self.assertIn("add_one(a integer)", functions)
+        self.assertIn("add_one(a numeric)", functions)
+        self.assertTrue(functions["add_one(a integer)"]["oid"].isdigit())
+        self.assertEqual(functions["add_one(a integer)"]["hint"], "integer")
+        self.assertEqual([n["label"] for n in self.nodes(type="procedures", **where)], ["do_nothing()"])
+        types = {n["label"]: n["hint"] for n in self.nodes(type="types", **where)}
+        self.assertEqual(types, {"mood": "enum", "pair": "composite", "positive_int": "domain", "span": "range"})
+        triggers = {n["label"]: n["hint"] for n in self.nodes(type="triggers", table="people", rel="table", **where)}
+        self.assertEqual(triggers, {"people_audit": "after delete", "people_touch": "before insert or update"})
+        self.assertEqual(self.nodes(type="triggers", table="people", rel="table", **where)[0]["rel"], "table")
+
+    def test_view_matview_and_sequence_tabs(self):
+        where = {"db": self.server.database, "schema": "pgdeck_demo"}
+        view = self.detail(type="view", table="people_view", **where)
+        self.assertContains(view, "View")
+        self.assertNotContains(view, ">Constraints<")           # a view has no constraints, indexes or triggers
+        self.assertNotContains(view, ">Triggers<")
+        self.assertContains(self.detail(type="view", table="people_view", tab="sql", **where), "CREATE OR REPLACE VIEW")
+        self.assertContains(self.detail(type="view", table="people_view", tab="data", **where), "person 1")
+        matview = self.detail(type="matview", table="people_mv", **where)
+        self.assertContains(matview, ">Indexes<")
+        self.assertContains(matview, "Populated")
+        self.assertContains(self.detail(type="columns", table="people_mv", rel="matview", **where), "name")
+        self.assertContains(self.detail(type="index", table="people_mv", rel="matview", **where), "people_mv_id")
+        self.assertContains(self.detail(type="matview", table="people_mv", tab="sql", **where), "CREATE MATERIALIZED VIEW")
+        sequence = self.detail(type="sequence", table="demo_seq", **where)
+        for text in ("Increment", "1000", "not used yet", "Cycle"):
+            self.assertContains(sequence, text)
+        self.assertContains(self.detail(type="sequence", table="demo_seq", tab="sql", **where), "CREATE SEQUENCE")
+        self.assertNotContains(sequence, ">Data<")
+
+    def test_trigger_tab_and_leaf(self):
+        where = {"db": self.server.database, "schema": "pgdeck_demo", "table": "people"}
+        tab = self.detail(type="table", tab="triggers", **where)
+        for text in ("people_touch", "BEFORE", "INSERT OR UPDATE", "ROW", "enabled", "EXECUTE FUNCTION pgdeck_demo.touch()", "people_audit"):
+            self.assertContains(tab, text)
+        self.assertContains(self.detail(type="trigger", name="people_touch", rel="table", **where), "people_touch")
+        self.assertContains(self.detail(type="triggers", rel="table", **where), "STATEMENT")
+
+    def test_function_and_type_details(self):
+        where = {"db": self.server.database, "schema": "pgdeck_demo"}
+        oid = next(n["oid"] for n in self.nodes(type="functions", **where) if n["label"] == "add_one(a integer)")
+        props = self.detail(type="function", oid=oid, **where)
+        for text in ("immutable", "invoker", "Language", "sql", "integer"):
+            self.assertContains(props, text)
+        self.assertContains(self.detail(type="function", oid=oid, tab="sql", **where), "CREATE OR REPLACE FUNCTION pgdeck_demo.add_one")
+        proc_oid = self.nodes(type="procedures", **where)[0]["oid"]
+        self.assertContains(self.detail(type="procedure", oid=proc_oid, **where), "Procedure")
+        self.assertContains(self.detail(type="function", oid="abc", **where), "was not found")
+        self.assertContains(self.detail(type="function", oid="999999999", **where), "was not found")
+        enum = self.detail(type="type", name="mood", **where)
+        for text in ("enum", "sad", "it&#x27;s great"):
+            self.assertContains(enum, text)
+        self.assertContains(self.detail(type="type", name="mood", tab="sql", **where), "CREATE TYPE pgdeck_demo.mood AS ENUM")
+        domain = self.detail(type="type", name="positive_int", **where)
+        for text in ("domain", "Base type", "integer", "positive", "Not null"):
+            self.assertContains(domain, text)
+        self.assertContains(self.detail(type="type", name="pair", **where), "composite")
+        self.assertContains(self.detail(type="type", name="span", **where), "Subtype")
+        self.assertContains(self.detail(type="type", name="people", **where), "was not found")
+
+    def test_system_flag_reaches_the_tree_and_the_detail_links(self):
+        db = self.server.database
+        plain = [n["label"] for n in self.nodes(type="schemas", db=db)]
+        system = [n["label"] for n in self.nodes(type="schemas", db=db, system="1")]
+        self.assertNotIn("pg_catalog", plain)
+        self.assertIn("pg_catalog", system)
+        self.assertIn("information_schema", system)
+        where = {"db": db, "schema": "pgdeck_demo", "table": "people", "type": "table"}
+        self.assertNotContains(self.detail(**where), "system=1")
+        self.assertContains(self.detail(system="1", **where), "system=1")   # tab links keep the flag
+        catalog = self.detail(type="tables", db=db, schema="pg_catalog", system="1")
+        self.assertContains(catalog, "pg_class")
 
     def test_unknown_table_shows_an_error_message(self):
         response = self.detail(type="table", db=self.server.database, schema="pgdeck_demo", table="missing", tab="data")

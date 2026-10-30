@@ -10,15 +10,35 @@
   var treeUrl = treeEl.dataset.treeUrl;
   var detailUrl = treeEl.dataset.detailUrl;
   var homeUrl = treeEl.dataset.homeUrl;
-  var KEYS = ["type", "server", "db", "schema", "table"];
-  var ICONS = {servers: "▣", server: "▥", databases: "▤", database: "◉", schemas: "▤", schema: "▦", tables: "▤", table: "▦",
-               columns: "▤", column: "·", constraints: "▤", constraint: "·", indexes: "▤", index: "·"};
-  var FOLDER_OF = {column: "columns", constraint: "constraints", index: "indexes"};
+  // table = the relation (table, view, sequence); name = a type or trigger; oid = a function or procedure;
+  // rel = the kind of relation a Columns / Indexes / Triggers folder belongs to.
+  var KEYS = ["type", "server", "db", "schema", "table", "name", "oid", "rel"];
+  var ICONS = {servers: "▣", server: "▥", databases: "▤", database: "◉", schemas: "▤", schema: "▦",
+               tables: "▤", table: "▦", views: "▤", view: "◧", matviews: "▤", matview: "◨",
+               functions: "▤", function: "ƒ", procedures: "▤", procedure: "ƒ", sequences: "▤", sequence: "№",
+               types: "▤", type: "◈", columns: "▤", column: "·", constraints: "▤", constraint: "·",
+               indexes: "▤", index: "·", triggers: "▤", trigger: "↯"};
+  var FOLDER_OF = {column: "columns", constraint: "constraints", index: "indexes", trigger: "triggers"};
+  var SCHEMA_FOLDER_OF = {table: "tables", view: "views", matview: "matviews", sequence: "sequences",
+                          function: "functions", procedure: "procedures", type: "types"};
+  var SCHEMA_FOLDERS = ["tables", "views", "matviews", "functions", "procedures", "sequences", "types"];
   var selected = null;
+  // "Show system objects" (extension members, pg_catalog, information_schema) is remembered per browser.
+  var showSystem = false;
+  try { showSystem = localStorage.getItem("pgdeck.showSystem") === "1"; } catch (e) { /* not remembered */ }
+  var systemBox = document.getElementById("showSystem");
+  if (systemBox) {
+    systemBox.checked = showSystem;
+    systemBox.addEventListener("change", function () {
+      try { localStorage.setItem("pgdeck.showSystem", systemBox.checked ? "1" : "0"); } catch (e) { /* ignore */ }
+      window.location.reload();
+    });
+  }
 
   function query(node) {
     var params = new URLSearchParams();
     KEYS.forEach(function (key) { if (node[key]) params.set(key, node[key]); });
+    if (showSystem) params.set("system", "1");
     return params.toString();
   }
 
@@ -27,6 +47,7 @@
   }
 
   function showDetail(qs) {
+    if (showSystem && qs.indexOf("system=") < 0) qs += "&system=1";
     detailEl.innerHTML = '<p class="muted">Loading…</p>';
     get(detailUrl + "?" + qs)
       .then(function (r) { return r.text(); })
@@ -142,14 +163,23 @@
     if (t === "database") return path;
     path.push({type: "schemas", server: s, db: target.db});
     if (t === "schemas") return path;
-    path.push({type: "schema", server: s, db: target.db, schema: target.schema});
+    var where = {server: s, db: target.db, schema: target.schema};
+    path.push(Object.assign({type: "schema"}, where));
     if (t === "schema") return path;
-    path.push({type: "tables", server: s, db: target.db, schema: target.schema});
-    if (t === "tables") return path;
-    var place = {server: s, db: target.db, schema: target.schema, table: target.table};
-    path.push(Object.assign({type: "table"}, place));
-    if (t === "table") return path;
-    path.push(Object.assign({type: FOLDER_OF[t] || t}, place));
+    // Folders under a schema (Tables, Views, Functions, ...) and the items inside them.
+    if (SCHEMA_FOLDERS.indexOf(t) >= 0) { path.push(Object.assign({type: t}, where)); return path; }
+    if (SCHEMA_FOLDER_OF[t]) {
+      path.push(Object.assign({type: SCHEMA_FOLDER_OF[t]}, where));
+      var item = Object.assign({type: t}, where);
+      ["table", "name", "oid"].forEach(function (key) { if (target[key]) item[key] = target[key]; });
+      path.push(item);
+      return path;
+    }
+    // Columns / Constraints / Indexes / Triggers (or one of their items) belong to a table, view or materialized view.
+    var rel = target.rel || "table";
+    path.push(Object.assign({type: SCHEMA_FOLDER_OF[rel] || "tables"}, where));
+    path.push(Object.assign({type: rel, table: target.table}, where));
+    path.push(Object.assign({type: FOLDER_OF[t] || t, table: target.table}, where));
     return path;
   }
 
