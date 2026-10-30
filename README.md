@@ -9,9 +9,13 @@ PostgreSQL itself, with a statement timeout and a row cap. Write mode, scheduled
 planned next (see the roadmap).
 
 ## Features
-- One Object Browser in the sidebar: Servers → Databases → Schemas → Tables, Views, Materialized Views, Functions,
-  Procedures, Sequences, Types / Domains. Tables also show Columns, Constraints, Indexes and Triggers, with the
-  `CREATE` SQL of each object.
+- One Object Browser in the sidebar, laid out like pgAdmin's:
+  - **Server:** Databases, Roles (login and group roles, with their memberships), Tablespaces.
+  - **Database:** Catalogs (`pg_catalog`, `information_schema`), Extensions, Event Triggers, Publications, Schemas.
+  - **Schema:** Tables, Views, Materialized Views, Functions, Procedures, Sequences, Types / Domains. Tables also show
+    Columns, Constraints, Indexes and Triggers.
+  - Every object has a Properties tab and the `CREATE` SQL for it. Role SQL never includes a password.
+  - A **system** switch in the sidebar also shows built-in `pg_*` roles and objects installed by extensions.
 - Sign in with local accounts; staff users manage servers and see the audit log, everyone signed in can browse.
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
 - SQL runner: read-only, 30 s timeout, 1000-row cap.

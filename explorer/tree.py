@@ -1,15 +1,18 @@
 """The object tree:
 
-    Servers > Server > Databases > Database > Schemas > Schema >
+    Servers > Server > Databases > Database > Catalogs / Extensions / Event Triggers / Publications / Schemas
+                     > Roles
+                     > Tablespaces
+    Schema (and each Catalog) >
         Tables > Table > Columns / Constraints / Indexes / Triggers
         Views > View > Columns
         Materialized Views > Materialized View > Columns / Indexes
         Functions, Procedures, Sequences, Types / Domains
 
 Nodes are plain dicts. A node's identity is its type plus the server / db / schema / table (a relation such as a table,
-view or sequence) / name (a type or trigger) / oid (a function or procedure) it points at, so the browser can ask for any
-node's children or details with those few query parameters. `rel` says which kind of relation a Columns / Indexes /
-Triggers folder belongs to, and `system=1` asks for system and extension objects too.
+view or sequence) / name (a type, trigger, role, extension, ...) / oid (a function or procedure) it points at, so the
+browser can ask for any node's children or details with those few query parameters. `rel` says which kind of relation
+a Columns / Indexes / Triggers folder belongs to, and `system=1` asks for extension objects and built-in pg_* roles too.
 """
 from servers.models import ServerConnection
 
@@ -55,16 +58,43 @@ def children(node):
     db, schema, table, system = node["db"], node["schema"], node["table"], node["system"]
     sid = server.pk
     if kind == "server":
-        return [make_node("Databases", "databases", server=sid)]
+        return [make_node("Databases", "databases", server=sid), make_node("Roles", "roles", server=sid),
+                make_node("Tablespaces", "tablespaces", server=sid)]
     if kind == "databases":
         with pg.connect(server) as conn:
             return [make_node(d["name"], "database", hint=d["size_text"], server=sid, db=d["name"]) for d in pg.list_databases(conn)]
+    if kind == "roles":
+        with pg.connect(server) as conn:
+            return [make_node(r["name"], "role", expandable=False, hint=r["kind"], name=r["name"], server=sid)
+                    for r in pg.list_roles(conn, system)]
+    if kind == "tablespaces":
+        with pg.connect(server) as conn:
+            return [make_node(t["name"], "tablespace", expandable=False, hint=t["size_text"], name=t["name"], server=sid)
+                    for t in pg.list_tablespaces(conn)]
     if kind == "database":
-        return [make_node("Schemas", "schemas", server=sid, db=db)]
+        return [make_node(label, folder, server=sid, db=db) for label, folder in
+                (("Catalogs", "catalogs"), ("Extensions", "extensions"), ("Event Triggers", "eventtriggers"),
+                 ("Publications", "publications"), ("Schemas", "schemas"))]
+    if kind == "catalogs":
+        with pg.connect(server, db) as conn:
+            return [make_node(s["name"], "catalog", server=sid, db=db, schema=s["name"]) for s in pg.catalog_rows(conn)]
+    if kind == "extensions":
+        with pg.connect(server, db) as conn:
+            return [make_node(e["name"], "extension", expandable=False, hint=e["version"], name=e["name"], server=sid, db=db)
+                    for e in pg.list_extensions(conn)]
+    if kind == "eventtriggers":
+        with pg.connect(server, db) as conn:
+            return [make_node(t["name"], "eventtrigger", expandable=False, hint=t["event"], name=t["name"], server=sid, db=db)
+                    for t in pg.list_event_triggers(conn)]
+    if kind == "publications":
+        with pg.connect(server, db) as conn:
+            return [make_node(p["name"], "publication", expandable=False,
+                              hint="all tables" if p["all_tables"] else f"{p['table_count']} tables", name=p["name"], server=sid, db=db)
+                    for p in pg.list_publications(conn)]
     if kind == "schemas":
         with pg.connect(server, db) as conn:
-            return [make_node(s["name"], "schema", server=sid, db=db, schema=s["name"]) for s in pg.schema_rows(conn, system)]
-    if kind == "schema":
+            return [make_node(s["name"], "schema", server=sid, db=db, schema=s["name"]) for s in pg.schema_rows(conn)]
+    if kind in ("schema", "catalog"):
         return [make_node(label, folder, server=sid, db=db, schema=schema) for label, folder in SCHEMA_FOLDERS]
 
     where = {"server": sid, "db": db, "schema": schema}

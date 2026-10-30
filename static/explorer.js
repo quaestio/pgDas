@@ -14,6 +14,8 @@
   // rel = the kind of relation a Columns / Indexes / Triggers folder belongs to.
   var KEYS = ["type", "server", "db", "schema", "table", "name", "oid", "rel"];
   var ICONS = {servers: "▣", server: "▥", databases: "▤", database: "◉", schemas: "▤", schema: "▦",
+               roles: "▤", role: "☻", tablespaces: "▤", tablespace: "▭", catalogs: "▤", catalog: "▦",
+               extensions: "▤", extension: "⬢", eventtriggers: "▤", eventtrigger: "↯", publications: "▤", publication: "⇉",
                tables: "▤", table: "▦", views: "▤", view: "◧", matviews: "▤", matview: "◨",
                functions: "▤", function: "ƒ", procedures: "▤", procedure: "ƒ", sequences: "▤", sequence: "№",
                types: "▤", type: "◈", columns: "▤", column: "·", constraints: "▤", constraint: "·",
@@ -22,6 +24,12 @@
   var SCHEMA_FOLDER_OF = {table: "tables", view: "views", matview: "matviews", sequence: "sequences",
                           function: "functions", procedure: "procedures", type: "types"};
   var SCHEMA_FOLDERS = ["tables", "views", "matviews", "functions", "procedures", "sequences", "types"];
+  // Roles and Tablespaces hang off the server; Catalogs, Extensions, Event Triggers and Publications off a database.
+  var SERVER_FOLDERS = ["roles", "tablespaces"];
+  var SERVER_FOLDER_OF = {role: "roles", tablespace: "tablespaces"};
+  var DB_FOLDERS = ["catalogs", "extensions", "eventtriggers", "publications"];
+  var DB_FOLDER_OF = {extension: "extensions", eventtrigger: "eventtriggers", publication: "publications"};
+  var CATALOG_SCHEMAS = ["pg_catalog", "information_schema"];   // these sit under Catalogs, not Schemas
   var selected = null;
   // "Show system objects" (extension members, pg_catalog, information_schema) is remembered per browser.
   var showSystem = false;
@@ -166,15 +174,33 @@
     if (t === "servers") return [{type: "servers"}];
     path.push({type: "server", server: s});
     if (t === "server") return path;
+    if (SERVER_FOLDERS.indexOf(t) >= 0) { path.push({type: t, server: s}); return path; }
+    if (SERVER_FOLDER_OF[t]) {
+      path.push({type: SERVER_FOLDER_OF[t], server: s});
+      path.push({type: t, server: s, name: target.name});
+      return path;
+    }
     path.push({type: "databases", server: s});
     if (t === "databases") return path;
     path.push({type: "database", server: s, db: target.db});
     if (t === "database") return path;
-    path.push({type: "schemas", server: s, db: target.db});
-    if (t === "schemas") return path;
+    if (DB_FOLDERS.indexOf(t) >= 0) { path.push({type: t, server: s, db: target.db}); return path; }
+    if (DB_FOLDER_OF[t]) {
+      path.push({type: DB_FOLDER_OF[t], server: s, db: target.db});
+      path.push({type: t, server: s, db: target.db, name: target.name});
+      return path;
+    }
     var where = {server: s, db: target.db, schema: target.schema};
-    path.push(Object.assign({type: "schema"}, where));
-    if (t === "schema") return path;
+    if (CATALOG_SCHEMAS.indexOf(target.schema) >= 0) {
+      path.push({type: "catalogs", server: s, db: target.db});
+      path.push(Object.assign({type: "catalog"}, where));
+      if (t === "catalog") return path;
+    } else {
+      path.push({type: "schemas", server: s, db: target.db});
+      if (t === "schemas") return path;
+      path.push(Object.assign({type: "schema"}, where));
+      if (t === "schema") return path;
+    }
     // Folders under a schema (Tables, Views, Functions, ...) and the items inside them.
     if (SCHEMA_FOLDERS.indexOf(t) >= 0) { path.push(Object.assign({type: t}, where)); return path; }
     if (SCHEMA_FOLDER_OF[t]) {

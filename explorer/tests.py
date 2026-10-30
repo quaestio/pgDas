@@ -89,12 +89,47 @@ class PgFixture:
             conn.execute("CREATE TABLE pgdeck_demo.fresh (a int)")
             conn.execute("ALTER TABLE pgdeck_demo.fresh SET (autovacuum_enabled = false)")
             conn.execute("ANALYZE pgdeck_demo.people")
+            # Objects that need extra privileges: each group is created on its own, and a test that needs a group
+            # that could not be created is skipped (see `need`).
+            cls.extras = set()
+            for key, statements in (
+                ("event", ["CREATE FUNCTION pgdeck_demo.on_ddl() RETURNS event_trigger LANGUAGE plpgsql AS $$ BEGIN NULL; END $$",
+                           "CREATE EVENT TRIGGER pgdeck_ddl_watch ON ddl_command_end WHEN TAG IN ('CREATE TABLE', 'ALTER TABLE') "
+                           "EXECUTE FUNCTION pgdeck_demo.on_ddl()"]),
+                ("pub", ["CREATE PUBLICATION pgdeck_pub FOR TABLE pgdeck_demo.people, pgdeck_demo.orders "
+                         "WITH (publish = 'insert, update')"]),
+                ("pub_all", ["CREATE PUBLICATION pgdeck_pub_all FOR ALL TABLES"]),
+                ("pub_schema", ["CREATE PUBLICATION pgdeck_pub_schema FOR TABLES IN SCHEMA pgdeck_demo"]),
+            ):
+                try:
+                    for statement in statements:
+                        conn.execute(statement)
+                    cls.extras.add(key)
+                except psycopg.Error:
+                    pass
+        try:
+            with admin_connect("postgres") as conn:   # roles belong to the whole server, not to one database
+                for statement in ("DROP ROLE IF EXISTS pgdeck_member", "DROP ROLE IF EXISTS pgdeck_group",
+                                  "CREATE ROLE pgdeck_group NOLOGIN",
+                                  "CREATE ROLE pgdeck_member LOGIN CONNECTION LIMIT 5 VALID UNTIL '2031-01-01 00:00:00+00' IN ROLE pgdeck_group",
+                                  "COMMENT ON ROLE pgdeck_member IS 'demo role'"):
+                    conn.execute(statement)
+            cls.extras.add("roles")
+        except psycopg.Error:
+            pass
 
     @classmethod
     def tearDownClass(cls):
         with admin_connect("postgres") as conn:
             conn.execute(f"DROP DATABASE IF EXISTS {TARGET['NAME']} WITH (FORCE)")   # the scratch database goes away
+            conn.execute("DROP ROLE IF EXISTS pgdeck_member")
+            conn.execute("DROP ROLE IF EXISTS pgdeck_group")
         super().tearDownClass()
+
+    def need(self, *keys):
+        missing = [key for key in keys if key not in self.extras]
+        if missing:
+            self.skipTest(f"this PostgreSQL login could not create: {', '.join(missing)}")
 
 
 class PgLayerTests(PgFixture, TestCase):
@@ -348,16 +383,123 @@ class PgLayerTests(PgFixture, TestCase):
         self.assertIn("CONSTRAINT positive CHECK", ddls[2])
         self.replay(*[d.replace("pgdeck_demo.", "pgdeck_copy.") for d in ddls])
 
-    def test_system_objects_are_hidden_unless_asked_for(self):
+    def test_catalogs_are_listed_apart_from_schemas(self):
         with pg.connect(make_server()) as conn:
-            plain = [s["name"] for s in pg.schema_rows(conn)]
-            system = [s["name"] for s in pg.schema_rows(conn, system=True)]
-        self.assertNotIn("pg_catalog", plain)
-        self.assertNotIn("information_schema", plain)
-        self.assertIn("pg_catalog", system)
-        self.assertIn("information_schema", system)
-        self.assertIn("pgdeck_demo", plain)
-        self.assertFalse([name for name in system if name.startswith(("pg_toast", "pg_temp"))])
+            schemas = [s["name"] for s in pg.schema_rows(conn)]
+            catalogs = pg.catalog_rows(conn)
+        self.assertIn("pgdeck_demo", schemas)
+        self.assertNotIn("pg_catalog", schemas)             # the system catalogs live under Catalogs
+        self.assertNotIn("information_schema", schemas)
+        self.assertEqual([c["name"] for c in catalogs], ["information_schema", "pg_catalog"])
+        self.assertTrue(all(c["owner"] for c in catalogs))
+
+    def test_roles(self):
+        self.need("roles")
+        with pg.connect(make_server()) as conn:
+            plain = {r["name"]: r for r in pg.list_roles(conn)}
+            everything = {r["name"] for r in pg.list_roles(conn, system=True)}
+            member = pg.role_info(conn, "pgdeck_member")
+            group = pg.role_info(conn, "pgdeck_group")
+            ddl = pg.role_ddl(conn, "pgdeck_member")
+            with self.assertRaises(pg.PgError):
+                pg.role_info(conn, "no_such_role_xyz")
+        self.assertEqual((plain["pgdeck_group"]["kind"], plain["pgdeck_member"]["kind"]), ("group", "login"))
+        self.assertFalse([name for name in plain if name.startswith("pg_")])            # built-in roles hidden by default
+        self.assertIn("pg_read_all_data", everything)
+        self.assertEqual((member["login"], member["superuser"], member["connection_limit"]), (True, False, 5))
+        self.assertTrue(member["valid_until"].startswith("2031-01-01"))
+        self.assertEqual((member["member_of"], member["comment"]), (["pgdeck_group"], "demo role"))
+        self.assertEqual((group["members"], group["login"], group["connection_limit"]), (["pgdeck_member"], False, -1))
+        for text in ("CREATE ROLE pgdeck_member WITH", "NOSUPERUSER", "LOGIN", "CONNECTION LIMIT 5", "VALID UNTIL '2031-01-01",
+                     "GRANT pgdeck_group TO pgdeck_member;"):
+            self.assertIn(text, ddl)
+        self.assertNotIn("PASSWORD", ddl.upper())                                       # a password is never read or shown
+        with admin_connect("postgres") as conn:                                         # the DDL really runs
+            try:
+                conn.execute(ddl.replace("pgdeck_member", "pgdeck_member_copy"))
+                self.assertTrue(conn.execute("SELECT 1 FROM pg_roles WHERE rolname = 'pgdeck_member_copy'").fetchone())
+            finally:
+                conn.execute("DROP ROLE IF EXISTS pgdeck_member_copy")
+
+    def test_tablespaces(self):
+        with pg.connect(make_server()) as conn:
+            spaces = {t["name"]: t for t in pg.list_tablespaces(conn)}
+            default = pg.tablespace_info(conn, "pg_default")
+            ddl = pg.tablespace_ddl(conn, "pg_default")
+            with self.assertRaises(pg.PgError):
+                pg.tablespace_info(conn, "no_such_space")
+        self.assertTrue({"pg_default", "pg_global"} <= set(spaces))
+        self.assertNotEqual(spaces["pg_default"]["size_text"], "—")                     # a size, not "unknown"
+        self.assertEqual((default["location"], default["options"]), ("", []))
+        self.assertTrue(ddl.startswith("-- pg_default is built into PostgreSQL"))
+
+    def test_extensions(self):
+        with pg.connect(make_server()) as conn:
+            extensions = {e["name"]: e for e in pg.list_extensions(conn)}
+            info = pg.extension_info(conn, "plpgsql")
+            ddl = pg.extension_ddl(conn, "plpgsql")
+            with self.assertRaises(pg.PgError):
+                pg.extension_info(conn, "not_installed_xyz")
+        self.assertEqual(extensions["plpgsql"]["schema"], "pg_catalog")
+        self.assertEqual((info["name"], info["relocatable"], info["update_available"]), ("plpgsql", False, False))
+        self.assertTrue(info["owner"] and info["version"] and info["comment"])
+        self.assertIn("CREATE EXTENSION plpgsql\n    WITH SCHEMA pg_catalog\n    VERSION '", ddl)
+
+    def test_event_triggers(self):
+        self.need("event")
+        with pg.connect(make_server()) as conn:
+            triggers = {t["name"]: t for t in pg.list_event_triggers(conn)}
+            ddl = pg.event_trigger_ddl(conn, "pgdeck_ddl_watch")
+            with self.assertRaises(pg.PgError):
+                pg.event_trigger_info(conn, "nope")
+        trigger = triggers["pgdeck_ddl_watch"]
+        self.assertEqual((trigger["event"], trigger["state"], trigger["function"]), ("ddl_command_end", "enabled", "pgdeck_demo.on_ddl"))
+        self.assertEqual(trigger["tags"], ["CREATE TABLE", "ALTER TABLE"])       # kept in the order they were written
+        self.assertIn("WHEN TAG IN ('CREATE TABLE', 'ALTER TABLE')", ddl)
+        self.assertIn("EXECUTE FUNCTION pgdeck_demo.on_ddl();", ddl)
+        with admin_connect(TARGET["NAME"]) as conn:                                      # the DDL really runs
+            conn.execute("DROP EVENT TRIGGER pgdeck_ddl_watch")
+            conn.execute(ddl)
+            self.assertTrue(conn.execute("SELECT 1 FROM pg_event_trigger WHERE evtname = 'pgdeck_ddl_watch'").fetchone())
+
+    def test_publications(self):
+        self.need("pub")
+        with pg.connect(make_server()) as conn:
+            listed = {p["name"]: p for p in pg.list_publications(conn)}
+            info = pg.publication_info(conn, "pgdeck_pub")
+            ddl = pg.publication_ddl(conn, "pgdeck_pub")
+            with self.assertRaises(pg.PgError):
+                pg.publication_info(conn, "nope")
+        self.assertEqual((listed["pgdeck_pub"]["table_count"], listed["pgdeck_pub"]["all_tables"]), (2, False))
+        self.assertEqual((info["publishes"], info["tables"]), (["insert", "update"], ["pgdeck_demo.orders", "pgdeck_demo.people"]))
+        self.assertIn("CREATE PUBLICATION pgdeck_pub\n    FOR TABLE pgdeck_demo.orders, pgdeck_demo.people", ddl)
+        self.assertIn("WITH (publish = 'insert, update');", ddl)
+        with admin_connect(TARGET["NAME"]) as conn:                                      # the DDL really runs
+            try:
+                conn.execute(ddl.replace("pgdeck_pub\n", "pgdeck_pub_copy\n"))
+            finally:
+                conn.execute("DROP PUBLICATION IF EXISTS pgdeck_pub_copy")
+
+    def test_all_tables_and_schema_publications(self):
+        self.need("pub_all", "pub_schema")
+        with pg.connect(make_server()) as conn:
+            all_tables = pg.publication_info(conn, "pgdeck_pub_all")
+            all_ddl = pg.publication_ddl(conn, "pgdeck_pub_all")
+            schema = pg.publication_info(conn, "pgdeck_pub_schema")
+            schema_ddl = pg.publication_ddl(conn, "pgdeck_pub_schema")
+        self.assertTrue(all_tables["all_tables"])
+        self.assertIn("FOR ALL TABLES", all_ddl)
+        self.assertEqual(schema["schemas"], ["pgdeck_demo"])
+        self.assertIn("FOR TABLES IN SCHEMA pgdeck_demo", schema_ddl)
+        self.assertNotIn("FOR TABLE ", schema_ddl)                # the schema's tables are not repeated one by one
+
+    def test_system_objects_are_hidden_unless_asked_for(self):
+        """The `system` switch now covers extension-owned objects and built-in pg_* roles (catalogs are always listed)."""
+        with pg.connect(make_server()) as conn:
+            plain_roles = [r["name"] for r in pg.list_roles(conn)]
+            system_roles = [r["name"] for r in pg.list_roles(conn, system=True)]
+        self.assertFalse([name for name in plain_roles if name.startswith("pg_")])
+        self.assertTrue([name for name in system_roles if name.startswith("pg_")])
 
     def test_extension_objects_are_hidden_unless_system_is_on(self):
         params = TARGET
@@ -521,7 +663,9 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertIn("function pathTo(target)", script)                              # browser page: open ancestors, select node
         self.assertIn('twist.addEventListener("click"', script)                       # the arrow only opens/closes
         for needle in ("SCHEMA_FOLDER_OF", '"views"', '"matviews"', '"functions"', '"procedures"', '"sequences"', '"types"',
-                       '"triggers"', 'params.set("system", "1")', "pgdeck.showSystem"):
+                       '"triggers"', 'params.set("system", "1")', "pgdeck.showSystem",
+                       "SERVER_FOLDER_OF", "DB_FOLDER_OF", "CATALOG_SCHEMAS", '"roles"', '"tablespaces"', '"catalogs"',
+                       '"extensions"', '"eventtriggers"', '"publications"'):
             self.assertIn(needle, script)
         html = self.client.get(reverse("server_list")).content.decode()
         self.assertIn('id="showSystem"', html[html.index("<aside"):html.index("</aside>")])   # the "system" switch
@@ -583,7 +727,8 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertEqual({n["label"] for n in top}, {"test", "Second"})
         self.assertTrue(all(n["type"] == "server" and n["expandable"] for n in top))
         self.assertEqual({n["server"] for n in top}, {str(self.server.pk), str(second.pk)})
-        self.assertEqual([n["label"] for n in self.nodes(type="server", server=second.pk)], ["Databases"])  # no connection needed
+        self.assertEqual([n["label"] for n in self.nodes(type="server", server=second.pk)],
+                         ["Databases", "Roles", "Tablespaces"])  # listing them needs no connection
 
     def test_unknown_server_is_an_error_not_a_crash(self):
         response = self.client.get(reverse("tree"), {"type": "databases", "server": 99999})
@@ -594,9 +739,9 @@ class ExplorerViewTests(PgFixture, TestCase):
 
     def test_tree_walks_server_to_indexes(self):
         db = self.server.database
-        self.assertEqual([n["type"] for n in self.nodes(type="server")], ["databases"])
+        self.assertEqual([n["type"] for n in self.nodes(type="server")], ["databases", "roles", "tablespaces"])
         self.assertIn(db, [n["label"] for n in self.nodes(type="databases")])
-        self.assertEqual([n["label"] for n in self.nodes(type="database", db=db)], ["Schemas"])
+        self.assertEqual([n["label"] for n in self.nodes(type="database", db=db)][-1], "Schemas")   # (after the new folders)
         self.assertIn("pgdeck_demo", [n["label"] for n in self.nodes(type="schemas", db=db)])
         self.assertEqual([n["label"] for n in self.nodes(type="schema", db=db, schema="pgdeck_demo")],
                          ["Tables", "Views", "Materialized Views", "Functions", "Procedures", "Sequences", "Types / Domains"])
@@ -745,16 +890,95 @@ class ExplorerViewTests(PgFixture, TestCase):
 
     def test_system_flag_reaches_the_tree_and_the_detail_links(self):
         db = self.server.database
-        plain = [n["label"] for n in self.nodes(type="schemas", db=db)]
-        system = [n["label"] for n in self.nodes(type="schemas", db=db, system="1")]
-        self.assertNotIn("pg_catalog", plain)
-        self.assertIn("pg_catalog", system)
-        self.assertIn("information_schema", system)
+        self.need("roles")
+        plain = [n["label"] for n in self.nodes(type="roles")]
+        system = [n["label"] for n in self.nodes(type="roles", system="1")]
+        self.assertFalse([name for name in plain if name.startswith("pg_")])      # built-in roles are hidden by default
+        self.assertIn("pg_read_all_data", system)
         where = {"db": db, "schema": "pgdeck_demo", "table": "people", "type": "table"}
         self.assertNotContains(self.detail(**where), "system=1")
         self.assertContains(self.detail(system="1", **where), "system=1")   # tab links keep the flag
-        catalog = self.detail(type="tables", db=db, schema="pg_catalog", system="1")
+        catalog = self.detail(type="tables", db=db, schema="pg_catalog")
         self.assertContains(catalog, "pg_class")
+
+    def test_server_and_database_have_their_extra_folders(self):
+        db = self.server.database
+        self.assertEqual([(n["label"], n["type"]) for n in self.nodes(type="server")],
+                         [("Databases", "databases"), ("Roles", "roles"), ("Tablespaces", "tablespaces")])
+        self.assertEqual([n["label"] for n in self.nodes(type="database", db=db)],
+                         ["Catalogs", "Extensions", "Event Triggers", "Publications", "Schemas"])
+        catalogs = self.nodes(type="catalogs", db=db)
+        self.assertEqual([(n["label"], n["type"], n["schema"]) for n in catalogs],
+                         [("information_schema", "catalog", "information_schema"), ("pg_catalog", "catalog", "pg_catalog")])
+        self.assertEqual([n["label"] for n in self.nodes(type="catalog", db=db, schema="pg_catalog")],
+                         ["Tables", "Views", "Materialized Views", "Functions", "Procedures", "Sequences", "Types / Domains"])
+        schemas = [n["label"] for n in self.nodes(type="schemas", db=db)]
+        self.assertIn("pgdeck_demo", schemas)
+        self.assertNotIn("pg_catalog", schemas)                       # catalogs are not repeated under Schemas
+        tables = [n["label"] for n in self.nodes(type="tables", db=db, schema="pg_catalog")]
+        self.assertIn("pg_class", tables)                              # a catalog opens like any schema
+
+    def test_roles_and_tablespaces_nodes(self):
+        self.need("roles")
+        roles = {n["label"]: n for n in self.nodes(type="roles")}
+        self.assertEqual((roles["pgdeck_member"]["hint"], roles["pgdeck_group"]["hint"]), ("login", "group"))
+        self.assertFalse(roles["pgdeck_member"]["expandable"])
+        self.assertEqual(roles["pgdeck_member"]["name"], "pgdeck_member")
+        spaces = {n["label"]: n for n in self.nodes(type="tablespaces")}
+        self.assertTrue({"pg_default", "pg_global"} <= set(spaces))
+        self.assertNotEqual(spaces["pg_default"]["hint"], "—")
+
+    def test_database_level_object_nodes(self):
+        db = self.server.database
+        extensions = {n["label"]: n for n in self.nodes(type="extensions", db=db)}
+        self.assertIn("plpgsql", extensions)
+        self.assertEqual(extensions["plpgsql"]["db"], db)
+        self.assertTrue(extensions["plpgsql"]["hint"])                 # the version
+        if "event" in self.extras:
+            self.assertEqual([(n["label"], n["hint"]) for n in self.nodes(type="eventtriggers", db=db)],
+                             [("pgdeck_ddl_watch", "ddl_command_end")])
+        if "pub" in self.extras:
+            publications = {n["label"]: n["hint"] for n in self.nodes(type="publications", db=db)}
+            self.assertEqual(publications["pgdeck_pub"], "2 tables")
+            if "pub_all" in self.extras:
+                self.assertEqual(publications["pgdeck_pub_all"], "all tables")
+
+    def test_details_of_the_new_folders_and_objects(self):
+        db = self.server.database
+        self.need("roles", "event", "pub")
+        roles = self.detail(type="roles")
+        for text in ("Roles on", "pgdeck_member", "login", "group"):
+            self.assertContains(roles, text)
+        member = self.detail(type="role", name="pgdeck_member")
+        for text in ("Can log in", "Connection limit", "2031-01-01", "pgdeck_group", "demo role"):
+            self.assertContains(member, text)
+        self.assertContains(self.detail(type="role", name="pgdeck_member", tab="sql"), "GRANT pgdeck_group TO pgdeck_member;")
+        self.assertContains(self.detail(type="role", name="no_such_role_xyz"), "was not found")
+        spaces = self.detail(type="tablespaces")
+        self.assertContains(spaces, "pg_default")
+        self.assertContains(spaces, "(built in)")
+        self.assertContains(self.detail(type="tablespace", name="pg_default"), "built in")
+        self.assertContains(self.detail(type="tablespace", name="pg_default", tab="sql"), "built into PostgreSQL")
+        self.assertContains(self.detail(type="catalogs", db=db), "pg_catalog")
+        catalog = self.detail(type="catalog", db=db, schema="pg_catalog")
+        self.assertContains(catalog, "Catalog pg_catalog")
+        self.assertContains(catalog, "pg_class")
+        self.assertContains(self.detail(type="extensions", db=db), "plpgsql")
+        extension = self.detail(type="extension", db=db, name="plpgsql")
+        for text in ("Version", "Relocatable", "pg_catalog"):
+            self.assertContains(extension, text)
+        self.assertContains(self.detail(type="extension", db=db, name="plpgsql", tab="sql"), "CREATE EXTENSION plpgsql")
+        self.assertContains(self.detail(type="extension", db=db, name="nope"), "is not installed")
+        self.assertContains(self.detail(type="eventtriggers", db=db), "pgdeck_ddl_watch")
+        trigger = self.detail(type="eventtrigger", db=db, name="pgdeck_ddl_watch")
+        for text in ("ddl_command_end", "CREATE TABLE", "pgdeck_demo.on_ddl"):
+            self.assertContains(trigger, text)
+        self.assertContains(self.detail(type="publications", db=db), "pgdeck_pub")
+        publication = self.detail(type="publication", db=db, name="pgdeck_pub")
+        for text in ("insert", "update", "pgdeck_demo.people", "pgdeck_demo.orders"):
+            self.assertContains(publication, text)
+        self.assertContains(self.detail(type="publication", db=db, name="pgdeck_pub", tab="sql"), "CREATE PUBLICATION pgdeck_pub")
+        self.assertContains(self.detail(type="publication", db=db, name="nope"), "was not found")
 
     def test_unknown_table_shows_an_error_message(self):
         response = self.detail(type="table", db=self.server.database, schema="pgdeck_demo", table="missing", tab="data")

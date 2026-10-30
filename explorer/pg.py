@@ -109,13 +109,202 @@ NOT_IN_EXTENSION = """NOT EXISTS (SELECT 1 FROM pg_depend ext WHERE ext.objid = 
                                      AND ext.deptype = 'e')"""
 
 
-def schema_rows(conn, system=False):
-    where = "nspname <> 'information_schema' AND nspname !~ '^pg_(toast|temp|toast_temp)'" if system else \
-        "nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema'"
-    rows = conn.execute(f"SELECT nspname, pg_get_userbyid(nspowner) FROM pg_namespace WHERE {where} ORDER BY 1").fetchall()
-    if system:  # information_schema is a system schema too: show it when asked
-        rows = sorted(rows + conn.execute("SELECT nspname, pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = 'information_schema'").fetchall())
+CATALOG_SCHEMAS = ("information_schema", "pg_catalog")
+
+
+def schema_rows(conn):
+    """The database's own schemas. The system catalogs live under Catalogs, not here."""
+    rows = conn.execute(
+        """SELECT nspname, pg_get_userbyid(nspowner) FROM pg_namespace
+           WHERE nspname NOT LIKE 'pg\\_%' AND nspname <> 'information_schema' ORDER BY 1""").fetchall()
     return [{"name": name, "owner": owner} for name, owner in rows]
+
+
+def catalog_rows(conn):
+    """pg_catalog and information_schema: the built-in system catalogs."""
+    rows = conn.execute("SELECT nspname, pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = ANY(%s) ORDER BY 1",
+                        (list(CATALOG_SCHEMAS),)).fetchall()
+    return [{"name": name, "owner": owner} for name, owner in rows]
+
+
+def _literal(value):
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def list_roles(conn, system=False):
+    """Login and group roles. Built-in pg_* roles (pg_read_all_data, ...) are hidden unless `system` is on."""
+    hide = "" if system else " WHERE r.rolname NOT LIKE 'pg\\_%'"
+    rows = conn.execute(
+        f"""SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolcreatedb, r.rolcreaterole
+            FROM pg_roles r{hide} ORDER BY r.rolname""").fetchall()
+    return [{"name": n, "login": login, "superuser": sup, "createdb": cdb, "createrole": crole,
+             "kind": "superuser" if sup else ("login" if login else "group")} for n, login, sup, cdb, crole in rows]
+
+
+def role_info(conn, name):
+    row = conn.execute(
+        """SELECT r.oid::bigint, r.rolname, r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,
+                  r.rolreplication, r.rolbypassrls, r.rolconnlimit, r.rolvaliduntil, shobj_description(r.oid, 'pg_authid')
+           FROM pg_roles r WHERE r.rolname = %s""", (name,)).fetchone()
+    if row is None:
+        raise PgError(f"Role {name} was not found.")
+    oid, name, sup, inherit, createrole, createdb, login, replication, bypass, limit, until, comment = row
+    member_of = [r[0] for r in conn.execute(
+        "SELECT pg_get_userbyid(roleid) FROM pg_auth_members WHERE member = %s ORDER BY 1", (oid,))]
+    members = [r[0] for r in conn.execute(
+        "SELECT pg_get_userbyid(member) FROM pg_auth_members WHERE roleid = %s ORDER BY 1", (oid,))]
+    return {"name": name, "superuser": sup, "inherit": inherit, "createrole": createrole, "createdb": createdb,
+            "login": login, "replication": replication, "bypassrls": bypass, "connection_limit": limit,
+            "valid_until": until.isoformat(sep=" ", timespec="seconds") if until else "", "comment": comment or "",
+            "member_of": member_of, "members": members}
+
+
+def role_ddl(conn, name):
+    """CREATE ROLE (without any password, which PgDeck never reads) plus its group memberships."""
+    info = role_info(conn, name)
+    flag = lambda on, word: word if on else "NO" + word
+    options = [flag(info["superuser"], "SUPERUSER"), flag(info["createdb"], "CREATEDB"), flag(info["createrole"], "CREATEROLE"),
+               flag(info["inherit"], "INHERIT"), flag(info["login"], "LOGIN"), flag(info["replication"], "REPLICATION"),
+               flag(info["bypassrls"], "BYPASSRLS")]
+    if info["connection_limit"] >= 0:
+        options.append(f"CONNECTION LIMIT {info['connection_limit']}")
+    if info["valid_until"]:
+        options.append(f"VALID UNTIL {_literal(info['valid_until'])}")
+    quoted = _quote(conn, name)
+    statements = [f"CREATE ROLE {quoted} WITH\n    " + "\n    ".join(options) + ";"]
+    statements += [f"GRANT {_quote(conn, parent)} TO {quoted};" for parent in info["member_of"]]
+    return "\n".join(statements)
+
+
+def list_tablespaces(conn):
+    rows = conn.execute(
+        """SELECT t.spcname, pg_get_userbyid(t.spcowner), pg_tablespace_location(t.oid),
+                  CASE WHEN has_tablespace_privilege(t.oid, 'CREATE') OR t.oid IN (1663, 1664)
+                       THEN pg_tablespace_size(t.oid) END
+           FROM pg_tablespace t ORDER BY t.spcname""").fetchall()
+    return [{"name": n, "owner": o, "location": loc or "", "size_text": size_text(size) if size is not None else "—"}
+            for n, o, loc, size in rows]
+
+
+def tablespace_info(conn, name):
+    found = [t for t in list_tablespaces(conn) if t["name"] == name]
+    if not found:
+        raise PgError(f"Tablespace {name} was not found.")
+    options = conn.execute("SELECT spcoptions FROM pg_tablespace WHERE spcname = %s", (name,)).fetchone()[0] or []
+    comment = conn.execute("SELECT shobj_description(oid, 'pg_tablespace') FROM pg_tablespace WHERE spcname = %s", (name,)).fetchone()[0]
+    return dict(found[0], options=list(options), comment=comment or "")
+
+
+def tablespace_ddl(conn, name):
+    info = tablespace_info(conn, name)
+    if info["name"] in ("pg_default", "pg_global"):
+        return f"-- {info['name']} is built into PostgreSQL and has no CREATE TABLESPACE statement."
+    ddl = f"CREATE TABLESPACE {_quote(conn, name)}\n    OWNER {_quote(conn, info['owner'])}\n    LOCATION {_literal(info['location'])}"
+    if info["options"]:
+        ddl += "\n    WITH (" + ", ".join(info["options"]) + ")"
+    return ddl + ";"
+
+
+def list_extensions(conn):
+    rows = conn.execute(
+        """SELECT e.extname, e.extversion, n.nspname, a.comment
+           FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+           LEFT JOIN pg_available_extensions a ON a.name = e.extname ORDER BY e.extname""").fetchall()
+    return [{"name": n, "version": v, "schema": s, "comment": c or ""} for n, v, s, c in rows]
+
+
+def extension_info(conn, name):
+    row = conn.execute(
+        """SELECT e.extname, e.extversion, n.nspname, pg_get_userbyid(e.extowner), e.extrelocatable,
+                  a.default_version, a.comment
+           FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+           LEFT JOIN pg_available_extensions a ON a.name = e.extname WHERE e.extname = %s""", (name,)).fetchone()
+    if row is None:
+        raise PgError(f"Extension {name} is not installed in this database.")
+    name, version, schema, owner, relocatable, default, comment = row
+    return {"name": name, "version": version, "schema": schema, "owner": owner, "relocatable": relocatable,
+            "default_version": default or "", "update_available": bool(default and default != version), "comment": comment or ""}
+
+
+def extension_ddl(conn, name):
+    info = extension_info(conn, name)
+    return f"CREATE EXTENSION {_quote(conn, name)}\n    WITH SCHEMA {_quote(conn, info['schema'])}\n    VERSION {_literal(info['version'])};"
+
+
+EVENT_STATES = {"O": "enabled", "D": "disabled", "R": "enabled (replica)", "A": "enabled (always)"}
+
+
+def list_event_triggers(conn):
+    rows = conn.execute(
+        """SELECT t.evtname, t.evtevent, pg_get_userbyid(t.evtowner), pn.nspname, p.proname, t.evtenabled::text, t.evttags
+           FROM pg_event_trigger t JOIN pg_proc p ON p.oid = t.evtfoid JOIN pg_namespace pn ON pn.oid = p.pronamespace
+           ORDER BY t.evtname""").fetchall()
+    return [{"name": n, "event": ev, "owner": o, "function": f"{ns}.{fn}", "state": EVENT_STATES.get(en, en), "tags": list(tags or [])}
+            for n, ev, o, ns, fn, en, tags in rows]
+
+
+def event_trigger_info(conn, name):
+    found = [t for t in list_event_triggers(conn) if t["name"] == name]
+    if not found:
+        raise PgError(f"Event trigger {name} was not found.")
+    return found[0]
+
+
+def event_trigger_ddl(conn, name):
+    info = event_trigger_info(conn, name)
+    ddl = f"CREATE EVENT TRIGGER {_quote(conn, name)} ON {info['event']}"
+    if info["tags"]:
+        ddl += "\n    WHEN TAG IN (" + ", ".join(_literal(tag) for tag in info["tags"]) + ")"
+    ddl += f"\n    EXECUTE FUNCTION {info['function']}();"
+    if info["state"] == "disabled":
+        ddl += f"\nALTER EVENT TRIGGER {_quote(conn, name)} DISABLE;"
+    return ddl
+
+
+def list_publications(conn):
+    rows = conn.execute(
+        """SELECT p.pubname, pg_get_userbyid(p.pubowner), p.puballtables,
+                  (SELECT count(*) FROM pg_publication_tables t WHERE t.pubname = p.pubname)
+           FROM pg_publication p ORDER BY p.pubname""").fetchall()
+    return [{"name": n, "owner": o, "all_tables": a, "table_count": c} for n, o, a, c in rows]
+
+
+def publication_info(conn, name):
+    row = conn.execute(
+        """SELECT p.oid::bigint, p.pubname, pg_get_userbyid(p.pubowner), p.puballtables, p.pubinsert, p.pubupdate,
+                  p.pubdelete, p.pubtruncate, obj_description(p.oid, 'pg_publication')
+           FROM pg_publication p WHERE p.pubname = %s""", (name,)).fetchone()
+    if row is None:
+        raise PgError(f"Publication {name} was not found.")
+    oid, name, owner, all_tables, ins, upd, dele, trunc, comment = row
+    publishes = [word for word, on in (("insert", ins), ("update", upd), ("delete", dele), ("truncate", trunc)) if on]
+    tables = [f"{s}.{t}" for s, t in conn.execute(
+        "SELECT schemaname, tablename FROM pg_publication_tables WHERE pubname = %s ORDER BY 1, 2", (name,))]
+    schemas = []
+    if conn.execute("SELECT to_regclass('pg_catalog.pg_publication_namespace') IS NOT NULL").fetchone()[0]:   # PostgreSQL 15+
+        schemas = [r[0] for r in conn.execute(
+            """SELECT n.nspname FROM pg_publication_namespace pn JOIN pg_namespace n ON n.oid = pn.pnnspid
+               WHERE pn.pnpubid = %s ORDER BY 1""", (oid,))]
+    return {"name": name, "owner": owner, "all_tables": all_tables, "publishes": publishes, "tables": tables,
+            "schemas": schemas, "comment": comment or ""}
+
+
+def publication_ddl(conn, name):
+    info = publication_info(conn, name)
+    quoted = _quote(conn, name)
+    if info["all_tables"]:
+        target = "FOR ALL TABLES"
+    else:
+        parts = []
+        # A schema publication lists all that schema's tables in pg_publication_tables; don't repeat them as TABLEs.
+        tables = [t for t in info["tables"] if t.split(".", 1)[0] not in info["schemas"]]
+        if tables:
+            parts.append("TABLE " + ", ".join(".".join(_quote(conn, piece) for piece in t.split(".", 1)) for t in tables))
+        if info["schemas"]:
+            parts.append("TABLES IN SCHEMA " + ", ".join(_quote(conn, s) for s in info["schemas"]))
+        target = "FOR " + ", ".join(parts) if parts else ""
+    ddl = f"CREATE PUBLICATION {quoted}" + (f"\n    {target}" if target else "")
+    return ddl + f"\n    WITH (publish = {_literal(', '.join(info['publishes']))});"
 
 
 def relation_info(conn, schema, name, kinds=("r", "p", "v", "m", "S")):

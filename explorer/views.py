@@ -88,6 +88,33 @@ def _relation_context(conn, node, request):
     return context
 
 
+# Single objects with a Properties tab and an SQL tab: (look-up function, CREATE statement builder).
+OBJECTS = {"role": (pg.role_info, pg.role_ddl), "tablespace": (pg.tablespace_info, pg.tablespace_ddl),
+           "extension": (pg.extension_info, pg.extension_ddl), "eventtrigger": (pg.event_trigger_info, pg.event_trigger_ddl),
+           "publication": (pg.publication_info, pg.publication_ddl)}
+# Folders that list such objects (server level: roles, tablespaces; database level: the rest).
+OBJECT_LISTS = {"roles": "Roles", "tablespaces": "Tablespaces", "catalogs": "Catalogs", "extensions": "Extensions",
+                "eventtriggers": "Event Triggers", "publications": "Publications"}
+
+
+def _object_context(conn, node, request):
+    kind, name = node["type"], node["name"]
+    info_of, ddl_of = OBJECTS[kind]
+    data = info_of(conn, name)
+    tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
+    context = {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "SQL")], "title": name, "db": node["db"],
+               "object_kind": kind, "object": data, "base": _base(node, type=kind, name=name)}
+    if tab == "sql":
+        context["ddl"] = ddl_of(conn, name)
+    return context
+
+
+def _object_list(conn, kind, system):
+    return {"roles": lambda: pg.list_roles(conn, system), "tablespaces": lambda: pg.list_tablespaces(conn),
+            "catalogs": lambda: pg.catalog_rows(conn), "extensions": lambda: pg.list_extensions(conn),
+            "eventtriggers": lambda: pg.list_event_triggers(conn), "publications": lambda: pg.list_publications(conn)}[kind]()
+
+
 def _function_context(conn, node, request):
     info = pg.function_info(conn, node["schema"], node["oid"])
     tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
@@ -134,11 +161,20 @@ def detail(request):
                 context["database"] = next((d for d in pg.list_databases(conn) if d["name"] == db), None)
             if context["database"] is None:
                 raise pg.PgError(f"Database {db} was not found or you cannot connect to it.")
-        elif kind in ("schemas", "schema"):
+        elif kind in OBJECT_LISTS:
+            context["folder"] = OBJECT_LISTS[kind]
+            # Roles and tablespaces belong to the whole server (any database will do); the rest are per database.
+            with pg.connect(server, db or None) as conn:
+                context["objects"] = _object_list(conn, kind, system)
+        elif kind in OBJECTS:
+            with pg.connect(server, node["db"] or None) as conn:
+                context.update(_object_context(conn, node, request))
+        elif kind in ("schemas", "schema", "catalog"):
             with pg.connect(server, db) as conn:
-                context["schemas"] = pg.schema_rows(conn, system)
-                if kind == "schema":
-                    context["owner"] = next((s["owner"] for s in context["schemas"] if s["name"] == schema), "")
+                context["schemas"] = pg.schema_rows(conn)
+                if kind in ("schema", "catalog"):
+                    owners = {s["name"]: s["owner"] for s in context["schemas"] + pg.catalog_rows(conn)}
+                    context["owner"] = owners.get(schema, "")
                     context["folder"] = "Tables"
                     context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in FOLDERS["tables"][1]]
         elif kind in FOLDERS:

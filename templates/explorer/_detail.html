@@ -56,9 +56,45 @@
     <tbody>{% for s in schemas %}<tr><td>{{ s.name }}</td><td class="muted">{{ s.owner }}</td></tr>{% endfor %}</tbody>
   </table></div>
 {% elif folder %}
-  <h2>{% if kind == "schema" %}Schema {{ node.schema }}{% else %}{{ folder }} in {{ node.schema }}{% endif %}</h2>
-  {% if kind == "schema" %}<dl class="props"><dt>Owner</dt><dd>{{ owner }}</dd><dt>Database</dt><dd>{{ node.db }}</dd></dl><h2 style="margin-top:22px">Tables</h2>{% endif %}
-  {% if kind == "functions" or kind == "procedures" %}
+  <h2>{% if kind == "schema" or kind == "catalog" %}{{ kind|capfirst }} {{ node.schema }}{% elif kind == "roles" or kind == "tablespaces" %}{{ folder }} on {{ server.name }}{% elif node.schema %}{{ folder }} in {{ node.schema }}{% else %}{{ folder }} in {{ node.db }}{% endif %}</h2>
+  {% if kind == "schema" or kind == "catalog" %}<dl class="props"><dt>Owner</dt><dd>{{ owner }}</dd><dt>Database</dt><dd>{{ node.db }}</dd></dl><h2 style="margin-top:22px">Tables</h2>{% endif %}
+  {% if kind == "roles" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>KIND</th><th>CREATE DB</th><th>CREATE ROLE</th></tr></thead>
+      <tbody>{% for r in objects %}<tr><td>{{ r.name }}</td><td><span class="badge{% if r.superuser %} bad{% endif %}">{{ r.kind }}</span></td>
+        <td class="muted">{{ r.createdb|yesno:"yes,no" }}</td><td class="muted">{{ r.createrole|yesno:"yes,no" }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="muted">No roles.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "tablespaces" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>OWNER</th><th>LOCATION</th><th>SIZE</th></tr></thead>
+      <tbody>{% for t in objects %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.owner }}</td><td class="cell">{{ t.location|default:"(built in)" }}</td><td class="muted">{{ t.size_text }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "catalogs" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>OWNER</th></tr></thead>
+      <tbody>{% for c in objects %}<tr><td>{{ c.name }}</td><td class="muted">{{ c.owner }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "extensions" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>VERSION</th><th>SCHEMA</th><th>DESCRIPTION</th></tr></thead>
+      <tbody>{% for e in objects %}<tr><td>{{ e.name }}</td><td class="muted">{{ e.version }}</td><td class="muted">{{ e.schema }}</td><td class="cell">{{ e.comment }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="muted">No extensions installed.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "eventtriggers" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>EVENT</th><th>FUNCTION</th><th>STATE</th></tr></thead>
+      <tbody>{% for t in objects %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.event }}</td><td class="cell">{{ t.function }}</td>
+        <td>{% if t.state == "disabled" %}<span class="badge bad">disabled</span>{% else %}<span class="badge ok">{{ t.state }}</span>{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="4" class="muted">No event triggers.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "publications" %}
+    <div class="scroll"><table>
+      <thead><tr><th>NAME</th><th>OWNER</th><th>PUBLISHES</th></tr></thead>
+      <tbody>{% for p in objects %}<tr><td>{{ p.name }}</td><td class="muted">{{ p.owner }}</td><td class="muted">{% if p.all_tables %}all tables{% else %}{{ p.table_count }} table{{ p.table_count|pluralize }}{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="3" class="muted">No publications.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  {% elif kind == "functions" or kind == "procedures" %}
     <div class="scroll"><table>
       <thead><tr><th>NAME</th><th>ARGUMENTS</th><th>RETURNS</th><th>KIND</th><th>LANGUAGE</th></tr></thead>
       <tbody>{% for f in functions %}<tr><td>{{ f.name }}</td><td class="cell">{{ f.args }}</td><td class="muted">{{ f.returns }}</td><td class="muted">{{ f.kind }}</td><td class="muted">{{ f.language }}</td></tr>
@@ -81,7 +117,50 @@
 {% elif tabs %}
   <h2>{{ title }}</h2>
   <div class="tabs">{% for key, label in tabs %}<a href="#" data-detail="{{ base }}&tab={{ key }}" class="{% if key == tab %}active{% endif %}">{{ label }}</a>{% endfor %}</div>
-  {% if tab == "properties" and function %}
+  {% if tab == "properties" and object_kind == "role" %}
+    <dl class="props">
+      <dt>Role</dt><dd>{{ object.name }}</dd><dt>Server</dt><dd>{{ server.name }}</dd>
+      <dt>Can log in</dt><dd>{{ object.login|yesno:"yes,no" }}</dd><dt>Superuser</dt><dd>{{ object.superuser|yesno:"yes,no" }}</dd>
+      <dt>Create databases</dt><dd>{{ object.createdb|yesno:"yes,no" }}</dd><dt>Create roles</dt><dd>{{ object.createrole|yesno:"yes,no" }}</dd>
+      <dt>Inherits privileges</dt><dd>{{ object.inherit|yesno:"yes,no" }}</dd><dt>Replication</dt><dd>{{ object.replication|yesno:"yes,no" }}</dd>
+      <dt>Bypass row security</dt><dd>{{ object.bypassrls|yesno:"yes,no" }}</dd>
+      <dt>Connection limit</dt><dd>{% if object.connection_limit < 0 %}none{% else %}{{ object.connection_limit }}{% endif %}</dd>
+      <dt>Password valid until</dt><dd>{{ object.valid_until|default:"no expiry" }}</dd>
+      <dt>Member of</dt><dd>{% for r in object.member_of %}<span class="badge">{{ r }}</span> {% empty %}<span class="muted">none</span>{% endfor %}</dd>
+      <dt>Members</dt><dd>{% for r in object.members %}<span class="badge">{{ r }}</span> {% empty %}<span class="muted">none</span>{% endfor %}</dd>
+      {% if object.comment %}<dt>Comment</dt><dd>{{ object.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "properties" and object_kind == "tablespace" %}
+    <dl class="props">
+      <dt>Tablespace</dt><dd>{{ object.name }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Owner</dt><dd>{{ object.owner }}</dd>
+      <dt>Location</dt><dd>{{ object.location|default:"(built in: inside the data directory)" }}</dd><dt>Size</dt><dd>{{ object.size_text }}</dd>
+      {% for option in object.options %}<dt>Option</dt><dd>{{ option }}</dd>{% endfor %}
+      {% if object.comment %}<dt>Comment</dt><dd>{{ object.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "properties" and object_kind == "extension" %}
+    <dl class="props">
+      <dt>Extension</dt><dd>{{ object.name }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd>
+      <dt>Version</dt><dd>{{ object.version }}{% if object.update_available %} <span class="badge">{{ object.default_version }} available</span>{% endif %}</dd>
+      <dt>Schema</dt><dd>{{ object.schema }}</dd><dt>Owner</dt><dd>{{ object.owner }}</dd>
+      <dt>Relocatable</dt><dd>{{ object.relocatable|yesno:"yes,no" }}</dd>
+      {% if object.comment %}<dt>Description</dt><dd>{{ object.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "properties" and object_kind == "eventtrigger" %}
+    <dl class="props">
+      <dt>Event trigger</dt><dd>{{ object.name }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd>
+      <dt>Event</dt><dd>{{ object.event }}</dd><dt>Only for commands</dt><dd>{% for tag in object.tags %}<span class="badge">{{ tag }}</span> {% empty %}<span class="muted">all</span>{% endfor %}</dd>
+      <dt>Function</dt><dd>{{ object.function }}</dd><dt>Owner</dt><dd>{{ object.owner }}</dd><dt>State</dt><dd>{{ object.state }}</dd>
+    </dl>
+  {% elif tab == "properties" and object_kind == "publication" %}
+    <dl class="props">
+      <dt>Publication</dt><dd>{{ object.name }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ object.owner }}</dd>
+      <dt>Publishes</dt><dd>{% for p in object.publishes %}<span class="badge">{{ p }}</span> {% empty %}<span class="muted">nothing</span>{% endfor %}</dd>
+      <dt>Scope</dt><dd>{% if object.all_tables %}all tables{% else %}{{ object.tables|length }} table{{ object.tables|length|pluralize }}{% endif %}</dd>
+      {% if object.schemas %}<dt>Schemas</dt><dd>{% for s in object.schemas %}<span class="badge">{{ s }}</span> {% endfor %}</dd>{% endif %}
+      {% if not object.all_tables %}<dt>Tables</dt><dd>{% for t in object.tables %}{{ t }}{% if not forloop.last %}<br>{% endif %}{% empty %}<span class="muted">none</span>{% endfor %}</dd>{% endif %}
+      {% if object.comment %}<dt>Comment</dt><dd>{{ object.comment }}</dd>{% endif %}
+    </dl>
+  {% elif tab == "properties" and function %}
     <dl class="props">
       <dt>{{ function.kind|capfirst }}</dt><dd>{{ title }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd>
       <dt>Owner</dt><dd>{{ function.owner }}</dd><dt>Language</dt><dd>{{ function.language }}</dd>
