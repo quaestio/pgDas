@@ -1,34 +1,17 @@
 services:
-  db:
-    image: postgres:17
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: pgdeck
-      POSTGRES_USER: pgdeck
-      POSTGRES_PASSWORD: ${PGDECK_DB_PASSWORD:?Set PGDECK_DB_PASSWORD in .env}
-    volumes:
-      - pgdeck-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pgdeck -d pgdeck"]
-      interval: 5s
-      retries: 10
-
-  web:
+  pgdeck:
     build: .
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      PGDECK_DB_HOST: db
-      PGDECK_DB_NAME: pgdeck
-      PGDECK_DB_USER: pgdeck
-      PGDECK_DB_PASSWORD: ${PGDECK_DB_PASSWORD}
       PGDECK_SECRET_KEY: ${PGDECK_SECRET_KEY:?Set PGDECK_SECRET_KEY in .env}
       PGDECK_ALLOWED_HOSTS: ${PGDECK_ALLOWED_HOSTS:-localhost,127.0.0.1}
       PGDECK_CSRF_TRUSTED_ORIGINS: ${PGDECK_CSRF_TRUSTED_ORIGINS:-}
       # Plain http on localhost; set to 1 once PgDeck is served over https behind a reverse proxy.
       PGDECK_SECURE_COOKIES: ${PGDECK_SECURE_COOKIES:-0}
+      PGDECK_SQLITE_PATH: /app/data/pgdeck.sqlite3
+    volumes:
+      # PgDeck's own data (users, saved servers, audit log) is one SQLite file in this volume.
+      - pgdeck-data:/app/data
     ports:
       # Bound to localhost only. Put an https reverse proxy in front before exposing it.
       - "127.0.0.1:8000:8000"

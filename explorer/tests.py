@@ -1,7 +1,13 @@
-"""Tests run against real PostgreSQL. The Django test database doubles as the managed server."""
+"""Tests run against a real PostgreSQL server: the one PgDeck browses. PgDeck's own data is in SQLite.
+
+The PostgreSQL server comes from PGDECK_TEST_PG_HOST / _PORT / _USER / _PASSWORD (falling back to the older
+PGDECK_DB_* names); its login needs CREATEDB. A scratch database, pgdeck_test_target, is created and dropped here.
+"""
+import os
+import unittest
+
 import psycopg
 from django.contrib.auth import get_user_model
-from django.db import connection
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -11,25 +17,47 @@ from servers.models import ServerConnection
 from . import pg
 
 
+def _env(*names, default=""):
+    return next((os.environ[name] for name in names if os.environ.get(name)), default)
+
+
+TARGET = {
+    "HOST": _env("PGDECK_TEST_PG_HOST", "PGDECK_DB_HOST", default="localhost"),
+    "PORT": _env("PGDECK_TEST_PG_PORT", "PGDECK_DB_PORT", default="5432"),
+    "USER": _env("PGDECK_TEST_PG_USER", "PGDECK_DB_USER", default="postgres"),
+    "PASSWORD": _env("PGDECK_TEST_PG_PASSWORD", "PGDECK_DB_PASSWORD"),
+    "NAME": "pgdeck_test_target",
+}
+
+
+def admin_connect(dbname):
+    return psycopg.connect(host=TARGET["HOST"], port=TARGET["PORT"], dbname=dbname, user=TARGET["USER"],
+                           password=TARGET["PASSWORD"], autocommit=True, connect_timeout=5)
+
+
 def make_server(**overrides):
-    settings_dict = connection.settings_dict
     server = ServerConnection(
-        name="test", host=settings_dict["HOST"] or "localhost", port=int(settings_dict["PORT"] or 5432),
-        database=settings_dict["NAME"], username=settings_dict["USER"], sslmode="prefer", **overrides)
-    server.set_password(settings_dict["PASSWORD"] or "")
+        name="test", host=TARGET["HOST"], port=int(TARGET["PORT"]),
+        database=TARGET["NAME"], username=TARGET["USER"], sslmode="prefer", **overrides)
+    server.set_password(TARGET["PASSWORD"])
     server.save()
     return server
 
 
 class PgFixture:
-    """Creates committed tables in the test database, which a separate connection can then read."""
+    """Creates a scratch PostgreSQL database with sample objects, which PgDeck then browses."""
 
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        params = connection.settings_dict
-        with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
-                             user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
+        try:
+            with admin_connect("postgres") as conn:
+                conn.execute(f"DROP DATABASE IF EXISTS {TARGET['NAME']} WITH (FORCE)")
+                conn.execute(f"CREATE DATABASE {TARGET['NAME']}")
+        except psycopg.Error as error:
+            raise unittest.SkipTest(f"needs a PostgreSQL server whose login can create databases "
+                                    f"(set PGDECK_TEST_PG_*): {str(error).splitlines()[0]}")
+        with admin_connect(TARGET["NAME"]) as conn:
             conn.execute("DROP SCHEMA IF EXISTS pgdeck_demo CASCADE")
             conn.execute("CREATE SCHEMA pgdeck_demo")
             conn.execute("CREATE TABLE pgdeck_demo.people (id serial PRIMARY KEY, name text NOT NULL, note text, tags jsonb)")
@@ -64,10 +92,8 @@ class PgFixture:
 
     @classmethod
     def tearDownClass(cls):
-        params = connection.settings_dict
-        with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
-                             user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
-            conn.execute("DROP SCHEMA IF EXISTS pgdeck_demo CASCADE")
+        with admin_connect("postgres") as conn:
+            conn.execute(f"DROP DATABASE IF EXISTS {TARGET['NAME']} WITH (FORCE)")   # the scratch database goes away
         super().tearDownClass()
 
 
@@ -81,9 +107,9 @@ class PgLayerTests(PgFixture, TestCase):
             server.database = saved
             with self.subTest(saved=saved), pg.connect(server) as conn:
                 self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], "postgres")
-        server.database = connection.settings_dict["NAME"]   # an older entry that does name a usable database
+        server.database = TARGET["NAME"]   # an older entry that does name a usable database
         with pg.connect(server) as conn:
-            self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], connection.settings_dict["NAME"])
+            self.assertEqual(conn.execute("SELECT current_database()").fetchone()[0], TARGET["NAME"])
 
     def test_a_wrong_password_is_not_hidden_by_trying_other_databases(self):
         server = make_server()
@@ -99,7 +125,7 @@ class PgLayerTests(PgFixture, TestCase):
                 pass
 
     def test_only_databases_the_login_may_connect_to_are_listed(self):
-        params = connection.settings_dict
+        params = TARGET
         admin = dict(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, user=params["USER"],
                      password=params["PASSWORD"] or "", autocommit=True)
         try:
@@ -192,7 +218,7 @@ class PgLayerTests(PgFixture, TestCase):
         self.assertIn("CREATE INDEX orders_person_idx", ddl)
         self.assertNotIn("CREATE UNIQUE INDEX orders_ref_key", ddl)  # already part of the UNIQUE constraint
         # The DDL must actually run: replay it into a scratch schema.
-        params = connection.settings_dict
+        params = TARGET
         with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
                              user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
             conn.execute("DROP SCHEMA IF EXISTS pgdeck_copy CASCADE")
@@ -209,7 +235,7 @@ class PgLayerTests(PgFixture, TestCase):
         self.assertEqual(columns["tax"]["generated"], "s")
         self.assertIn("id bigint GENERATED ALWAYS AS IDENTITY NOT NULL", ddl)
         self.assertIn("GENERATED ALWAYS AS ((price * 0.1)) STORED", ddl)
-        params = connection.settings_dict
+        params = TARGET
         with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
                              user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
             conn.execute("DROP SCHEMA IF EXISTS pgdeck_copy CASCADE")
@@ -221,7 +247,7 @@ class PgLayerTests(PgFixture, TestCase):
 
     def replay(self, *statements, schema="pgdeck_copy"):
         """Run generated DDL in a scratch schema to prove it is valid, then drop the schema."""
-        params = connection.settings_dict
+        params = TARGET
         with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
                              user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
             conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
@@ -334,7 +360,7 @@ class PgLayerTests(PgFixture, TestCase):
         self.assertFalse([name for name in system if name.startswith(("pg_toast", "pg_temp"))])
 
     def test_extension_objects_are_hidden_unless_system_is_on(self):
-        params = connection.settings_dict
+        params = TARGET
         with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
                              user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
             try:
@@ -735,7 +761,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertContains(response, "was not found")
 
     def test_table_data_escapes_html(self):
-        params = connection.settings_dict
+        params = TARGET
         with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
                              user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
             conn.execute("INSERT INTO pgdeck_demo.people (name) VALUES ('<script>alert(1)</script>')")

@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -59,17 +60,28 @@ TEMPLATES = [{
 
 WSGI_APPLICATION = "pgdeck.wsgi.application"
 
-# PgDeck's own data lives in PostgreSQL only (no SQLite anywhere, tests included).
+# PgDeck keeps its own data (users, saved servers, audit log, sessions) in one SQLite file, so installing it needs no
+# database server. The PostgreSQL servers it browses are separate and are added in the app.
+SQLITE_PATH = Path(os.getenv("PGDECK_SQLITE_PATH") or BASE_DIR / "data" / "pgdeck.sqlite3")
+SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("PGDECK_DB_NAME", "pgdeck"),
-        "USER": os.getenv("PGDECK_DB_USER", "pgdeck"),
-        "PASSWORD": os.getenv("PGDECK_DB_PASSWORD", ""),
-        "HOST": os.getenv("PGDECK_DB_HOST", "localhost"),
-        "PORT": os.getenv("PGDECK_DB_PORT", "5432"),
+        "ENGINE": "django.db.backends.sqlite3",
+        "NAME": SQLITE_PATH,
+        "OPTIONS": {
+            # WAL lets readers and the one writer work together; IMMEDIATE makes a writer wait for its turn
+            # (up to `timeout` seconds) instead of failing with "database is locked".
+            "timeout": 20,
+            "init_command": "PRAGMA journal_mode=WAL;",
+            "transaction_mode": "IMMEDIATE",
+        },
     }
 }
+
+if sys.argv[1:2] == ["test"]:
+    # Django's real password hashing is slow on purpose (about a second per user). Tests create many users, so
+    # `manage.py test` uses a fast hasher. This applies only to the test command and never to a running server.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
