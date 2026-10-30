@@ -1,16 +1,8 @@
 {% extends "base.html" %}
-{% load static %}
 {% block title %}Object Browser · PgDeck{% endblock %}
-{% block body_class %}has-tree{% endblock %}
-{% block sidebar_tree %}
-<div class="sidebar-tree">
-  <div class="nav-label">OBJECT BROWSER</div>
-  <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"></ul>
-</div>
-{% endblock %}
 {% block content %}
 {# Shown only while the top "Servers" node is selected; explorer.js hides it for every other node. #}
-<div id="servers-overview"{% if preselect %} hidden{% endif %}>
+<div id="servers-overview"{% if deep_link %} hidden{% endif %}>
   <div class="title-row">
     <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
       <p class="muted">Pick an object in the sidebar to see its details here. Everything runs read-only.</p></div>
@@ -22,8 +14,7 @@
     <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
   </div>
 </div>
-<div id="explorer" data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-preselect="{{ preselect }}">
+<div id="explorer" data-preselect="{{ preselect }}">
   <section class="panel detail-panel" id="detail" aria-live="polite"><p class="muted">Loading…</p></section>
 </div>
 {% endblock %}
-{% block scripts %}<script src="{% static 'explorer.js' %}"></script>{% endblock %}

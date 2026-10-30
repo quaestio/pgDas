@@ -1,15 +1,19 @@
-// Object browser: a lazy-loading tree on the left, details on the right. No libraries.
+// Object tree in the sidebar (on every page) and the details pane (on the Object Browser page). No libraries.
+//  - Clicking the arrow only opens or closes a node.
+//  - Clicking a node selects it. On the Object Browser page its details load in place; on any other page
+//    PgDeck goes to the Object Browser with that node (and its path in the tree) selected.
 (function () {
-  var root = document.getElementById("explorer");
-  if (!root) return;
   var treeEl = document.getElementById("tree");
-  var detailEl = document.getElementById("detail");
-  var treeUrl = root.dataset.treeUrl;
-  var detailUrl = root.dataset.detailUrl;
+  if (!treeEl) return;
+  var detailEl = document.getElementById("detail");          // only on the Object Browser page
+  var overview = document.getElementById("servers-overview");
+  var treeUrl = treeEl.dataset.treeUrl;
+  var detailUrl = treeEl.dataset.detailUrl;
+  var homeUrl = treeEl.dataset.homeUrl;
   var KEYS = ["type", "server", "db", "schema", "table"];
   var ICONS = {servers: "▣", server: "▥", databases: "▤", database: "◉", schemas: "▤", schema: "▦", tables: "▤", table: "▦",
                columns: "▤", column: "·", constraints: "▤", constraint: "·", indexes: "▤", index: "·"};
-  var preselect = root.dataset.preselect || "";
+  var FOLDER_OF = {column: "columns", constraint: "constraints", index: "indexes"};
   var selected = null;
 
   function query(node) {
@@ -54,9 +58,8 @@
       .catch(function () { list.innerHTML = ""; list.appendChild(note("Could not load.", true)); done(false); });
   }
 
-  var overview = document.getElementById("servers-overview");
-
   function select(row, node) {
+    if (!detailEl) { window.location.href = homeUrl + "?" + query(node); return; }
     if (selected) selected.classList.remove("selected");
     selected = row;
     row.classList.add("selected");
@@ -85,20 +88,20 @@
     if (node.hint) { var hint = document.createElement("span"); hint.className = "hint"; hint.textContent = node.hint; row.appendChild(hint); }
     li.appendChild(row);
 
-    var list = null, open = false, loaded = false;
+    var list = null, open = false;
+    li.loaded = false;
+    li.row = row;
     function toggle() {
       if (!node.expandable) return;
       if (!list) { list = document.createElement("ul"); li.appendChild(list); }
       open = !open;
       twist.textContent = open ? "▾" : "▸";
       list.hidden = !open;
-      if (open && !loaded) loadChildren(node, list, function (ok) {
-        loaded = ok;
-        // Opened from a link such as /?server=3: select that server once the list is there.
-        if (ok && node.type === "servers" && preselect) openServer(preselect, list);
-      });
+      if (open && !li.loaded) loadChildren(node, list, function (ok) { li.loaded = ok; });
     }
-    row.addEventListener("click", function () { select(row, node); toggle(); });
+    li.expand = function () { if (!open) toggle(); };
+    twist.addEventListener("click", function (event) { event.stopPropagation(); toggle(); });
+    row.addEventListener("click", function () { select(row, node); if (detailEl) li.expand(); });
     row.tabIndex = 0;
     row.addEventListener("keydown", function (event) {
       if (event.key === "Enter" || event.key === " ") { event.preventDefault(); row.click(); }
@@ -106,31 +109,99 @@
     return li;
   }
 
-  function openServer(id, list) {
-    var items = (list || treeEl).querySelectorAll("li");
+  function waitFor(test, timeout) {
+    return new Promise(function (resolve) {
+      var waited = 0;
+      (function check() {
+        var found = test();
+        if (found) return resolve(found);
+        if ((waited += 100) > (timeout || 10000)) return resolve(null);
+        setTimeout(check, 100);
+      })();
+    });
+  }
+
+  function findItem(match) {
+    var items = treeEl.querySelectorAll("li");
     for (var i = 0; i < items.length; i++) {
       var data = items[i].nodeData;
-      if (data && data.type === "server" && String(data.server) === String(id)) {
-        var row = items[i].querySelector(".row");
-        row.scrollIntoView({block: "nearest"});
-        row.click();
-        return;
-      }
+      if (data && KEYS.every(function (key) { return !match[key] || String(data[key]) === String(match[key]); })) return items[i];
     }
+    return null;
+  }
+
+  // The nodes from the top of the tree down to `target`: all but the last are opened, the last is selected.
+  function pathTo(target) {
+    var t = target.type, s = target.server, path = [];
+    if (t === "servers") return [{type: "servers"}];
+    path.push({type: "server", server: s});
+    if (t === "server") return path;
+    path.push({type: "databases", server: s});
+    if (t === "databases") return path;
+    path.push({type: "database", server: s, db: target.db});
+    if (t === "database") return path;
+    path.push({type: "schemas", server: s, db: target.db});
+    if (t === "schemas") return path;
+    path.push({type: "schema", server: s, db: target.db, schema: target.schema});
+    if (t === "schema") return path;
+    path.push({type: "tables", server: s, db: target.db, schema: target.schema});
+    if (t === "tables") return path;
+    var place = {server: s, db: target.db, schema: target.schema, table: target.table};
+    path.push(Object.assign({type: "table"}, place));
+    if (t === "table") return path;
+    path.push(Object.assign({type: FOLDER_OF[t] || t}, place));
+    return path;
+  }
+
+  function openPath(target) {
+    var steps = pathTo(target);
+    function next(index) {
+      var match = steps[index];
+      return waitFor(function () { return findItem(match); }).then(function (item) {
+        if (!item) return null;
+        if (index === steps.length - 1) {
+          item.row.scrollIntoView({block: "nearest"});
+          item.row.click();
+          return item;
+        }
+        item.expand();
+        return waitFor(function () { return item.loaded; }).then(function () { return next(index + 1); });
+      });
+    }
+    return next(0);
   }
 
   // Tabs and pagers inside the detail pane carry their own query string; the server list can open a server.
-  detailEl.addEventListener("click", function (event) {
-    var open = event.target.closest("[data-open-server]");
-    if (open) { event.preventDefault(); openServer(open.dataset.openServer); return; }
-    var link = event.target.closest("[data-detail]");
-    if (!link) return;
-    event.preventDefault();
-    showDetail(link.dataset.detail);
-  });
+  if (detailEl) {
+    detailEl.addEventListener("click", function (event) {
+      var open = event.target.closest("[data-open-server]");
+      if (open) { event.preventDefault(); openPath({type: "server", server: open.dataset.openServer}); return; }
+      var link = event.target.closest("[data-detail]");
+      if (!link) return;
+      event.preventDefault();
+      showDetail(link.dataset.detail);
+    });
+  }
 
-  var rootNode = {type: "servers", server: "", db: "", schema: "", table: "", label: "Servers", expandable: true};
-  var rootItem = renderNode(rootNode);
+  // What to show first: a node named in the address (/?type=table&server=1&db=...), an old /?server=3 link, or Servers.
+  function startNode() {
+    var params = new URLSearchParams(window.location.search);
+    var type = params.get("type");
+    if (!detailEl || (!type && !params.get("server"))) return null;
+    var node = {type: type || "server"};
+    KEYS.forEach(function (key) { if (key !== "type" && params.get(key)) node[key] = params.get(key); });
+    return node.type === "servers" ? null : node;
+  }
+
+  var rootItem = renderNode({type: "servers", server: "", db: "", schema: "", table: "", label: "Servers", expandable: true});
   treeEl.appendChild(rootItem);
-  rootItem.querySelector(".row").click();
+  var start = startNode();
+  if (!detailEl) {
+    rootItem.expand();                       // other pages: just list the servers; clicking a node goes to the browser
+  } else if (start) {
+    rootItem.expand();
+    openPath(start);
+  } else {
+    rootItem.row.click();
+  }
 })();

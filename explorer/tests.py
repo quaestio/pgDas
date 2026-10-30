@@ -259,6 +259,11 @@ class ExplorerViewTests(PgFixture, TestCase):
         # Opened straight onto a server (deep link / old address): the block starts hidden.
         deep = self.client.get(reverse("server_list"), {"server": self.server.pk}).content.decode()
         self.assertIn('id="servers-overview" hidden', deep)
+        table = self.client.get(reverse("server_list"), {"type": "table", "server": self.server.pk, "db": "d",
+                                                         "schema": "s", "table": "t"}).content.decode()
+        self.assertIn('id="servers-overview" hidden', table)
+        top = self.client.get(reverse("server_list"), {"type": "servers"}).content.decode()
+        self.assertNotIn('id="servers-overview" hidden', top)
         script = open("static/explorer.js", encoding="utf-8").read()
         self.assertIn('overview.hidden = node.type !== "servers"', script)
 
@@ -266,13 +271,34 @@ class ExplorerViewTests(PgFixture, TestCase):
         html = self.client.get(reverse("server_list")).content.decode()
         self.assertNotIn("Audit log", html[html.index("<aside"):html.index("</aside>")])
 
-    def test_other_pages_keep_a_plain_sidebar_without_the_tree(self):
+    def test_every_page_has_the_tree_in_its_sidebar_but_only_the_browser_has_details(self):
         self.user.is_staff = True
         self.user.save()
-        for url in (reverse("audit_list"), reverse("server_add"), reverse("sql_runner", args=[self.server.pk])):
-            page = self.client.get(url)
-            self.assertNotContains(page, 'id="tree"')
-            self.assertContains(page, f'<a class="brand" href="{reverse("server_list")}"')  # the way back to the browser
+        pages = {"audit": reverse("audit_list"), "add server": reverse("server_add"),
+                 "sql runner": reverse("sql_runner", args=[self.server.pk]),
+                 "edit server": reverse("server_edit", args=[self.server.pk]), "browser": reverse("server_list")}
+        for name, url in pages.items():
+            html = self.client.get(url).content.decode()
+            sidebar = html[html.index("<aside"):html.index("</aside>")]
+            with self.subTest(page=name):
+                self.assertIn('id="tree"', sidebar)
+                self.assertIn(f'data-tree-url="{reverse("tree")}"', sidebar)
+                self.assertIn(f'data-home-url="{reverse("server_list")}"', sidebar)
+                self.assertIn("explorer.js", html)
+                self.assertEqual('id="detail"' in html, name == "browser")  # the details pane exists only on the browser page
+                self.assertIn(f'<a class="brand" href="{reverse("server_list")}"', sidebar)
+
+    def test_the_tree_script_goes_to_the_browser_from_other_pages_and_restores_the_path(self):
+        script = open("static/explorer.js", encoding="utf-8").read()
+        self.assertIn('window.location.href = homeUrl + "?" + query(node)', script)   # other page: go to the browser
+        self.assertIn("function pathTo(target)", script)                              # browser page: open ancestors, select node
+        self.assertIn('twist.addEventListener("click"', script)                       # the arrow only opens/closes
+
+    def test_login_page_has_no_tree(self):
+        self.client.logout()
+        page = self.client.get(reverse("login"))
+        self.assertNotContains(page, 'id="tree"')
+        self.assertNotContains(page, "explorer.js")
 
     def test_old_per_server_address_opens_the_browser_with_that_server_selected(self):
         response = self.client.get(reverse("explorer", args=[self.server.pk]))

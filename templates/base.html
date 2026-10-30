@@ -7,14 +7,19 @@
   <link rel="stylesheet" href="{% static 'adminweb-theme.css' %}">
   <link rel="stylesheet" href="{% static 'pgdeck.css' %}">
 </head>
-<body class="{% block body_class %}{% endblock %}">
+<body class="{% if user.is_authenticated %}has-tree{% endif %}">
 <div class="scanlines"></div>
 {% if user.is_authenticated %}
 {% with url_name=request.resolver_match.url_name %}
 <div class="app">
   <aside id="sidebar">
     <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><span class="glyph">⬡</span> PG<span>DECK</span></a>
-    {% block sidebar_tree %}{% endblock %}
+    {# The object tree is in the sidebar on every page; explorer.js fills it in. #}
+    <div class="sidebar-tree">
+      <div class="nav-label">OBJECT BROWSER</div>
+      <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"
+          data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-home-url="{% url 'server_list' %}"></ul>
+    </div>
     {% if user.is_staff %}
     <nav id="menu" class="compact below">
       <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
@@ -41,6 +46,7 @@
   {% block anonymous %}{% endblock %}
 {% endif %}
 <script src="{% static 'app.js' %}"></script>
+{% if user.is_authenticated %}<script src="{% static 'explorer.js' %}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>
 </html>

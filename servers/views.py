@@ -21,6 +21,8 @@ def server_list(request):
         "user_count": get_user_model().objects.filter(is_active=True).count(),
         "sql_runs": AuditEntry.objects.filter(action="sql.run").count(),
         "preselect": request.GET.get("server", ""),
+        # Opened onto a particular node (/?type=table&server=1&...) or the old /?server=1 address.
+        "deep_link": bool(request.GET.get("server") or request.GET.get("type", "servers") != "servers"),
     })
 
 
