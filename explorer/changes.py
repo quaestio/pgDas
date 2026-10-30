@@ -14,12 +14,15 @@ Every one of them: needs a staff user and the server's own switch; one plain sta
 transaction that is always rolled back; run for real only if the checked facts are still true; recorded in the audit log
 (as JSON) BEFORE the commit, so nothing changes without a record.
 """
+import json
 import re
 
 import psycopg
 import sqlparse
 from django.conf import settings
+from django.utils import timezone
 from psycopg import sql
+from psycopg.types.json import Jsonb
 
 from audit.models import record
 
@@ -114,12 +117,93 @@ def _update_and_count(conn, parsed):
     return count, sample
 
 
+def _qualified(conn, schema, table):
+    return f"{pg._quote(conn, schema)}.{pg._quote(conn, table)}"
+
+
+def _primary_key(conn, schema, table):
+    rows = conn.execute(
+        """SELECT a.attname FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+           WHERE i.indrelid = to_regclass(%s) AND i.indisprimary ORDER BY array_position(i.indkey::int2[], a.attnum)""",
+        (_qualified(conn, schema, table),)).fetchall()
+    return [row[0] for row in rows]
+
+
+def _key_of(row, pk):
+    return tuple(json.dumps(row.get(column), sort_keys=True) for column in pk)
+
+
+def _key_match(pk, left, right):
+    return sql.SQL(" AND ").join(sql.SQL("{}.{} = {}.{}").format(sql.Identifier(left), sql.Identifier(c), sql.Identifier(right),
+                                                                 sql.Identifier(c)) for c in pk)
+
+
+def _update_rows(conn, parsed, limit):
+    """Run the UPDATE and return the rows as they look afterwards (JSON), at most limit + 1 of them."""
+    wrapped = f"WITH pgdeck_updated AS ({parsed['statement']} RETURNING {parsed['target']}.*) SELECT to_jsonb(pgdeck_updated) FROM pgdeck_updated"
+    return [row[0] for row in _run(conn, wrapped).fetchmany(limit + 1)]
+
+
+def _old_rows(conn, schema, table, pk, new_rows):
+    """The current (not yet updated) version of the rows an UPDATE touches, found by primary key."""
+    query = sql.SQL("SELECT to_jsonb(t) FROM {s}.{t} t JOIN jsonb_populate_recordset(NULL::{s}.{t}, %s) k ON {match}").format(
+        s=sql.Identifier(schema), t=sql.Identifier(table), match=_key_match(pk, "t", "k"))
+    return [row[0] for row in conn.execute(query, (Jsonb(new_rows),)).fetchall()]
+
+
+def _minus(effects, baseline):
+    """Side effects with what a rolled-back trial run already counted taken off (the transaction's statistics keep both)."""
+    done = {e["table"]: e for e in baseline}
+    result = []
+    for e in effects:
+        b = done.get(e["table"], {})
+        left = {k: e[k] - b.get(k, 0) for k in ("inserted", "updated", "deleted")}
+        if any(left.values()):
+            result.append({"table": e["table"], **left})
+    return result
+
+
+def _update_with_undo(conn, parsed, schema, table):
+    """Run the UPDATE and, when it can be undone, remember the old values.
+
+    Returns (count, sample, undo, effects). `undo` is {"pk", "old", "new", "columns"} when the old values were captured, or
+    {"unavailable": reason}. Undo needs a primary key to find each row again, and at most MAX_UNDO_ROWS rows. `effects` are
+    the changes the statement makes to other tables (cascades, triggers).
+    """
+    limit = int(settings.MAX_UNDO_ROWS)
+    pk = _primary_key(conn, schema, table)
+    if not pk:
+        count, sample = _update_and_count(conn, parsed)
+        return count, sample, {"unavailable": "the table has no primary key, so PgDeck cannot find the rows again"}, \
+            _side_effects(conn, schema, table, own="updated")
+    conn.execute(sql.SQL("LOCK TABLE {}.{} IN SHARE ROW EXCLUSIVE MODE").format(sql.Identifier(schema), sql.Identifier(table)))
+    with conn.transaction(force_rollback=True):                      # a trial run, only to learn which rows it touches
+        trial = _update_rows(conn, parsed, limit)
+    trial_effects = _side_effects(conn, schema, table, own="updated")
+    if len(trial) > limit:
+        count, sample = _update_and_count(conn, parsed)
+        return count, sample, {"unavailable": f"it changes more than {limit:,} rows, more than PgDeck keeps old values for"}, \
+            _minus(_side_effects(conn, schema, table, own="updated"), trial_effects)
+    old = _old_rows(conn, schema, table, pk, trial) if trial else []
+    new = _update_rows(conn, parsed, limit)
+    sample = new[:SAMPLE_ROWS]
+    effects = _minus(_side_effects(conn, schema, table, own="updated"), trial_effects)
+    if len(old) != len(new) or {_key_of(r, pk) for r in old} != {_key_of(r, pk) for r in new}:
+        return len(new), sample, {"unavailable": "the statement changes the primary key, so the rows cannot be matched afterwards"}, effects
+    table_columns = pg.table_columns(conn, schema, table)
+    by_key = {_key_of(r, pk): r for r in old}
+    changed = {c for r in new for c in r if r[c] != by_key[_key_of(r, pk)].get(c)}
+    columns = [c["name"] for c in table_columns if c["name"] in changed and not c["generated"]]    # generated ones follow by themselves
+    if not columns:
+        return len(new), sample, {"unavailable": "it does not change any value, so there is nothing to put back"}, effects
+    return len(new), sample, {"pk": pk, "old": old, "new": new, "columns": columns}, effects
+
+
 def _preview_update(server, database, text):
     parsed = parse_update(text)
     with pg.connect_rw(server, database or None) as conn:
         schema, table = _resolve_table(conn, parsed["table_ref"])
-        count, sample = _update_and_count(conn, parsed)
-        effects = _side_effects(conn, schema, table, own="updated")
+        count, sample, undo, effects = _update_with_undo(conn, parsed, schema, table)
         columns, sample = _in_table_order(conn, schema, table, sample) if sample else ([], sample)
         conn.rollback()
     plural = "record" if count == 1 else "records"
@@ -129,16 +213,20 @@ def _preview_update(server, database, text):
     notes += _effect_notes(effects)
     if count > len(sample):
         notes.append({"text": f"Showing the first {len(sample)} of {count:,} rows, as they will look after the update.", "bad": False})
+    undoable = "old" in undo and count
+    if "unavailable" in undo and count:
+        notes.append({"text": f"This UPDATE cannot be undone from the audit log: {undo['unavailable']}.", "bad": True})
     return {
         "kind": "update", "statement": parsed["statement"], "schema": schema, "table": table, "count": count,
         "has_where": parsed["has_where"], "side_effects": effects, "columns": columns, "sample": sample, "objects": [],
         "title": f"UPDATE {count:,} {plural.upper()}?" if count else "UPDATE — NOTHING TO CHANGE",
         "headline": f"{count:,}",
         "headline_label": f"will be changed in {schema}.{table}." if count else "No rows match, so there is nothing to update.",
-        "warning": "There is no rollback. The old values are not saved: the audit log keeps the statement and the number of "
-                   "rows, but it cannot undo an UPDATE.",
+        "warning": ("There is no rollback, but PgDeck saves the old values of these rows in the audit log, where a staff user "
+                    "can undo the update (as long as the rows have not been changed again)." if undoable else
+                    "There is no rollback. The old values are not saved, so the audit log cannot undo this UPDATE."),
         "notes": notes, "confirm_word": None, "button": f"Update {count:,} {plural}" if count else None,
-        "fingerprint": {"count": count, "side_effects": effects},
+        "fingerprint": {"count": count, "side_effects": effects, "undo": bool(undoable)},
     }
 
 
@@ -146,18 +234,73 @@ def _execute_update(server, database, text, fingerprint, user):
     parsed = parse_update(text)
     with pg.connect_rw(server, database or None) as conn:
         schema, table = _resolve_table(conn, parsed["table_ref"])
-        count, _ = _update_and_count(conn, parsed)
-        effects = _side_effects(conn, schema, table, own="updated")
+        count, _, undo, effects = _update_with_undo(conn, parsed, schema, table)
         if not count:
             raise PgError("No rows match, so there is nothing to update.")
-        if count != fingerprint.get("count") or effects != fingerprint.get("side_effects"):
+        if count != fingerprint.get("count") or effects != fingerprint.get("side_effects") or ("old" in undo) != fingerprint.get("undo"):
             raise _changed_since(f"{fingerprint.get('count')} rows were expected and {count} match now.")
         payload = {"kind": "update", "database": _current_database(conn), "schema": schema, "table": table,
                    "statement": parsed["statement"], "count": count, "no_where": not parsed["has_where"], "side_effects": effects}
+        if "old" in undo:
+            _, old = _in_table_order(conn, schema, table, undo["old"])
+            _, new = _in_table_order(conn, schema, table, undo["new"])
+            payload["undo"] = {"pk": undo["pk"], "columns": undo["columns"], "old": old, "new": new}
+        else:
+            payload["undo"] = {"unavailable": undo["unavailable"]}
         entry = _commit_after_recording(conn, server, user, "update", parsed["statement"], count, payload, "updated")
     return {"count": count, "schema": schema, "table": table, "entry_id": entry.pk, "side_effects": effects,
             "message": f"Updated {count:,} row{'s' if count != 1 else ''} in {schema}.{table}. "
                        f"Recorded in the audit log as entry #{entry.pk}."}
+
+
+def undo_update(entry, user):
+    """Put the old values of a recorded UPDATE back. All or nothing, once per record, and only if the rows still look as the
+    update left them (nobody changed or deleted them since)."""
+    payload = entry.payload or {}
+    undo = payload.get("undo") or {}
+    if payload.get("kind") != "update" or not entry.ok:
+        raise PgError("This audit entry is not a recorded UPDATE.")
+    if entry.restored_at is not None:
+        raise PgError("This update was already undone.")
+    if "old" not in undo or not undo["old"]:
+        raise PgError(f"This update cannot be undone: {undo.get('unavailable', 'its old values were not saved')}.")
+    server = entry.server
+    if server is None:
+        raise PgError("The server this was updated on is no longer saved in PgDeck.")
+    if not server.allow_writes:
+        raise PgError("Changes are not allowed on this server. Switch on 'Allow changing data' in Edit server first.")
+    schema, table, pk = payload["schema"], payload["table"], undo["pk"]
+    with pg.connect_rw(server, payload["database"]) as conn:
+        _resolve_table(conn, _qualified(conn, schema, table))
+        if _primary_key(conn, schema, table) != pk:
+            raise PgError("The primary key of the table is not what it was, so the rows cannot be matched. Nothing was changed.")
+        conn.execute(sql.SQL("LOCK TABLE {}.{} IN SHARE ROW EXCLUSIVE MODE").format(sql.Identifier(schema), sql.Identifier(table)))
+        still = sql.SQL("SELECT count(*) FROM {s}.{t} t JOIN jsonb_populate_recordset(NULL::{s}.{t}, %s) n ON {match} "
+                        "WHERE to_jsonb(t) = to_jsonb(n)").format(s=sql.Identifier(schema), t=sql.Identifier(table), match=_key_match(pk, "t", "n"))
+        unchanged = conn.execute(still, (Jsonb(undo["new"]),)).fetchone()[0]
+        if unchanged != len(undo["new"]):
+            raise PgError(f"{len(undo['new']) - unchanged} of the {len(undo['new']):,} rows were changed or deleted again after this "
+                          "update, so nothing was undone. Undoing now would overwrite the newer values.")
+        columns = [c for c in undo["columns"] if c]
+        assignments = sql.SQL(", ").join(sql.SQL("{} = o.{}").format(sql.Identifier(c), sql.Identifier(c)) for c in columns)
+        restore = sql.SQL("UPDATE {s}.{t} t SET {assign} FROM jsonb_populate_recordset(NULL::{s}.{t}, %s) o WHERE {match}").format(
+            s=sql.Identifier(schema), t=sql.Identifier(table), assign=assignments, match=_key_match(pk, "t", "o"))
+        done = conn.execute(restore, (Jsonb(undo["old"]),)).rowcount
+        if done != len(undo["old"]):
+            raise PgError(f"Only {done} of {len(undo['old'])} rows could be put back, so nothing was changed.")
+        entry.restored_at, entry.restored_by = timezone.now(), user.get_username()
+        entry.save(update_fields=["restored_at", "restored_by"])
+        undo_entry = record(user, "update.undo", server, f"Undid {done} updated rows in {schema}.{table} (audit entry #{entry.pk})",
+                            rows=done, payload={"kind": "undo", "undone_entry": entry.pk, "database": payload["database"],
+                                                "schema": schema, "table": table, "count": done, "columns": columns})
+        try:
+            conn.commit()
+        except Exception:
+            entry.restored_at, entry.restored_by = None, ""
+            entry.save(update_fields=["restored_at", "restored_by"])
+            undo_entry.delete()
+            raise PgError("The database did not accept the undo, so nothing was changed.")
+    return {"count": done, "schema": schema, "table": table}
 
 
 # ------------------------------------------------------------------------------------------------------------- INSERT

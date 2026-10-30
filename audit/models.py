@@ -37,6 +37,12 @@ class AuditEntry(models.Model):
         return self.is_delete_record and self.ok and self.restored_at is None and bool(self.payload.get("rows"))
 
     @property
+    def can_undo(self):
+        undo = (self.payload or {}).get("undo") or {}
+        return (bool(self.payload) and self.payload.get("kind") == "update" and self.ok and self.restored_at is None
+                and bool(undo.get("old")))
+
+    @property
     def record_label(self):
         """One line saying what the JSON record is about, for the audit log."""
         p = self.payload or {}
@@ -53,6 +59,8 @@ class AuditEntry(models.Model):
             return f"INSERT · {rows(p.get('count', 0))} into {where}"
         if kind == "restore":
             return f"re-insert · {rows(p.get('count', 0))} into {where}"
+        if kind == "undo":
+            return f"undo · {rows(p.get('count', 0))} in {where}"
         if kind == "truncate":
             tables = p.get("tables", [])
             return f"TRUNCATE · {len(tables)} table{'' if len(tables) == 1 else 's'}, {rows(p.get('total_rows', 0))}"
@@ -68,9 +76,14 @@ class AuditEntry(models.Model):
         """The JSON shown in the audit log: the first few rows only; the whole record can be downloaded."""
         if not self.payload:
             return ""
-        shown = {**self.payload, "rows": self.payload.get("rows", [])[:PREVIEW_ROWS]}
+        undo = self.payload.get("undo") or {}
+        shown = {**self.payload}
+        if "rows" in self.payload:
+            shown["rows"] = self.payload["rows"][:PREVIEW_ROWS]
+        if "old" in undo:
+            shown["undo"] = {**undo, "old": undo["old"][:PREVIEW_ROWS], "new": undo["new"][:PREVIEW_ROWS]}
         text = json.dumps(shown, indent=2, default=str, ensure_ascii=False)
-        more = len(self.payload.get("rows", [])) - PREVIEW_ROWS
+        more = max(len(self.payload.get("rows", [])), len(undo.get("old", []))) - PREVIEW_ROWS
         return text + (f"\n… {more} more row{'s' if more != 1 else ''} in the downloadable JSON" if more > 0 else "")
 
 

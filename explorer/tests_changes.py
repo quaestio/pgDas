@@ -2,7 +2,7 @@
 import json
 
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase, TestCase, override_settings
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -105,7 +105,7 @@ class UpdateTests(ChangeFixture, TestCase):
         self.assertIn("no rollback", data["warning"])
         self.assertEqual([row["note"] for row in data["sample"]], ["changed"] * 3)           # rows as they WILL look
         self.assertEqual(data["columns"], ["id", "name", "data", "amount", "born", "seen", "blob", "tags", "note"])
-        self.assertEqual(data["fingerprint"], {"count": 3, "side_effects": []})
+        self.assertEqual(data["fingerprint"], {"count": 3, "side_effects": [], "undo": True})
         self.assertEqual(self.query("SELECT count(*) FROM pgdeck_w.parent WHERE note = 'changed'")[0][0], 0)    # nothing changed
         self.assertFalse(AuditEntry.objects.exists())
 
@@ -123,11 +123,11 @@ class UpdateTests(ChangeFixture, TestCase):
         data = self.preview("UPDATE pgdeck_w.parent SET note = 'x' WHERE id = 999")
         self.assertEqual((data["count"], data["button"], data["title"]), (0, None, "UPDATE — NOTHING TO CHANGE"))
         with self.assertRaisesRegex(pg.PgError, "nothing to update"):
-            self.execute("UPDATE pgdeck_w.parent SET note = 'x' WHERE id = 999", {"count": 0, "side_effects": []})
+            self.execute("UPDATE pgdeck_w.parent SET note = 'x' WHERE id = 999", {"count": 0, "side_effects": [], "undo": True})
 
     def test_execute_changes_the_rows_and_records_it(self):
         sql = "UPDATE pgdeck_w.parent SET note = 'changed', amount = amount + 1 WHERE id IN (2, 4)"
-        result = self.execute(sql, {"count": 2, "side_effects": []})          # no word is needed for UPDATE
+        result = self.execute(sql, {"count": 2, "side_effects": [], "undo": True})          # no word is needed for UPDATE
         self.assertEqual((result["kind"], result["count"], result["table"]), ("update", 2, "parent"))
         self.assertIn("Updated 2 rows in pgdeck_w.parent", result["message"])
         self.assertEqual([r[0] for r in self.query("SELECT id FROM pgdeck_w.parent WHERE note = 'changed' ORDER BY id")], [2, 4])
@@ -142,12 +142,12 @@ class UpdateTests(ChangeFixture, TestCase):
         self.assertEqual(entry.record_label, "UPDATE · 2 rows in pgdeck_w.parent")
 
     def test_an_update_with_no_where_is_recorded_as_such(self):
-        result = self.execute("UPDATE pgdeck_w.ident SET label = 'same'", {"count": 5, "side_effects": []})
+        result = self.execute("UPDATE pgdeck_w.ident SET label = 'same'", {"count": 5, "side_effects": [], "undo": True})
         self.assertTrue(AuditEntry.objects.get(pk=result["entry_id"]).payload["no_where"])
 
     def test_the_data_must_still_be_what_was_shown(self):
         with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
-            self.execute("UPDATE pgdeck_w.parent SET note = 'x' WHERE id <= 3", {"count": 2, "side_effects": []})
+            self.execute("UPDATE pgdeck_w.parent SET note = 'x' WHERE id <= 3", {"count": 2, "side_effects": [], "undo": True})
         self.assertEqual(self.query("SELECT count(*) FROM pgdeck_w.parent WHERE note = 'x'")[0][0], 0)
         self.assertFalse(AuditEntry.objects.exists())
 
@@ -160,7 +160,7 @@ class UpdateTests(ChangeFixture, TestCase):
         self.assertEqual(data["side_effects"], [{"table": "pgdeck_w.log", "inserted": 2, "updated": 0, "deleted": 0}])
         self.assertTrue(any("also changes pgdeck_w.log (2 inserted)" in n["text"] and n["bad"] for n in data["notes"]))
         with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
-            self.execute("UPDATE pgdeck_w.logged SET what = 'z'", {"count": 2, "side_effects": []})     # the side effect was not accepted
+            self.execute("UPDATE pgdeck_w.logged SET what = 'z'", {"count": 2, "side_effects": [], "undo": True})     # the side effect was not accepted
         self.assertEqual(self.count("log"), 0)
 
     def test_what_cannot_be_updated(self):
@@ -172,8 +172,115 @@ class UpdateTests(ChangeFixture, TestCase):
 
     def test_a_constraint_violation_is_explained_and_changes_nothing(self):
         with self.assertRaisesRegex(pg.PgError, "null value"):
-            self.execute("UPDATE pgdeck_w.parent SET name = NULL WHERE id = 1", {"count": 1, "side_effects": []})
+            self.execute("UPDATE pgdeck_w.parent SET name = NULL WHERE id = 1", {"count": 1, "side_effects": [], "undo": True})
         self.assertFalse(AuditEntry.objects.exists())
+
+
+class UndoUpdateTests(ChangeFixture, TestCase):
+    def update(self, sql, count):
+        fingerprint = self.preview(sql)["fingerprint"]
+        self.assertEqual(fingerprint["count"], count)
+        return self.execute(sql, fingerprint)
+
+    def note(self, row_id):
+        return self.query("SELECT note FROM pgdeck_w.parent WHERE id = %s", row_id)[0][0]
+
+    def test_an_update_keeps_old_and_new_values_and_can_be_undone(self):
+        preview = self.preview("UPDATE pgdeck_w.parent SET note = 'changed' WHERE id IN (2, 4)")
+        self.assertIn("undo the update", preview["warning"])
+        self.assertTrue(preview["fingerprint"]["undo"])
+        self.assertEqual(self.note(2), 'note 2')
+        result = self.update("UPDATE pgdeck_w.parent SET note = 'changed' WHERE id IN (2, 4)", 2)
+        entry = AuditEntry.objects.get(pk=result["entry_id"])
+        undo = entry.payload["undo"]
+        self.assertEqual((undo["pk"], undo["columns"]), (["id"], ["note"]))
+        self.assertEqual(sorted((r["id"], r["note"]) for r in undo["old"]), [(2, "note 2"), (4, "note 4")])
+        self.assertEqual(sorted((r["id"], r["note"]) for r in undo["new"]), [(2, "changed"), (4, "changed")])
+        self.assertTrue(entry.can_undo)
+        self.assertEqual(self.note(2), "changed")
+        done = changes.undo_update(entry, self.staff)
+        self.assertEqual(done["count"], 2)
+        self.assertEqual((self.note(2), self.note(4)), ("note 2", "note 4"))
+        entry.refresh_from_db()
+        self.assertEqual((entry.restored_by, entry.can_undo), (self.staff.username, False))
+        log = AuditEntry.objects.get(action="update.undo")
+        self.assertEqual((log.rows, log.payload["undone_entry"], log.record_label), (2, entry.pk, "undo · 2 rows in pgdeck_w.parent"))
+        with self.assertRaisesRegex(pg.PgError, "already undone"):
+            changes.undo_update(entry, self.staff)
+
+    def test_undo_is_refused_when_the_rows_were_changed_again(self):
+        entry = AuditEntry.objects.get(pk=self.update("UPDATE pgdeck_w.parent SET note = 'one' WHERE id <= 3", 3)["entry_id"])
+        with admin_connect(self.db) as conn:
+            conn.execute("UPDATE pgdeck_w.parent SET note = 'newer' WHERE id = 2")
+        with self.assertRaisesRegex(pg.PgError, "1 of the 3 rows were changed or deleted again"):
+            changes.undo_update(entry, self.staff)
+        self.assertEqual((self.note(1), self.note(2)), ("one", "newer"))             # nothing was touched
+        entry.refresh_from_db()
+        self.assertIsNone(entry.restored_at)
+        with admin_connect(self.db) as conn:
+            conn.execute("DELETE FROM pgdeck_w.parent WHERE id = 3")
+        with self.assertRaisesRegex(pg.PgError, "2 of the 3 rows"):
+            changes.undo_update(entry, self.staff)
+
+    def test_only_the_changed_columns_are_put_back_and_generated_ones_follow(self):
+        entry = AuditEntry.objects.get(pk=self.update("UPDATE pgdeck_w.ident SET label = 'much longer label' WHERE id <= 2", 2)["entry_id"])
+        self.assertEqual(entry.payload["undo"]["columns"], ["label"])                # `doubled` is generated, so not set directly
+        changes.undo_update(entry, self.staff)
+        self.assertEqual(self.query("SELECT label, doubled FROM pgdeck_w.ident WHERE id = 1")[0], ("label 1", 14))
+
+    def test_without_a_primary_key_there_is_no_undo_but_the_update_works(self):
+        with admin_connect(self.db) as conn:
+            conn.execute("CREATE TABLE pgdeck_w.loose (a int, b text)")
+            conn.execute("ALTER TABLE pgdeck_w.loose REPLICA IDENTITY FULL")
+            conn.execute("INSERT INTO pgdeck_w.loose VALUES (1, 'x'), (2, 'y')")
+        sql = "UPDATE pgdeck_w.loose SET b = 'z'"
+        data = self.preview(sql)
+        self.assertFalse(data["fingerprint"]["undo"])
+        self.assertIn("The old values are not saved", data["warning"])
+        self.assertTrue(any("no primary key" in n["text"] and n["bad"] for n in data["notes"]))
+        entry = AuditEntry.objects.get(pk=self.execute(sql, data["fingerprint"])["entry_id"])
+        self.assertIn("no primary key", entry.payload["undo"]["unavailable"])
+        self.assertFalse(entry.can_undo)
+        with self.assertRaisesRegex(pg.PgError, "cannot be undone: the table has no primary key"):
+            changes.undo_update(entry, self.staff)
+
+    def test_too_many_rows_or_a_changed_key_means_no_undo(self):
+        with override_settings(MAX_UNDO_ROWS=3):
+            data = self.preview("UPDATE pgdeck_w.parent SET note = 'x'")
+            self.assertEqual((data["count"], data["fingerprint"]["undo"]), (10, False))
+            self.assertTrue(any("more than 3 rows" in n["text"] for n in data["notes"]))
+            self.assertEqual(self.preview("UPDATE pgdeck_w.parent SET note = 'x' WHERE id <= 3")["fingerprint"]["undo"], True)
+        data = self.preview("UPDATE pgdeck_w.logged SET id = id + 100")
+        self.assertEqual((data["count"], data["fingerprint"]["undo"]), (2, False))
+        self.assertTrue(any("primary key" in n["text"] for n in data["notes"]))
+        data = self.preview("UPDATE pgdeck_w.parent SET note = note WHERE id = 1")
+        self.assertFalse(data["fingerprint"]["undo"])                                  # no value changes, nothing to put back
+
+    def test_undo_needs_the_server_to_still_allow_changes(self):
+        entry = AuditEntry.objects.get(pk=self.update("UPDATE pgdeck_w.parent SET note = 'one' WHERE id = 1", 1)["entry_id"])
+        self.server.allow_writes = False
+        self.server.save()
+        with self.assertRaisesRegex(pg.PgError, "Changes are not allowed"):
+            changes.undo_update(entry, self.staff)
+        self.assertEqual(self.note(1), "one")
+
+    def test_the_audit_page_has_an_undo_button_and_the_endpoint_works_once(self):
+        entry = AuditEntry.objects.get(pk=self.update("UPDATE pgdeck_w.parent SET note = 'one' WHERE id <= 2", 2)["entry_id"])
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("audit_list"))
+        self.assertContains(page, reverse("audit_undo", args=[entry.pk]))
+        self.assertContains(page, "Undo 2 rows")
+        self.assertEqual(self.client.get(reverse("audit_undo", args=[entry.pk])).status_code, 405)
+        response = self.client.post(reverse("audit_undo", args=[entry.pk]), {"page": "1"}, follow=True)
+        self.assertContains(response, "Put back the old values of 2 rows in pgdeck_w.parent")
+        self.assertEqual(self.note(1), "note 1")
+        self.assertNotContains(self.client.get(reverse("audit_list")), "Undo 2 rows")
+        again = self.client.post(reverse("audit_undo", args=[entry.pk]), follow=True)
+        self.assertContains(again, "already undone")
+        self.assertTrue(AuditEntry.objects.filter(action="update.undo", ok=False).exists())
+        plain = Client()
+        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
+        self.assertIn(plain.post(reverse("audit_undo", args=[entry.pk])).status_code, (302, 403))
 
 
 class InsertTests(ChangeFixture, TestCase):
@@ -534,7 +641,7 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
 
     def test_audit_log_page_shows_every_kind_of_record(self):
         self.execute("INSERT INTO pgdeck_w.logged (id, what) VALUES (30, 'x')")
-        self.execute("UPDATE pgdeck_w.logged SET what = 'y' WHERE id = 30", {"count": 1, "side_effects": []})
+        self.execute("UPDATE pgdeck_w.logged SET what = 'y' WHERE id = 30", {"count": 1, "side_effects": [], "undo": True})
         fingerprint = self.preview("TRUNCATE pgdeck_w.ident")["fingerprint"]
         self.execute("TRUNCATE pgdeck_w.ident", fingerprint, "TRUNCATE")
         fingerprint = self.preview("DROP VIEW pgdeck_w.parent_view")["fingerprint"]

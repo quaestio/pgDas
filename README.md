@@ -20,7 +20,7 @@ planned next (see the roadmap).
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
 - SQL runner: read-only, 30 s timeout, 1000-row cap. Optional, per server: INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with
   warning popups and typed confirmation (see "Changing data").
-- Audit log of every SQL run, server change and data change (staff only), as JSON, with a Re-insert button for deletes.
+- Audit log of every SQL run, server change and data change (staff only), as JSON, with a Re-insert button for deletes and an Undo button for updates.
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
 
 ## Changing data (opt-in, with popups and a safety net)
@@ -37,7 +37,10 @@ still true, and recorded in the audit log (as JSON) *before* it is committed, so
 other statement, and anything typed with scripting switched off, still runs read-only.
 
 - **UPDATE:** the popup shows the count, a sample of the rows as they will look, and any other tables a trigger would
-  change. The old values are not saved; the audit log keeps the statement and the count.
+  change. The old and new values of every updated row are saved in the audit log (as JSON), with an **Undo** button. Undo
+  puts back the changed columns, all or nothing, and only if no updated row was changed or deleted again since. It needs a
+  primary key and at most `PGDECK_MAX_UNDO_ROWS` rows (10 000 by default); otherwise the popup says the update cannot be undone.
+  Side effects of triggers are not undone.
 - **INSERT:** the audit record holds the statement and the number of rows. `INSERT … RETURNING` shows what came back.
 - **TRUNCATE:** the popup lists each table and its row count (with `CASCADE`, also the tables that point at it). The
   rows are **not** saved, because a table can hold millions; the audit record keeps the tables and counts.
@@ -134,7 +137,7 @@ Without a reachable PostgreSQL those tests are skipped and say why.
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
 2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
-   and re-insert for deletes are done**; next: undo for UPDATE, finer per-user permissions, query history.
+   and re-insert for deletes and undo for updates are done**; next: finer per-user permissions, query history.
 3. Backups: scheduled `pg_dump`, restore, retention, download.
 4. Monitoring: sessions, locks, slow queries, size trends, alerts.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.

@@ -125,3 +125,4 @@ STATEMENT_TIMEOUT_MS = int(os.getenv("PGDECK_STATEMENT_TIMEOUT_MS", "30000"))
 MAX_ROWS = int(os.getenv("PGDECK_MAX_ROWS", "1000"))
 # A delete must fit in the audit log (every deleted row is saved there as JSON, so it can be re-inserted).
 MAX_DELETE_ROWS = int(os.getenv("PGDECK_MAX_DELETE_ROWS", "10000"))
+MAX_UNDO_ROWS = int(os.getenv("PGDECK_MAX_UNDO_ROWS", "10000"))      # an UPDATE touching more rows than this cannot be undone

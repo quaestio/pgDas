@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from explorer import writes
+from explorer import changes, writes
 from explorer.pg import PgError
 
 from .models import AuditEntry, record
@@ -50,5 +50,26 @@ def audit_reinsert(request, pk):
     else:
         messages.success(request, f"Re-inserted {result['count']} row{'s' if result['count'] != 1 else ''} "
                                   f"into {result['schema']}.{result['table']}.")
+    return _back_to_list(request)
+
+
+@login_required
+@staff_required
+@require_POST
+def audit_undo(request, pk):
+    """Put the old values of a recorded UPDATE back. Asked for through a confirmation popup; works once per record."""
+    entry = get_object_or_404(AuditEntry, pk=pk)
+    try:
+        result = changes.undo_update(entry, request.user)
+    except PgError as error:
+        record(request.user, "update.undo", entry.server, f"Undo of audit entry #{entry.pk} failed: {error}", ok=False)
+        messages.error(request, f"Could not undo: {error}")
+    else:
+        messages.success(request, f"Put back the old values of {result['count']} row{'s' if result['count'] != 1 else ''} "
+                                  f"in {result['schema']}.{result['table']}.")
+    return _back_to_list(request)
+
+
+def _back_to_list(request):
     page = request.POST.get("page", "")
     return redirect(f"{reverse('audit_list')}?page={page}" if page.isdigit() else "audit_list")
