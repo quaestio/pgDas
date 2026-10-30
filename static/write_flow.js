@@ -2,6 +2,8 @@
 //   INSERT                  → runs at once.
 //   UPDATE                  → preview (nothing changes) → popup with the number of rows and a warning → button.
 //   DELETE / TRUNCATE / DROP → preview → popup with a warning → type ZAP / TRUNCATE / DROP → go.
+//   CREATE / ALTER          → preview → popup listing exactly what would be created or changed → button
+//                             (an ALTER that is risky asks for the word ALTER first).
 // Anything else (SELECT, ...) is submitted normally and runs read-only. Values from the database are inserted as text,
 // never as HTML.
 (function () {
@@ -23,7 +25,7 @@
 
   function kindOf(text) {
     var bare = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "").trim();
-    var match = /^(insert|update|delete|truncate|drop)\b/i.exec(bare);
+    var match = /^(insert|update|delete|truncate|drop|create|alter)\b/i.exec(bare);
     return match ? match[1].toLowerCase() : null;
   }
 
@@ -106,8 +108,10 @@
     list.hidden = !objects.length;
     objects.forEach(function (object) {
       var item = document.createElement("li");
-      item.textContent = object.name + " — " + Number(object.rows).toLocaleString() + " row" + (object.rows === 1 ? "" : "s") +
-                         (object.cascade ? " (also emptied by CASCADE)" : "");
+      // CREATE / ALTER send ready-made text ("+ create table public.x"); the others send a name and a row count.
+      item.textContent = object.text ? object.text :
+        object.name + " — " + Number(object.rows).toLocaleString() + " row" + (object.rows === 1 ? "" : "s") +
+        (object.cascade ? " (also emptied by CASCADE)" : "");
       list.appendChild(item);
     });
   }

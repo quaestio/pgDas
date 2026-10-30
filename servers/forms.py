@@ -18,7 +18,7 @@ class ServerForm(forms.ModelForm):
         if not self.instance.pk and not data.get("password"):
             self.add_error("password", "Enter the password for this server.")
         if data.get("allow_structure") and not data.get("allow_writes"):
-            self.add_error("allow_structure", "Turn on 'Allow changing data' first: TRUNCATE and DROP are an extra step on top of it.")
+            self.add_error("allow_structure", "Turn on 'Allow changing data' first: CREATE, ALTER, TRUNCATE and DROP are an extra step on top of it.")
         return data
 
     def save(self, commit=True):

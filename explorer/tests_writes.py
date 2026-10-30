@@ -332,7 +332,7 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         self.assertEqual(self.count("parent"), 10)
         bad = self.post("write_preview", {"sql": "SELECT 1", "db": self.db})
         self.assertEqual((bad.status_code, bad.json()["ok"]), (400, False))
-        self.assertIn("Only INSERT, UPDATE, DELETE, TRUNCATE and DROP", bad.json()["error"])
+        self.assertIn("Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER", bad.json()["error"])
         self.assertEqual(self.post("write_preview", "not an object").status_code, 400)
         self.assertEqual(self.client.generic("POST", reverse("write_preview", args=[self.server.pk]), "{broken", "application/json").status_code, 400)
 
@@ -403,13 +403,13 @@ class PagesTests(WriteFixture, TestCase):
                      "capital letters", reverse("write_preview", args=[self.server.pk]), reverse("write_execute", args=[self.server.pk])):
             self.assertContains(page, text)
         self.assertContains(page, 'data-can-structure="0"')                      # TRUNCATE / DROP not switched on yet
-        self.assertContains(page, "TRUNCATE and DROP are switched off for this server")
-        self.assertNotContains(page, "+ TRUNCATE / DROP")
+        self.assertContains(page, "CREATE, ALTER, TRUNCATE and DROP are switched off for this server")
+        self.assertNotContains(page, "+ CREATE / ALTER / TRUNCATE / DROP")
         self.server.allow_structure = True
         self.server.save()
         both = self.client.get(reverse("sql_runner", args=[self.server.pk]))
         self.assertContains(both, 'data-can-structure="1"')
-        self.assertContains(both, "+ TRUNCATE / DROP")
+        self.assertContains(both, "+ CREATE / ALTER / TRUNCATE / DROP")
         self.server.allow_writes = False
         self.server.allow_structure = False
         self.server.save()
@@ -512,7 +512,7 @@ class PagesTests(WriteFixture, TestCase):
         self.client.post(url, {**form, "allow_writes": "on"})
         self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="data changes switched ON").exists())
         self.client.post(url, {**form, "allow_writes": "on", "allow_structure": "on"})
-        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="TRUNCATE/DROP switched ON").exists())
+        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="structure changes switched ON").exists())
         self.client.post(url, {**form, "allow_writes": "on", "allow_structure": "on"})   # unchanged: no extra note
         self.assertEqual(AuditEntry.objects.filter(action="server.edit", detail__contains="switched").count(), 3)
         self.client.post(url, {**form})                                                  # both off again

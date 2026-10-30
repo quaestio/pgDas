@@ -36,7 +36,7 @@ def server_add(request):
         server.save()
         detail = f"{server.username}@{server.host}:{server.port}"
         if server.allow_writes:
-            detail += " · data changes allowed" + (" · TRUNCATE/DROP allowed" if server.allow_structure else "")
+            detail += " · data changes allowed" + (" · structure changes allowed" if server.allow_structure else "")
         record(request.user, "server.add", server, detail)
         messages.success(request, f"Server {server.name} saved.")
         return redirect("server_list")
@@ -56,7 +56,7 @@ def server_edit(request, pk):
         if server.allow_writes != was_writes:
             detail += " · data changes " + ("switched ON" if server.allow_writes else "switched OFF")
         if server.allow_structure != was_structure:
-            detail += " · TRUNCATE/DROP " + ("switched ON" if server.allow_structure else "switched OFF")
+            detail += " · structure changes " + ("switched ON" if server.allow_structure else "switched OFF")
         record(request.user, "server.edit", server, detail)
         messages.success(request, f"Server {server.name} updated.")
         return redirect("server_list")

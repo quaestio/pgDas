@@ -211,7 +211,7 @@ def _can_write(user, server):
 
 
 def _can_structure(user, server):
-    """TRUNCATE and DROP need the second switch as well, 'Also allow TRUNCATE and DROP'."""
+    """CREATE, ALTER, TRUNCATE and DROP need the second switch as well, 'Also allow CREATE, ALTER, TRUNCATE and DROP'."""
     return bool(_can_write(user, server) and server.allow_structure)
 
 
@@ -239,14 +239,14 @@ def _write_request(request, pk):
                                          "Turn on 'Allow changing data' in Edit server first.")
     if kind in changes.STRUCTURE_KINDS and not server.allow_structure:
         return None, None, None, _refuse(f"{kind.upper()} is switched off for this server. "
-                                         "Turn on 'Also allow TRUNCATE and DROP' in Edit server first.")
+                                         "Turn on 'Also allow CREATE, ALTER, TRUNCATE and DROP' in Edit server first.")
     return server, kind, data, None
 
 
 @login_required
 @require_POST
 def write_preview(request, pk):
-    """Step 1 of UPDATE, DELETE, TRUNCATE and DROP: what the statement would do. Nothing is changed (always rolled back)."""
+    """Step 1 of UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER: what the statement would do. Nothing is changed (always rolled back)."""
     server, kind, data, failure = _write_request(request, pk)
     if failure:
         return failure
@@ -289,7 +289,7 @@ def sql_runner(request, pk):
             except pg.PgError as error:
                 record(request.user, "sql.run", server, statement, ok=False)
                 context["error"] = str(error)
-                verb = re.match(r"\s*(insert|update|delete|truncate|drop)\b", statement, re.I)
+                verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter)\b", statement, re.I)
                 if verb and ("read-only transaction" in str(error)):
                     word = verb.group(1).upper()
                     if not request.user.is_staff:
@@ -297,8 +297,8 @@ def sql_runner(request, pk):
                     elif not server.allow_writes:
                         context["hint"] = ("Changing data is switched off here: a staff user can allow it with "
                                            "'Allow changing data' in Edit server.")
-                    elif word in ("TRUNCATE", "DROP") and not server.allow_structure:
-                        context["hint"] = f"{word} is switched off here: turn on 'Also allow TRUNCATE and DROP' in Edit server."
+                    elif word in ("TRUNCATE", "DROP", "CREATE", "ALTER") and not server.allow_structure:
+                        context["hint"] = f"{word} is switched off here: turn on 'Also allow CREATE, ALTER, TRUNCATE and DROP' in Edit server."
                     else:
                         context["hint"] = (f"{word} asks for confirmation first, and that popup needs JavaScript. "
                                            "Turn it on and press Run again.")

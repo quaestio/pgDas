@@ -25,11 +25,12 @@ class ServerConnection(models.Model):
         default=False, verbose_name="Allow changing data",
         help_text="Lets staff run INSERT, UPDATE and DELETE in the SQL runner on this server. UPDATE and DELETE show a "
                   "warning popup first, and every change is recorded in the audit log.")
-    # A second, separate switch for the statements that cannot be undone from the audit log. Needs allow_writes.
+    # A second, separate switch for changes to the structure of the database, which the audit log cannot undo. Needs allow_writes.
     allow_structure = models.BooleanField(
-        default=False, verbose_name="Also allow TRUNCATE and DROP",
-        help_text="Lets staff run TRUNCATE (empty a table) and DROP (remove tables, views, schemas, ...). Each asks for a "
-                  "warning popup and for the word to be typed. Needs 'Allow changing data'.")
+        default=False, verbose_name="Also allow CREATE, ALTER, TRUNCATE and DROP",
+        help_text="Lets staff create and change tables, views, indexes and so on (CREATE, ALTER) and run TRUNCATE (empty a "
+                  "table) and DROP (remove objects). Each shows a warning popup first, and the dangerous ones ask for a word "
+                  "to be typed. Needs 'Allow changing data'.")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 

@@ -7,7 +7,7 @@
     <p class="muted">{{ server.name }}{% if db %} · database {{ db }}{% endif %}</p></div>
   <div><a class="btn" href="{% url 'explorer' server.pk %}">← Object browser</a>
     {% if can_write %}<span class="badge bad" title="INSERT, UPDATE and DELETE are allowed on this server">changes allowed</span>
-    {% if can_structure %}<span class="badge bad" title="TRUNCATE and DROP are allowed on this server">+ TRUNCATE / DROP</span>{% endif %}
+    {% if can_structure %}<span class="badge bad" title="CREATE, ALTER, TRUNCATE and DROP are allowed on this server">+ CREATE / ALTER / TRUNCATE / DROP</span>{% endif %}
     {% else %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
 <section class="panel pad">
@@ -21,7 +21,8 @@
     <p class="muted" style="margin-top:10px">Queries run read-only. Changes are allowed here, one statement at a time, and every one is recorded in the audit log:
       <strong>INSERT</strong> runs at once; <strong>UPDATE</strong> shows how many rows it changes and warns if it has no WHERE;
       <strong>DELETE</strong> asks you to type {{ confirm_words.delete }} (the rows are saved and can be re-inserted){% if can_structure %};
-      <strong>TRUNCATE</strong> and <strong>DROP</strong> show a warning and ask you to type {{ confirm_words.truncate }} or {{ confirm_words.drop }}{% else %}. TRUNCATE and DROP are switched off for this server{% endif %}.</p>
+      <strong>TRUNCATE</strong> and <strong>DROP</strong> show a warning and ask you to type {{ confirm_words.truncate }} or {{ confirm_words.drop }};
+      <strong>CREATE</strong> and <strong>ALTER</strong> list exactly what would be created or changed (a risky ALTER asks you to type {{ confirm_words.alter }}){% else %}. CREATE, ALTER, TRUNCATE and DROP are switched off for this server{% endif %}.</p>
     {% else %}
     <p class="muted" style="margin-top:10px">Runs read-only: PostgreSQL rejects any statement that would change data. Results are capped and time-limited, and every run is recorded in the audit log.</p>
     {% endif %}
@@ -45,7 +46,7 @@
 {% endif %}
 
 {% if can_write %}
-{# The warning popup for UPDATE, DELETE, TRUNCATE and DROP. write_flow.js fills it in from the preview. #}
+{# The warning popup for UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER. write_flow.js fills it in from the preview. #}
 <div id="changeModal" class="cyber-modal" hidden>
   <div class="cyber-dialog wide" role="dialog" aria-modal="true" aria-labelledby="changeTitle">
     <div class="modal-top"><span id="changeTitle">WARNING</span><button type="button" id="changeClose" aria-label="Close">✕</button></div>

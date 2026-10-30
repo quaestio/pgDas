@@ -58,6 +58,9 @@ class AuditEntry(models.Model):
             return f"TRUNCATE · {len(tables)} table{'' if len(tables) == 1 else 's'}, {rows(p.get('total_rows', 0))}"
         if kind == "drop":
             return f"DROP {p.get('object_type', '')}"
+        if kind in ("create", "alter"):
+            n = len(p.get("changes", []))
+            return f"{kind.upper()} {p.get('object_type', '')} · {n} object{'' if n == 1 else 's'}" + (" · risky" if p.get("risky") else "")
         return ""
 
     @property

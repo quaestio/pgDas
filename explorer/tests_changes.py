@@ -13,15 +13,16 @@ from .tests_writes import WriteFixture
 
 
 class ClassifyAndParseTests(SimpleTestCase):
-    def test_classify_finds_the_five_changing_statements(self):
+    def test_classify_finds_the_seven_changing_statements(self):
         cases = {"INSERT INTO t VALUES (1)": "insert", "  update t set a = 1": "update", "-- note\nDELETE FROM t": "delete",
-                 "/* x */ Truncate t": "truncate", "drop table t;": "drop", "DROP": "drop"}
+                 "/* x */ Truncate t": "truncate", "drop table t;": "drop", "DROP": "drop",
+                 "CREATE TABLE t (a int)": "create", "alter table t add c int": "alter"}
         for text, kind in cases.items():
             with self.subTest(text=text):
                 self.assertEqual(changes.classify(text), kind)
-        for text in ("SELECT 1", "WITH x AS (SELECT 1) DELETE FROM t", "ALTER TABLE t ADD c int", "CREATE TABLE t (a int)",
-                     "EXPLAIN SELECT 1", "", "   ", "COPY t FROM stdin", "GRANT ALL ON t TO u"):
-            with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, "Only INSERT, UPDATE, DELETE, TRUNCATE and DROP"):
+        for text in ("SELECT 1", "WITH x AS (SELECT 1) DELETE FROM t", "EXPLAIN SELECT 1", "", "   ", "COPY t FROM stdin",
+                     "GRANT ALL ON t TO u", "COMMENT ON TABLE t IS 'x'", "VACUUM t"):
+            with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, "Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER"):
                 changes.classify(text)
 
     def test_parse_update(self):
@@ -379,6 +380,87 @@ class DropTests(ChangeFixture, TestCase):
                 self.preview(sql)
 
 
+class CreateAlterTests(ChangeFixture, TestCase):
+    def test_create_preview_lists_what_would_be_created_and_changes_nothing(self):
+        data = self.preview("CREATE TABLE pgdeck_w.made (id serial PRIMARY KEY, name text)")
+        self.assertEqual((data["kind"], data["title"], data["button"], data["confirm_word"]), ("create", "CREATE TABLE?", "Create table", None))
+        texts = [o["text"] for o in data["objects"]]
+        self.assertTrue(any(t.startswith("+ create table pgdeck_w.made") for t in texts))
+        self.assertTrue(any("sequence pgdeck_w.made_id_seq" in t for t in texts))
+        self.assertTrue(any("index pgdeck_w.made_pkey" in t for t in texts))
+        self.assertFalse(self.exists("made"))
+        self.assertFalse(AuditEntry.objects.exists())
+
+    def test_create_executes_and_is_recorded(self):
+        sql = "CREATE TABLE pgdeck_w.made (id int, name text)"
+        fingerprint = self.preview(sql)["fingerprint"]
+        result = self.execute(sql, fingerprint)
+        self.assertTrue(self.exists("made"))
+        entry = AuditEntry.objects.get(pk=result["entry_id"])
+        self.assertEqual((entry.action, entry.ok, entry.payload["kind"], entry.payload["object_type"]), ("create", True, "create", "TABLE"))
+        self.assertEqual(entry.payload["changes"][0]["name"], "pgdeck_w.made")
+        self.assertTrue(entry.record_label.startswith("CREATE TABLE"))
+
+    def test_create_that_does_nothing_has_no_button_and_will_not_run(self):
+        data = self.preview("CREATE TABLE IF NOT EXISTS pgdeck_w.logged (id int)")
+        self.assertIsNone(data["button"])
+        self.assertIn("NOTHING TO DO", data["title"])
+        with self.assertRaisesRegex(pg.PgError, "nothing to run"):
+            self.execute("CREATE TABLE IF NOT EXISTS pgdeck_w.logged (id int)", data["fingerprint"])
+
+    def test_create_of_something_that_exists_is_an_error(self):
+        with self.assertRaisesRegex(pg.PgError, "already exists"):
+            self.preview("CREATE TABLE pgdeck_w.logged (id int)")
+
+    def test_plain_alter_needs_no_word_and_lists_the_column(self):
+        data = self.preview("ALTER TABLE pgdeck_w.logged ADD COLUMN extra int")
+        self.assertEqual((data["kind"], data["confirm_word"], data["risky"], data["button"]), ("alter", None, False, "Alter table"))
+        self.assertTrue(any("columns: +extra" in o["text"] for o in data["objects"]))
+        self.assertFalse(self.query("SELECT 1 FROM information_schema.columns WHERE table_schema='pgdeck_w' AND table_name='logged' AND column_name='extra'"))
+        result = self.execute("ALTER TABLE pgdeck_w.logged ADD COLUMN extra int", data["fingerprint"])
+        self.assertTrue(self.query("SELECT 1 FROM information_schema.columns WHERE table_schema='pgdeck_w' AND table_name='logged' AND column_name='extra'"))
+        payload = AuditEntry.objects.get(pk=result["entry_id"]).payload
+        self.assertFalse(payload["risky"])
+        self.assertTrue(payload["before"][0]["sql"].startswith("CREATE TABLE pgdeck_w.logged"))   # the previous definition is kept
+
+    def test_risky_alter_needs_the_exact_word(self):
+        with admin_connect(self.db) as conn:
+            conn.execute("ALTER TABLE pgdeck_w.logged ADD COLUMN extra int")
+        sql = "ALTER TABLE pgdeck_w.logged DROP COLUMN extra"
+        data = self.preview(sql)
+        self.assertEqual((data["confirm_word"], data["risky"]), ("ALTER", True))
+        for wrong in ("alter", "Alter", "ALTER ", "", None, "DROP"):
+            with self.subTest(confirm=wrong), self.assertRaisesRegex(pg.PgError, "Type ALTER in capital letters"):
+                self.execute(sql, data["fingerprint"], wrong)
+        self.assertTrue(self.query("SELECT 1 FROM information_schema.columns WHERE table_schema='pgdeck_w' AND table_name='logged' AND column_name='extra'"))
+        self.assertFalse(AuditEntry.objects.exists())
+        self.execute(sql, data["fingerprint"], "ALTER")
+        self.assertFalse(self.query("SELECT 1 FROM information_schema.columns WHERE table_schema='pgdeck_w' AND table_name='logged' AND column_name='extra'"))
+
+    def test_rename_and_type_change_are_risky(self):
+        for sql in ("ALTER TABLE pgdeck_w.logged RENAME TO logged2", "ALTER TABLE pgdeck_w.logged ALTER COLUMN id TYPE bigint"):
+            with self.subTest(sql=sql):
+                self.assertTrue(self.preview(sql)["risky"])
+
+    def test_what_changed_must_still_be_what_was_shown(self):
+        sql = "ALTER TABLE pgdeck_w.logged ADD COLUMN extra int"
+        fingerprint = self.preview(sql)["fingerprint"]
+        fingerprint["changes"][0]["detail"] = "columns: +something_else"          # not what the statement would now do
+        with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
+            self.execute(sql, fingerprint)
+        with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
+            self.execute(sql, {})
+        self.assertFalse(AuditEntry.objects.exists())
+
+    def test_what_is_refused(self):
+        for sql, message in (("CREATE DATABASE x", "not available here"), ("CREATE ROLE x", "not available here"),
+                             ("CREATE TEMP TABLE x (a int)", "Temporary objects"), ("CREATE INDEX CONCURRENTLY i ON pgdeck_w.logged (id)", "CONCURRENTLY"),
+                             ("CREATE TABLE pgdeck_w.a (a int); CREATE TABLE pgdeck_w.b (a int)", "one CREATE statement"),
+                             ("ALTER DATABASE x SET a = 1", "not available here"), ("ALTER ROLE x LOGIN", "not available here")):
+            with self.subTest(sql=sql), self.assertRaisesRegex(pg.PgError, message):
+                self.preview(sql)
+
+
 class ChangeEndpointTests(ChangeFixture, TestCase):
     def setUp(self):
         super().setUp()
@@ -419,7 +501,7 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
                 response = self.post(name, {"sql": sql, "db": self.db, "confirm": word, "fingerprint": {"tables": [], "notices": []}})
                 self.assertEqual(response.status_code, 403, (sql, name))
                 self.assertIn(f"{word} is switched off for this server", response.json()["error"])
-                self.assertIn("Also allow TRUNCATE and DROP", response.json()["error"])
+                self.assertIn("Also allow CREATE, ALTER, TRUNCATE and DROP", response.json()["error"])
         self.assertEqual(self.count("ident"), 5)
         self.assertTrue(self.exists("logged"))
         # data changes themselves are still fine on this server
@@ -465,15 +547,15 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
 
     def test_server_form_switches(self):
         page = self.client.get(reverse("server_edit", args=[self.server.pk]))
-        for text in ("Allow changing data", "Also allow TRUNCATE and DROP", "INSERT, UPDATE and DELETE"):
+        for text in ("Allow changing data", "Also allow CREATE, ALTER, TRUNCATE and DROP", "INSERT, UPDATE and DELETE"):
             self.assertContains(page, text)
 
     def test_popup_markup_and_script_cover_all_statements(self):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
         for text in ('id="changeWarning"', 'id="changeObjects"', 'id="changeWord"', "INSERT</strong> runs at once", "UPDATE</strong> shows how many rows",
-                     "type ZAP", "type TRUNCATE or DROP"):
+                     "type ZAP", "type TRUNCATE or DROP", "CREATE</strong> and <strong>ALTER"):
             self.assertContains(page, text)
         script = open("static/write_flow.js", encoding="utf-8").read()
         for needle in ('kind === "insert"', "preview.confirm_word", "preview.fingerprint", "preview.objects", "preview.notes",
-                       "(insert|update|delete|truncate|drop)", "tone(\"error\")", "tone(\"success\")"):
+                       "(insert|update|delete|truncate|drop|create|alter)", "tone(\"error\")", "tone(\"success\")"):
             self.assertIn(needle, script)

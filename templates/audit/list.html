@@ -18,6 +18,7 @@
             <summary>JSON record{% if entry.record_label %} · {{ entry.record_label }}{% endif %}</summary>
             {% if entry.payload.no_where %}<p class="muted">The statement had no WHERE clause.</p>{% endif %}
             {% if entry.payload.kind == "truncate" or entry.payload.kind == "drop" or entry.payload.kind == "update" %}<p class="muted">These rows cannot be re-inserted from the audit log: it keeps the statement and what it affected.</p>{% endif %}
+            {% if entry.payload.kind == "create" or entry.payload.kind == "alter" %}<p class="muted">Kept for reference: the objects this changed{% if entry.payload.before %} and the previous CREATE statement of {% for b in entry.payload.before %}{{ b.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}. The audit log cannot undo it.</p>{% endif %}
             {% if entry.payload.side_effects %}<p class="muted">Also changed (not recorded here, so not restored): {% for e in entry.payload.side_effects %}{{ e.table }} ({{ e.deleted }} deleted){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
             <pre class="sql json">{{ entry.payload_preview }}</pre>
           </details>

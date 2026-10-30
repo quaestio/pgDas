@@ -1,5 +1,5 @@
-"""INSERT, UPDATE, TRUNCATE and DROP, and the one entry point (preview / execute) the SQL runner uses for every changing
-statement. DELETE, with its row-by-row JSON record and re-insert, lives in writes.py.
+"""INSERT, UPDATE, TRUNCATE, DROP, CREATE and ALTER, and the one entry point (preview / execute) the SQL runner uses for
+every changing statement. DELETE, with its row-by-row JSON record and re-insert, lives in writes.py.
 
   statement   what happens                                      confirmation
   INSERT      runs at once, recorded in the audit log           none
@@ -7,6 +7,8 @@ statement. DELETE, with its row-by-row JSON record and re-insert, lives in write
   DELETE      popup: number of rows, no rollback                type ZAP
   TRUNCATE    popup: rows lost per table, no rollback           type TRUNCATE
   DROP        popup: what goes with it, no rollback             type DROP
+  CREATE      popup: exactly what would be created              a button
+  ALTER       popup: exactly what would change                  a button, or type ALTER when it is risky
 
 Every one of them: needs a staff user and the server's own switch; one plain statement at a time; checked first in a
 transaction that is always rolled back; run for real only if the checked facts are still true; recorded in the audit log
@@ -25,17 +27,19 @@ from . import pg, writes
 from .pg import PgError
 from .writes import SAMPLE_ROWS, _IDENT, _in_table_order, _resolve_table, _side_effects, prepare_statement
 
-CONFIRM_WORDS = {"delete": writes.CONFIRM_WORD, "update": None, "insert": None, "truncate": "TRUNCATE", "drop": "DROP"}
-STRUCTURE_KINDS = ("truncate", "drop")     # these need the server's second switch, "Also allow TRUNCATE and DROP"
+# The word to type. ALTER asks for its word only when the change is risky (see _alter_is_risky); CREATE never does.
+CONFIRM_WORDS = {"delete": writes.CONFIRM_WORD, "update": None, "insert": None, "truncate": "TRUNCATE", "drop": "DROP",
+                 "create": None, "alter": "ALTER"}
+STRUCTURE_KINDS = ("truncate", "drop", "create", "alter")   # these need the server's second switch, "Also allow CREATE, ALTER, TRUNCATE and DROP"
 _TABLE_REF = rf"{_IDENT}(?:\s*\.\s*{_IDENT})?"
 
 
 def classify(text):
-    """Which changing statement this is: insert, update, delete, truncate or drop. Anything else is not one of them."""
+    """Which changing statement this is: insert, update, delete, truncate, drop, create or alter. Anything else is not one."""
     bare = sqlparse.format(text or "", strip_comments=True).strip()
     kind = (bare.split(None, 1)[0].upper().rstrip(";").lower() if bare else "")
     if kind not in CONFIRM_WORDS:
-        raise PgError("Only INSERT, UPDATE, DELETE, TRUNCATE and DROP can change data here; everything else runs read-only.")
+        raise PgError("Only INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER can change things here; everything else runs read-only.")
     return kind
 
 
@@ -370,6 +374,294 @@ def _execute_drop(server, database, text, fingerprint, confirm, user):
             "message": f"Dropped as asked ({parsed['object_type'].lower()}). Recorded in the audit log as entry #{entry.pk}."}
 
 
+# ------------------------------------------------------------------------------------------ CREATE and ALTER
+# PgDeck does not try to understand every DDL statement. It runs the statement inside a transaction, looks at the database
+# before and after, and reports the difference: that is exactly what the popup shows, and what must still be true when the
+# person confirms.
+_OBJECT_TYPES = (r"MATERIALIZED\s+VIEW|FOREIGN\s+TABLE|EVENT\s+TRIGGER|TABLE|VIEW|INDEX|SEQUENCE|SCHEMA|TYPE|DOMAIN|"
+                 r"FUNCTION|PROCEDURE|TRIGGER|EXTENSION|PUBLICATION")
+_CREATE = re.compile(rf"^CREATE\s+(?P<mods>(?:(?:OR\s+REPLACE|UNIQUE|TEMP(?:ORARY)?|UNLOGGED|GLOBAL|LOCAL|RECURSIVE)\s+)*)"
+                     rf"(?P<type>{_OBJECT_TYPES})\b(?P<rest>.*)$", re.I | re.S)
+_ALTER = re.compile(rf"^ALTER\s+(?P<type>{_OBJECT_TYPES})\b(?P<rest>.*)$", re.I | re.S)
+_CREATE_REFUSED = re.compile(r"^CREATE\s+(?:OR\s+REPLACE\s+)?(DATABASE|ROLE|USER|GROUP|TABLESPACE|SERVER|FOREIGN\s+DATA|"
+                             r"USER\s+MAPPING|LANGUAGE|CAST|COLLATION|CONVERSION|OPERATOR|AGGREGATE|ACCESS\s+METHOD)\b", re.I)
+_ALTER_REFUSED = re.compile(r"^ALTER\s+(SYSTEM|DATABASE|ROLE|USER|GROUP|TABLESPACE|DEFAULT\s+PRIVILEGES|SERVER|"
+                            r"FOREIGN\s+DATA|USER\s+MAPPING|LARGE\s+OBJECT|OPERATOR|AGGREGATE)\b", re.I)
+_NAMED_TARGET = re.compile(rf"^(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?(?P<name>{_TABLE_REF})", re.I)
+_QUOTED = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|\$(\w*)\$.*?\$\1\$", re.S)
+_RISKY_ALTER = re.compile(r"\b(DROP|RENAME|TYPE|OWNER\s+TO|SET\s+SCHEMA|DETACH|DISABLE|RESTART|CASCADE|SET\s+(?:LOGGED|UNLOGGED))\b", re.I)
+
+
+def _target_names(object_type, rest):
+    """For tables and views: the name being created or altered, so its current definition can be kept in the audit record."""
+    if object_type not in ("TABLE", "VIEW", "MATERIALIZED VIEW"):
+        return []
+    match = _NAMED_TARGET.match(rest.strip())
+    return [_normalise(match["name"])] if match else []
+
+
+def parse_create(text):
+    cleaned, _ = prepare_statement(text, "CREATE", allow_returning=True)
+    if _CREATE_REFUSED.match(cleaned):
+        raise PgError("CREATE DATABASE, ROLE, TABLESPACE and similar server-level objects are not available here; run those in psql.")
+    match = _CREATE.match(cleaned)
+    if not match:
+        raise PgError("PgDeck can create tables, views, materialized views, indexes, sequences, schemas, types, domains, "
+                      "functions, procedures, triggers, extensions and publications.")
+    mods = re.sub(r"\s+", " ", match["mods"]).upper()
+    object_type = re.sub(r"\s+", " ", match["type"]).upper()
+    if "TEMP" in mods:
+        raise PgError("Temporary objects disappear when the connection closes, so there is nothing to keep. Create a normal one instead.")
+    if re.search(r"\bCONCURRENTLY\b", _QUOTED.sub(" ", cleaned), re.I):
+        raise PgError("CREATE INDEX CONCURRENTLY cannot run inside PgDeck's safety transaction. Create the index without "
+                      "CONCURRENTLY, or run it in psql.")
+    return {"statement": cleaned, "object_type": object_type, "or_replace": "OR REPLACE" in mods,
+            "names": _target_names(object_type, match["rest"])}
+
+
+def parse_alter(text):
+    cleaned, _ = prepare_statement(text, "ALTER", allow_returning=True)
+    if _ALTER_REFUSED.match(cleaned):
+        raise PgError("ALTER DATABASE, ROLE, SYSTEM, TABLESPACE and similar server-level settings are not available here; run those in psql.")
+    match = _ALTER.match(cleaned)
+    if not match:
+        raise PgError("PgDeck can alter tables, indexes, sequences, views, materialized views, schemas, types, domains, functions, "
+                      "procedures, triggers, extensions and publications.")
+    object_type = re.sub(r"\s+", " ", match["type"]).upper()
+    return {"statement": cleaned, "object_type": object_type, "names": _target_names(object_type, match["rest"]),
+            "risky_words": _alter_risky_words(match["rest"])}
+
+
+def _alter_risky_words(rest):
+    """Words in the statement that mean data can be lost or things that depend on the object can break."""
+    return sorted({re.sub(r"\s+", " ", word).upper() for word in _RISKY_ALTER.findall(_QUOTED.sub(" ", rest))})
+
+
+# What the database looks like, as {(kind, name): fingerprint}. Only the database's own schemas, not system or extension objects.
+_USER_SCHEMA = "n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'"
+_SNAPSHOT = f"""
+SELECT 'relation', n.nspname || '.' || c.relname,
+       c.relkind::text || E'\\x1d' || pg_get_userbyid(c.relowner) || E'\\x1d' || coalesce((
+           SELECT string_agg(a.attname || E'\\x1e' || format_type(a.atttypid, a.atttypmod)
+                             || CASE WHEN a.attnotnull THEN ' NOT NULL' ELSE '' END
+                             || coalesce(' DEFAULT ' || pg_get_expr(d.adbin, d.adrelid), '')
+                             || CASE WHEN a.attidentity <> '' THEN ' IDENTITY ' || a.attidentity::text ELSE '' END
+                             || CASE WHEN a.attgenerated <> '' THEN ' GENERATED ' || a.attgenerated::text ELSE '' END,
+                             E'\\x1f' ORDER BY a.attnum)
+           FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+           WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped), '')
+       || E'\\x1d' || CASE WHEN c.relkind IN ('v', 'm') THEN md5(pg_get_viewdef(c.oid, true)) ELSE '' END
+       || E'\\x1d' || coalesce((SELECT concat_ws(',', s.seqincrement, s.seqmin, s.seqmax, s.seqstart, s.seqcycle)
+                                FROM pg_sequence s WHERE s.seqrelid = c.oid), '')
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND {_USER_SCHEMA} AND {pg.NOT_IN_EXTENSION.format(oid="c.oid", catalog="pg_class")}
+UNION ALL
+SELECT 'index', n.nspname || '.' || i.relname, pg_get_indexdef(i.oid)
+FROM pg_index x JOIN pg_class i ON i.oid = x.indexrelid JOIN pg_class c ON c.oid = x.indrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE {_USER_SCHEMA} AND {pg.NOT_IN_EXTENSION.format(oid="c.oid", catalog="pg_class")}
+UNION ALL
+SELECT 'constraint', n.nspname || '.' || c.relname || '.' || k.conname, pg_get_constraintdef(k.oid)
+FROM pg_constraint k JOIN pg_class c ON c.oid = k.conrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE k.contype <> 'n' AND {_USER_SCHEMA} AND {pg.NOT_IN_EXTENSION.format(oid="c.oid", catalog="pg_class")}
+UNION ALL
+SELECT 'trigger', n.nspname || '.' || c.relname || '.' || t.tgname, pg_get_triggerdef(t.oid)
+FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE NOT t.tgisinternal AND {_USER_SCHEMA} AND {pg.NOT_IN_EXTENSION.format(oid="c.oid", catalog="pg_class")}
+UNION ALL
+SELECT CASE p.prokind WHEN 'p' THEN 'procedure' WHEN 'a' THEN 'aggregate' ELSE 'function' END,
+       n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+       CASE WHEN p.prokind = 'a' THEN 'aggregate' ELSE md5(pg_get_functiondef(p.oid)) END
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE {_USER_SCHEMA} AND {pg.NOT_IN_EXTENSION.format(oid="p.oid", catalog="pg_proc")}
+UNION ALL
+SELECT 'type', n.nspname || '.' || t.typname,
+       t.typtype::text || ':' || coalesce((SELECT string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder) FROM pg_enum e WHERE e.enumtypid = t.oid), '')
+       || ':' || coalesce(format_type(nullif(t.typbasetype, 0), t.typtypmod), '')
+       || ':' || coalesce((SELECT string_agg(a.attname || ' ' || format_type(a.atttypid, a.atttypmod), ',' ORDER BY a.attnum)
+                           FROM pg_attribute a WHERE a.attrelid = nullif(t.typrelid, 0) AND a.attnum > 0 AND NOT a.attisdropped), '')
+FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace LEFT JOIN pg_class rel ON rel.oid = t.typrelid
+WHERE t.typtype IN ('e', 'd', 'r', 'c') AND (t.typtype <> 'c' OR rel.relkind = 'c') AND {_USER_SCHEMA}
+      AND {pg.NOT_IN_EXTENSION.format(oid="t.oid", catalog="pg_type")}
+UNION ALL
+SELECT 'schema', n.nspname, pg_get_userbyid(n.nspowner) FROM pg_namespace n WHERE {_USER_SCHEMA}
+UNION ALL
+SELECT 'extension', e.extname, e.extversion FROM pg_extension e
+UNION ALL
+SELECT 'publication', p.pubname, p.puballtables::text || p.pubinsert::text || p.pubupdate::text || p.pubdelete::text FROM pg_publication p
+"""
+_RELATION_KIND = {"r": "table", "p": "partitioned table", "v": "view", "m": "materialized view", "S": "sequence", "f": "foreign table"}
+
+
+def _snapshot(conn):
+    return {(kind, name): fingerprint for kind, name, fingerprint in _run(conn, _SNAPSHOT).fetchall()}
+
+
+def _label(kind, fingerprint):
+    return _RELATION_KIND.get(fingerprint.split("\x1d", 1)[0], kind) if kind == "relation" else kind
+
+
+def _describe_relation_change(before, after):
+    """'columns: +email, −age, ~name' (and what else changed) for a table or view whose definition differs."""
+    old, new = before.split("\x1d"), after.split("\x1d")
+    columns = lambda fp: dict(pair.split("\x1e", 1) for pair in fp.split("\x1f") if "\x1e" in pair)
+    old_columns, new_columns = columns(old[2]), columns(new[2])
+    parts = []
+    added = [name for name in new_columns if name not in old_columns]
+    removed = [name for name in old_columns if name not in new_columns]
+    changed = [name for name in new_columns if name in old_columns and new_columns[name] != old_columns[name]]
+    if added or removed or changed:
+        parts.append("columns: " + ", ".join([f"+{n}" for n in added] + [f"−{n}" for n in removed] + [f"~{n}" for n in changed]))
+    if old[0] != new[0]:
+        parts.append(f"now a {_RELATION_KIND.get(new[0], 'relation')}")
+    if old[1] != new[1]:
+        parts.append(f"owner {old[1]} → {new[1]}")
+    if old[3] != new[3]:
+        parts.append("definition changed")
+    if old[4] != new[4]:
+        parts.append("sequence settings changed")
+    return "; ".join(parts) or "changed"
+
+
+_ORDER = {"schema": 0, "extension": 0, "relation": 1, "type": 1, "function": 1, "procedure": 1, "aggregate": 1, "publication": 1,
+          "index": 2, "constraint": 2, "trigger": 2}
+
+
+def _diff(before, after, conn):
+    """What a statement did, as [{"action": create|alter|drop, "kind", "name", "detail", "rows"}], sorted for reading."""
+    changes = []
+    for key in sorted(set(before) | set(after)):
+        kind, name = key
+        if key not in before:
+            entry = {"action": "create", "kind": _label(kind, after[key]), "name": name, "detail": "", "rows": None}
+            if kind == "relation" and after[key].split("\x1d", 1)[0] in ("r", "p", "m"):
+                schema, table = name.split(".", 1)
+                entry["rows"] = _count(conn, schema, table)
+        elif key not in after:
+            entry = {"action": "drop", "kind": _label(kind, before[key]), "name": name, "detail": "", "rows": None}
+        elif before[key] != after[key]:
+            detail = _describe_relation_change(before[key], after[key]) if kind == "relation" else "definition changed"
+            entry = {"action": "alter", "kind": _label(kind, after[key]), "name": name, "detail": detail, "rows": None}
+        else:
+            continue
+        changes.append((_ORDER.get(kind, 3), entry))
+    return [entry for _, entry in sorted(changes, key=lambda pair: (pair[0], pair[1]["name"]))]
+
+
+def _definitions_before(conn, names):
+    """The current CREATE statement of the tables and views about to be changed, kept in the audit record."""
+    found = []
+    for ref in names:
+        row = conn.execute("SELECT n.nspname, c.relname, c.relkind::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                           "WHERE c.oid = to_regclass(%s)", (ref,)).fetchone()
+        if row and row[2] in ("r", "p", "v", "m"):
+            schema, table, relkind = row
+            try:
+                found.append({"name": f"{schema}.{table}",
+                              "sql": pg.view_ddl(conn, schema, table) if relkind in ("v", "m") else pg.table_ddl(conn, schema, table)})
+            except PgError:
+                pass
+    return found
+
+
+def _ddl_and_diff(conn, parsed):
+    """Run the CREATE/ALTER and return (what changed, the definitions it replaced)."""
+    before_definitions = _definitions_before(conn, parsed["names"])
+    before = _snapshot(conn)
+    _run(conn, parsed["statement"])
+    return _diff(before, _snapshot(conn), conn), before_definitions
+
+
+def _alter_is_risky(parsed, changes):
+    """Typing ALTER is required when the change can lose data or break things that depend on the object."""
+    return bool(parsed["risky_words"]) or any(c["action"] == "drop" for c in changes)
+
+
+def _change_lines(changes):
+    marks = {"create": "+ create", "alter": "~ change", "drop": "− drop"}
+    lines = []
+    for c in changes:
+        text = f"{marks[c['action']]} {c['kind']} {c['name']}"
+        if c["rows"] is not None:
+            text += f" ({c['rows']:,} row{'s' if c['rows'] != 1 else ''})"
+        if c["detail"]:
+            text += f" — {c['detail']}"
+        lines.append({"name": c["name"], "text": text, "rows": c["rows"], "cascade": c["action"] == "drop"})
+    return lines
+
+
+def _main_names(changes):
+    names = [c["name"] for c in changes if c["kind"] not in ("index", "constraint", "trigger")]
+    return names[:3], len(names)
+
+
+def _preview_ddl(server, database, text, verb):
+    parsed = parse_create(text) if verb == "create" else parse_alter(text)
+    with pg.connect_rw(server, database or None) as conn:
+        changes, _ = _ddl_and_diff(conn, parsed)
+        conn.rollback()
+    object_type = parsed["object_type"]
+    notes, risky = [], False
+    drops = [c for c in changes if c["action"] == "drop"]
+    if verb == "alter":
+        risky = _alter_is_risky(parsed, changes)
+        if parsed["risky_words"]:
+            notes.append({"text": "Risky because of: " + ", ".join(parsed["risky_words"]) + ".", "bad": True})
+        if parsed["object_type"] in ("TABLE", "FOREIGN TABLE"):
+            notes.append({"text": "ALTER TABLE locks the table while it runs; on a big table that can block other work.", "bad": False})
+    else:
+        replaced = [c for c in changes if c["action"] == "alter"]
+        if parsed["or_replace"] and replaced:
+            notes.append({"text": "OR REPLACE overwrites the existing definition of " + ", ".join(c["name"] for c in replaced) +
+                                  ". The old definition is kept in the audit log for views, not for functions.", "bad": True})
+        loaded = [c for c in changes if c["action"] == "create" and c["rows"]]
+        for c in loaded:
+            notes.append({"text": f"{c['name']} is filled with {c['rows']:,} row{'s' if c['rows'] != 1 else ''} from the query.", "bad": False})
+    for c in drops:
+        notes.append({"text": f"This also drops {c['kind']} {c['name']}.", "bad": True})
+    names, total = _main_names(changes)
+    if not changes:
+        title, headline, label = f"{verb.upper()} — NOTHING TO DO", object_type, \
+            "Nothing would change: the object may already exist, or the statement does nothing."
+        button, word = None, None
+    else:
+        title = f"{verb.upper()} {object_type}?"
+        headline = object_type
+        label = (", ".join(names) + (f" and {total - len(names)} more" if total > len(names) else "")
+                 + (" will be created." if verb == "create" else " will be changed.")) if names else "will change the database."
+        button = f"{verb.capitalize()} {object_type.lower()}"
+        word = CONFIRM_WORDS["alter"] if risky else None
+    if verb == "create":
+        warning = "CREATE adds new objects. It cannot be rolled back, but a new object can be removed again with DROP."
+    elif risky:
+        warning = ("This ALTER can lose data or break things that depend on the object. There is no rollback: the audit log keeps "
+                   "the previous CREATE statement of a table or view, not its data.")
+    else:
+        warning = "ALTER changes the structure of the object. There is no rollback, but it can usually be changed back with another ALTER."
+    return {"kind": verb, "statement": parsed["statement"], "count": len(changes), "objects": _change_lines(changes), "notes": notes,
+            "title": title, "headline": headline, "headline_label": label, "warning": warning, "confirm_word": word, "button": button,
+            "side_effects": [], "columns": [], "sample": [], "has_where": True, "risky": risky,
+            "fingerprint": {"changes": changes}}
+
+
+def _execute_ddl(server, database, text, fingerprint, confirm, user, verb):
+    parsed = parse_create(text) if verb == "create" else parse_alter(text)
+    with pg.connect_rw(server, database or None) as conn:
+        changes, before_definitions = _ddl_and_diff(conn, parsed)
+        if not changes:
+            raise PgError("Nothing would change, so there is nothing to run.")
+        if changes != fingerprint.get("changes"):
+            raise _changed_since("the objects this statement would create or change are not what you were shown.")
+        risky = verb == "alter" and _alter_is_risky(parsed, changes)
+        if risky and confirm != CONFIRM_WORDS["alter"]:
+            raise PgError("Type ALTER in capital letters to confirm.")
+        payload = {"kind": verb, "database": _current_database(conn), "object_type": parsed["object_type"],
+                   "statement": parsed["statement"], "risky": risky, "changes": changes, "before": before_definitions}
+        entry = _commit_after_recording(conn, server, user, verb, parsed["statement"], len(changes), payload, "changed")
+    return {"count": len(changes), "entry_id": entry.pk, "changes": changes,
+            "message": f"{verb.capitalize()} done: {len(changes)} object{'s' if len(changes) != 1 else ''} "
+                       f"{'created' if verb == 'create' else 'changed'}. Recorded in the audit log as entry #{entry.pk}."}
+
+
 # --------------------------------------------------------------------------------------------------- entry points
 def _effect_notes(effects):
     notes = []
@@ -409,6 +701,8 @@ def preview(server, database, text):
     kind = classify(text)
     if kind == "insert":
         raise PgError("INSERT runs straight away, so there is nothing to preview.")
+    if kind in ("create", "alter"):
+        return _preview_ddl(server, database, text, kind)
     return {"delete": _preview_delete, "update": _preview_update, "truncate": _preview_truncate, "drop": _preview_drop}[kind](
         server, database, text)
 
@@ -425,6 +719,8 @@ def execute(server, database, text, fingerprint, confirm, user):
         result = _execute_truncate(server, database, text, fingerprint, confirm, user)
     elif kind == "drop":
         result = _execute_drop(server, database, text, fingerprint, confirm, user)
+    elif kind in ("create", "alter"):
+        result = _execute_ddl(server, database, text, fingerprint, confirm, user, kind)
     else:
         count = fingerprint.get("count")
         if not isinstance(count, int):
