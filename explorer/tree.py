@@ -33,7 +33,8 @@ def get_server(node):
 def children(node):
     kind = node["type"]
     if kind == "servers":
-        return [make_node(s.name, "server", hint=f"{s.host}:{s.port}", server=s.pk) for s in ServerConnection.objects.all()]
+        # No host:port hint here: the sidebar is narrow and the server's details pane already shows it.
+        return [make_node(s.name, "server", server=s.pk) for s in ServerConnection.objects.all()]
     server = get_server(node)
     if server is None:
         raise pg.PgError("That server is not saved in PgDeck.")

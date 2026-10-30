@@ -1,10 +1,17 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Object Browser · PgDeck{% endblock %}
+{% block body_class %}has-tree{% endblock %}
+{% block sidebar_tree %}
+<div class="sidebar-tree">
+  <div class="nav-label">OBJECT BROWSER</div>
+  <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"></ul>
+</div>
+{% endblock %}
 {% block content %}
 <div class="title-row">
   <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
-    <p class="muted">Servers → databases → schemas → tables. Everything runs read-only.</p></div>
+    <p class="muted">Pick an object in the sidebar to see its details here. Everything runs read-only.</p></div>
   {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
 </div>
 <div class="metrics three">
@@ -12,11 +19,7 @@
   <div class="panel metric"><div><small>USERS</small><strong>{{ user_count }}</strong><span class="green">can sign in</span></div></div>
   <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
 </div>
-<div class="explorer" id="explorer" data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-preselect="{{ preselect }}">
-  <section class="panel tree-panel">
-    <h2>OBJECT BROWSER</h2>
-    <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"></ul>
-  </section>
+<div id="explorer" data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-preselect="{{ preselect }}">
   <section class="panel detail-panel" id="detail" aria-live="polite"><p class="muted">Loading…</p></section>
 </div>
 {% endblock %}

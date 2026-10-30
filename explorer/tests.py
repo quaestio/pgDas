@@ -232,6 +232,23 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertContains(response, reverse("detail"))
         self.assertNotContains(response, "<table")  # the server list is loaded into the detail pane, not a separate page
 
+    def test_the_tree_lives_in_the_sidebar_and_details_in_the_main_area(self):
+        html = self.client.get(reverse("server_list")).content.decode()
+        sidebar = html[html.index("<aside"):html.index("</aside>")]
+        main = html[html.index("<main"):]
+        self.assertIn('id="tree"', sidebar)
+        self.assertNotIn('id="tree"', main)
+        self.assertIn('id="detail"', main)
+        self.assertIn("has-tree", html[:html.index("<aside")])
+
+    def test_other_pages_keep_a_plain_sidebar_without_the_tree(self):
+        self.user.is_staff = True
+        self.user.save()
+        for url in (reverse("audit_list"), reverse("server_add"), reverse("sql_runner", args=[self.server.pk])):
+            page = self.client.get(url)
+            self.assertNotContains(page, 'id="tree"')
+            self.assertContains(page, "Object Browser")  # the link back to the browser
+
     def test_old_per_server_address_opens_the_browser_with_that_server_selected(self):
         response = self.client.get(reverse("explorer", args=[self.server.pk]))
         self.assertRedirects(response, f"{reverse('server_list')}?server={self.server.pk}")

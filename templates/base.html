@@ -7,18 +7,18 @@
   <link rel="stylesheet" href="{% static 'adminweb-theme.css' %}">
   <link rel="stylesheet" href="{% static 'pgdeck.css' %}">
 </head>
-<body>
+<body class="{% block body_class %}{% endblock %}">
 <div class="scanlines"></div>
 {% if user.is_authenticated %}
 {% with url_name=request.resolver_match.url_name %}
 <div class="app">
   <aside id="sidebar">
     <div class="brand"><span class="glyph">⬡</span> PG<span>DECK</span></div>
-    <div class="nav-label">CONSOLE</div>
-    <nav id="menu">
-      <a href="{% url 'server_list' %}" class="{% if url_name == 'server_list' or url_name == 'server_add' or url_name == 'server_edit' or url_name == 'server_delete' %}active{% endif %}"><span class="ico">▦</span> Object Browser</a>
+    <nav id="menu" class="compact">
+      <a href="{% url 'server_list' %}" class="{% if url_name == 'server_list' %}active{% endif %}"><span class="ico">▦</span> Object Browser</a>
       {% if user.is_staff %}<a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>{% endif %}
     </nav>
+    {% block sidebar_tree %}{% endblock %}
     <div class="sidebar-bottom"><div><span class="dot"></span> READ-ONLY MODE</div><small>PgDeck · Phase 1</small></div>
   </aside>
   <main>
