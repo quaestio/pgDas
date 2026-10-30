@@ -79,7 +79,7 @@ def schema_rows(conn):
 
 def table_info(conn, schema, table):
     row = conn.execute(
-        """SELECT pg_get_userbyid(c.relowner), c.relkind, GREATEST(c.reltuples, 0)::bigint,
+        """SELECT pg_get_userbyid(c.relowner), c.relkind, CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END,
                   pg_total_relation_size(c.oid), obj_description(c.oid, 'pg_class')
            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = %s AND c.relname = %s AND c.relkind IN ('r', 'p')""", (schema, table)).fetchone()
@@ -132,7 +132,11 @@ def table_ddl(conn, schema, table):
                 r"nextval\('(?:[\w\"]+\.)?\"?" + re.escape(f"{table}_{column['name']}_seq") + r"\"?'::regclass\)", default):
             column_type, default = serial, ""  # a serial column: its sequence is created with it
         line = f"    {q(column['name'])} {column_type}"
-        if default:
+        if column["identity"]:
+            line += " GENERATED " + ("ALWAYS" if column["identity"] == "a" else "BY DEFAULT") + " AS IDENTITY"
+        elif column["generated"]:
+            line += f" GENERATED ALWAYS AS ({default}) " + ("STORED" if column["generated"] == "s" else "VIRTUAL")
+        elif default:
             line += f" DEFAULT {default}"
         if not column["nullable"]:
             line += " NOT NULL"
@@ -159,7 +163,7 @@ KINDS = {"r": "table", "p": "partitioned table", "v": "view", "m": "materialized
 
 def list_tables(conn, schema):
     rows = conn.execute(
-        """SELECT c.relname, c.relkind, GREATEST(c.reltuples, 0)::bigint
+        """SELECT c.relname, c.relkind, CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END
            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
            WHERE n.nspname = %s AND c.relkind IN ('r', 'p', 'v', 'm', 'f') AND NOT c.relispartition
            ORDER BY c.relname""", (schema,)).fetchall()
@@ -170,13 +174,15 @@ def table_columns(conn, schema, table):
     # pg_attribute covers views and materialized views too, unlike information_schema.columns.
     rows = conn.execute(
         """SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull,
-                  pg_get_expr(d.adbin, d.adrelid)
+                  pg_get_expr(d.adbin, d.adrelid), a.attidentity::text, a.attgenerated::text
            FROM pg_attribute a
            JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace
            LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
            WHERE n.nspname = %s AND c.relname = %s AND a.attnum > 0 AND NOT a.attisdropped
            ORDER BY a.attnum""", (schema, table)).fetchall()
-    return [{"name": n, "type": t, "nullable": nullable, "default": default or ""} for n, t, nullable, default in rows]
+    # For a generated column `default` holds its expression; `identity` is "a" (ALWAYS) or "d" (BY DEFAULT).
+    return [{"name": n, "type": t, "nullable": nullable, "default": default or "", "identity": identity, "generated": generated}
+            for n, t, nullable, default, identity, generated in rows]
 
 
 def display(value):

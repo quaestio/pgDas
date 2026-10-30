@@ -71,6 +71,24 @@ class ServerViewTests(TestCase):
         self.client.force_login(self.staff)
         self.assertEqual(self.client.get(reverse("audit_list")).status_code, 200)
 
+    def test_audit_page_lists_each_entry_with_its_details(self):
+        # Regression: a template variable named "page" once hid the paginator and rendered blank rows.
+        from audit.models import record
+        record(self.staff, "sql.run", None, "SELECT 1 FROM audit_check", ok=True, rows=1)
+        record(self.staff, "sql.run", None, "DELETE FROM audit_check", ok=False)
+        self.client.force_login(self.staff)
+        page = self.client.get(reverse("audit_list"))
+        self.assertContains(page, "SELECT 1 FROM audit_check")
+        self.assertContains(page, "DELETE FROM audit_check")
+        self.assertContains(page, "failed")
+        self.assertContains(page, "Page 1 of 1")
+        self.assertEqual(page.content.decode().count("<tr>"), 3)  # header + two entries
+
+    def test_navigation_highlights_the_current_section(self):
+        self.client.force_login(self.staff)
+        self.assertContains(self.client.get(reverse("audit_list")), 'href="/audit/" class="active"')
+        self.assertContains(self.client.get(reverse("server_list")), 'href="/" class="active"')
+
     def test_delete_keeps_audit_history(self):
         self.client.force_login(self.staff)
         self.client.post(reverse("server_add"), FORM)

@@ -39,6 +39,12 @@ class PgFixture:
                 id serial PRIMARY KEY, person_id int NOT NULL REFERENCES pgdeck_demo.people(id),
                 amount numeric(10, 2) DEFAULT 0 CHECK (amount >= 0), ref text UNIQUE)""")
             conn.execute("CREATE INDEX orders_person_idx ON pgdeck_demo.orders (person_id)")
+            conn.execute("""CREATE TABLE pgdeck_demo.items (
+                id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, price numeric(8, 2) NOT NULL,
+                tax numeric(8, 2) GENERATED ALWAYS AS (price * 0.1) STORED)""")
+            conn.execute("CREATE TABLE pgdeck_demo.fresh (a int)")
+            conn.execute("ALTER TABLE pgdeck_demo.fresh SET (autovacuum_enabled = false)")
+            conn.execute("ANALYZE pgdeck_demo.people")
 
     @classmethod
     def tearDownClass(cls):
@@ -65,7 +71,8 @@ class PgLayerTests(PgFixture, TestCase):
             tables = {item["name"]: item["kind"] for item in pg.list_tables(conn, "pgdeck_demo")}
             columns = {c["name"]: c for c in pg.table_columns(conn, "pgdeck_demo", "people")}
             view_columns = [c["name"] for c in pg.table_columns(conn, "pgdeck_demo", "people_view")]
-        self.assertEqual(tables, {"people": "table", "people_view": "view", "orders": "table"})
+        self.assertEqual(tables, {"people": "table", "people_view": "view", "orders": "table",
+                                  "items": "table", "fresh": "table"})
         self.assertFalse(columns["name"]["nullable"])
         self.assertTrue(columns["note"]["nullable"])
         self.assertEqual(view_columns, ["id", "name"])
@@ -121,6 +128,33 @@ class PgLayerTests(PgFixture, TestCase):
             conn.execute(ddl.replace("pgdeck_demo.orders", "pgdeck_copy.orders"))
             self.assertEqual(conn.execute("SELECT count(*) FROM pgdeck_copy.orders").fetchone()[0], 0)
             conn.execute("DROP SCHEMA pgdeck_copy CASCADE")
+
+    def test_identity_and_generated_columns_appear_in_ddl_and_replay(self):
+        with pg.connect(make_server()) as conn:
+            columns = {c["name"]: c for c in pg.table_columns(conn, "pgdeck_demo", "items")}
+            ddl = pg.table_ddl(conn, "pgdeck_demo", "items")
+        self.assertEqual(columns["id"]["identity"], "a")
+        self.assertEqual(columns["tax"]["generated"], "s")
+        self.assertIn("id bigint GENERATED ALWAYS AS IDENTITY NOT NULL", ddl)
+        self.assertIn("GENERATED ALWAYS AS ((price * 0.1)) STORED", ddl)
+        params = connection.settings_dict
+        with psycopg.connect(host=params["HOST"] or "localhost", port=params["PORT"] or 5432, dbname=params["NAME"],
+                             user=params["USER"], password=params["PASSWORD"] or "", autocommit=True) as conn:
+            conn.execute("DROP SCHEMA IF EXISTS pgdeck_copy CASCADE")
+            conn.execute("CREATE SCHEMA pgdeck_copy")
+            conn.execute(ddl.replace("pgdeck_demo.items", "pgdeck_copy.items"))
+            conn.execute("INSERT INTO pgdeck_copy.items (price) VALUES (10)")
+            self.assertEqual(conn.execute("SELECT tax FROM pgdeck_copy.items").fetchone()[0], 1)
+            conn.execute("DROP SCHEMA pgdeck_copy CASCADE")
+
+    def test_never_analyzed_table_has_no_estimate_instead_of_zero(self):
+        with pg.connect(make_server()) as conn:
+            fresh = pg.table_info(conn, "pgdeck_demo", "fresh")["estimate"]
+            people = pg.table_info(conn, "pgdeck_demo", "people")["estimate"]
+            listed = {t["name"]: t["estimate"] for t in pg.list_tables(conn, "pgdeck_demo")}
+        self.assertIsNone(fresh)
+        self.assertEqual(people, 120)
+        self.assertIsNone(listed["fresh"])
 
     def test_row_paging_and_null_display(self):
         with pg.connect(make_server()) as conn:
@@ -201,7 +235,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertIn("pgdeck_demo", [n["label"] for n in self.nodes(type="schemas", db=db)])
         self.assertEqual([n["label"] for n in self.nodes(type="schema", db=db, schema="pgdeck_demo")], ["Tables"])
         tables = {n["label"] for n in self.nodes(type="tables", db=db, schema="pgdeck_demo")}
-        self.assertEqual(tables, {"people", "orders"})  # views are not tables
+        self.assertEqual(tables, {"people", "orders", "items", "fresh"})  # views are not tables
         place = {"db": db, "schema": "pgdeck_demo", "table": "orders"}
         self.assertEqual([n["label"] for n in self.nodes(type="table", **place)], ["Columns", "Constraints", "Indexes"])
         columns = [n["label"] for n in self.nodes(type="columns", **place)]

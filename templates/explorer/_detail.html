@@ -30,7 +30,7 @@
   {% if kind == "schema" %}<dl class="props"><dt>Owner</dt><dd>{{ owner }}</dd><dt>Database</dt><dd>{{ node.db }}</dd></dl><h2 style="margin-top:22px">Tables</h2>{% endif %}
   <div class="scroll"><table>
     <thead><tr><th>NAME</th><th>TYPE</th><th>ROWS (ESTIMATE)</th></tr></thead>
-    <tbody>{% for t in tables %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td><td class="muted">{{ t.estimate }}</td></tr>
+    <tbody>{% for t in tables %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td><td class="muted">{{ t.estimate|default_if_none:"not analyzed yet" }}</td></tr>
     {% empty %}<tr><td colspan="3" class="muted">No tables in this schema.</td></tr>{% endfor %}</tbody>
   </table></div>
 {% elif tabs %}
@@ -39,14 +39,15 @@
   {% if tab == "properties" %}
     <dl class="props">
       <dt>Table</dt><dd>{{ title }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ info.owner }}</dd>
-      <dt>Type</dt><dd>{{ info.kind }}</dd><dt>Rows (estimate)</dt><dd>{{ info.estimate }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>
+      <dt>Type</dt><dd>{{ info.kind }}</dd><dt>Rows (estimate)</dt><dd>{{ info.estimate|default_if_none:"not analyzed yet" }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>
       {% if info.comment %}<dt>Comment</dt><dd>{{ info.comment }}</dd>{% endif %}
     </dl>
   {% elif tab == "columns" %}
     <div class="scroll"><table>
       <thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>NULLABLE</th><th>DEFAULT</th></tr></thead>
       <tbody>{% for c in columns %}<tr><td class="muted">{{ forloop.counter }}</td><td>{{ c.name }}</td><td class="muted">{{ c.type }}</td>
-        <td>{% if c.nullable %}yes{% else %}<span class="badge">not null</span>{% endif %}</td><td class="cell">{{ c.default }}</td></tr>{% endfor %}</tbody>
+        <td>{% if c.nullable %}yes{% else %}<span class="badge">not null</span>{% endif %}</td>
+        <td class="cell">{% if c.identity %}<span class="badge">identity{% if c.identity == "a" %} always{% endif %}</span>{% elif c.generated %}<span class="badge">generated</span> {{ c.default }}{% else %}{{ c.default }}{% endif %}</td></tr>{% endfor %}</tbody>
     </table></div>
   {% elif tab == "constraints" %}
     <div class="scroll"><table>

@@ -36,7 +36,8 @@ def children(server, node):
         return [make_node("Tables", "tables", db=db, schema=schema)]
     if kind == "tables":
         with pg.connect(server, db) as conn:
-            return [make_node(t["name"], "table", hint=f"~{t['estimate']} rows", db=db, schema=schema, table=t["name"])
+            return [make_node(t["name"], "table", hint="" if t["estimate"] is None else f"~{t['estimate']} rows",
+                              db=db, schema=schema, table=t["name"])
                     for t in pg.list_tables(conn, schema) if t["kind"] in ("table", "partitioned table")]
     if kind == "table":
         place = {"db": db, "schema": schema, "table": table}
