@@ -1,13 +1,42 @@
 {% if error %}
   <ul class="messages"><li class="error">{{ error }}</li></ul>
-{% elif kind == "root" %}
+{% elif kind == "servers" %}
+  <h2>Servers</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>NAME</th><th>CONNECTION</th><th>SSL</th><th></th></tr></thead>
+    <tbody>
+    {% for s in servers %}
+      <tr>
+        <td><a href="#" data-open-server="{{ s.pk }}"><strong>{{ s.name }}</strong></a></td>
+        <td class="muted">{{ s.username }}@{{ s.host }}:{{ s.port }}/{{ s.database }}</td>
+        <td><span class="badge">{{ s.sslmode }}</span></td>
+        <td style="text-align:right; white-space:nowrap">
+          <a class="btn" href="#" data-open-server="{{ s.pk }}">Open</a>
+          <a class="btn" href="{% url 'sql_runner' s.pk %}">SQL</a>
+          <form method="post" action="{% url 'server_test' s.pk %}" style="display:inline">{% csrf_token %}<button class="btn" type="submit">Test</button></form>
+          {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' s.pk %}">Edit</a>
+          <a class="btn danger" href="{% url 'server_delete' s.pk %}">Remove</a>{% endif %}
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="4" class="muted">No servers yet.{% if user.is_staff %} <a href="{% url 'server_add' %}">Add your first PostgreSQL server.</a>{% else %} Ask an administrator to add one.{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+{% elif kind == "server" %}
   <h2>{{ server.name }}</h2>
   <dl class="props">
+    <dt>Connection</dt><dd>{{ server.username }}@{{ server.host }}:{{ server.port }}/{{ server.database }}</dd>
+    <dt>SSL mode</dt><dd>{{ server.sslmode }}</dd>
     <dt>PostgreSQL</dt><dd>{{ summary.version }}</dd>
     <dt>Connected as</dt><dd>{{ summary.user }}</dd>
     <dt>Default database</dt><dd>{{ summary.database }}</dd>
   </dl>
-  <p class="muted" style="margin-top:18px">Expand <strong>Databases</strong> in the tree to browse schemas, tables, columns, constraints and indexes.</p>
+  <p style="margin-top:18px">
+    <a class="btn" href="{% url 'sql_runner' server.pk %}">SQL runner</a>
+    {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' server.pk %}">Edit server</a>{% endif %}
+  </p>
+  <p class="muted">Expand <strong>Databases</strong> in the tree to browse schemas, tables, columns, constraints and indexes.</p>
 {% elif kind == "databases" %}
   <h2>Databases</h2>
   <div class="scroll"><table>
@@ -17,8 +46,9 @@
   </table></div>
 {% elif kind == "database" %}
   <h2>{{ database.name }}</h2>
-  <dl class="props"><dt>Owner</dt><dd>{{ database.owner }}</dd><dt>Encoding</dt><dd>{{ database.encoding }}</dd><dt>Size</dt><dd>{{ database.size_text }}</dd></dl>
-  <p class="muted" style="margin-top:18px">Expand <strong>Schemas</strong> under this database to continue.</p>
+  <dl class="props"><dt>Server</dt><dd>{{ server.name }}</dd><dt>Owner</dt><dd>{{ database.owner }}</dd><dt>Encoding</dt><dd>{{ database.encoding }}</dd><dt>Size</dt><dd>{{ database.size_text }}</dd></dl>
+  <p style="margin-top:18px"><a class="btn" href="{% url 'sql_runner' server.pk %}?db={{ database.name|urlencode }}">SQL runner</a></p>
+  <p class="muted">Expand <strong>Schemas</strong> under this database to continue.</p>
 {% elif kind == "schemas" %}
   <h2>Schemas in {{ node.db }}</h2>
   <div class="scroll"><table>
@@ -38,7 +68,7 @@
   <div class="tabs">{% for key, label in tabs %}<a href="#" data-detail="{{ base }}&tab={{ key }}" class="{% if key == tab %}active{% endif %}">{{ label }}</a>{% endfor %}</div>
   {% if tab == "properties" %}
     <dl class="props">
-      <dt>Table</dt><dd>{{ title }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ info.owner }}</dd>
+      <dt>Table</dt><dd>{{ title }}</dd><dt>Server</dt><dd>{{ server.name }}</dd><dt>Database</dt><dd>{{ db }}</dd><dt>Owner</dt><dd>{{ info.owner }}</dd>
       <dt>Type</dt><dd>{{ info.kind }}</dd><dt>Rows (estimate)</dt><dd>{{ info.estimate|default_if_none:"not analyzed yet" }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>
       {% if info.comment %}<dt>Comment</dt><dd>{{ info.comment }}</dd>{% endif %}
     </dl>

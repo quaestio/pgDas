@@ -2,7 +2,8 @@ from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods
 
 from audit.models import record
@@ -20,16 +21,16 @@ TABS = [("properties", "Properties"), ("columns", "Columns"), ("constraints", "C
 
 @login_required
 def explorer(request, pk):
-    server = get_object_or_404(ServerConnection, pk=pk)
-    return render(request, "explorer/explorer.html", {"server": server})
+    """Old per-server address: the single Object Browser opens with that server selected."""
+    get_object_or_404(ServerConnection, pk=pk)
+    return redirect(f"{reverse('server_list')}?server={pk}")
 
 
 @login_required
 @require_GET
-def tree_nodes(request, pk):
-    server = get_object_or_404(ServerConnection, pk=pk)
+def tree_nodes(request):
     try:
-        return JsonResponse({"nodes": tree.children(server, tree.parse_node(request.GET))})
+        return JsonResponse({"nodes": tree.children(tree.parse_node(request.GET))})
     except pg.PgError as error:
         return JsonResponse({"error": str(error)}, status=502)
 
@@ -40,7 +41,7 @@ def _table_context(conn, node, request):
     if tab not in dict(TABS):
         tab = "properties"
     context = {"tab": tab, "tabs": TABS, "title": f"{schema}.{table}", "db": db,
-               "base": urlencode({"type": "table", "db": db, "schema": schema, "table": table})}
+               "base": urlencode({"type": "table", "server": node["server"], "db": db, "schema": schema, "table": table})}
     if tab == "properties":
         context["info"] = pg.table_info(conn, schema, table)
     elif tab == "columns":
@@ -59,14 +60,21 @@ def _table_context(conn, node, request):
 
 @login_required
 @require_GET
-def detail(request, pk):
+def detail(request):
     """HTML fragment for the right-hand pane."""
-    server = get_object_or_404(ServerConnection, pk=pk)
     node = tree.parse_node(request.GET)
     kind, db, schema = node["type"], node["db"], node["schema"]
-    context = {"server": server, "kind": kind, "node": node}
+    context = {"kind": kind, "node": node}
+    if kind == "servers":
+        context["servers"] = ServerConnection.objects.all()
+        return render(request, "explorer/_detail.html", context)
+    server = tree.get_server(node)
+    if server is None:
+        context["error"] = "That server is not saved in PgDeck."
+        return render(request, "explorer/_detail.html", context)
+    context["server"] = server
     try:
-        if kind == "root":
+        if kind == "server":
             with pg.connect(server) as conn:
                 context["summary"] = pg.server_summary(conn)
         elif kind == "databases":

@@ -6,9 +6,10 @@
   var detailEl = document.getElementById("detail");
   var treeUrl = root.dataset.treeUrl;
   var detailUrl = root.dataset.detailUrl;
-  var KEYS = ["type", "db", "schema", "table"];
-  var ICONS = {root: "▣", databases: "▤", database: "◉", schemas: "▤", schema: "▦", tables: "▤", table: "▦",
+  var KEYS = ["type", "server", "db", "schema", "table"];
+  var ICONS = {servers: "▣", server: "▥", databases: "▤", database: "◉", schemas: "▤", schema: "▦", tables: "▤", table: "▦",
                columns: "▤", column: "·", constraints: "▤", constraint: "·", indexes: "▤", index: "·"};
+  var preselect = root.dataset.preselect || "";
   var selected = null;
 
   function query(node) {
@@ -63,6 +64,7 @@
   function renderNode(node) {
     var li = document.createElement("li");
     li.setAttribute("role", "treeitem");
+    li.nodeData = node;
     var row = document.createElement("div");
     row.className = "row";
     var twist = document.createElement("span");
@@ -86,7 +88,11 @@
       open = !open;
       twist.textContent = open ? "▾" : "▸";
       list.hidden = !open;
-      if (open && !loaded) loadChildren(node, list, function (ok) { loaded = ok; });
+      if (open && !loaded) loadChildren(node, list, function (ok) {
+        loaded = ok;
+        // Opened from a link such as /?server=3: select that server once the list is there.
+        if (ok && node.type === "servers" && preselect) openServer(preselect, list);
+      });
     }
     row.addEventListener("click", function () { select(row, node); toggle(); });
     row.tabIndex = 0;
@@ -96,15 +102,30 @@
     return li;
   }
 
-  // Tabs and pagers inside the detail pane carry their own query string.
+  function openServer(id, list) {
+    var items = (list || treeEl).querySelectorAll("li");
+    for (var i = 0; i < items.length; i++) {
+      var data = items[i].nodeData;
+      if (data && data.type === "server" && String(data.server) === String(id)) {
+        var row = items[i].querySelector(".row");
+        row.scrollIntoView({block: "nearest"});
+        row.click();
+        return;
+      }
+    }
+  }
+
+  // Tabs and pagers inside the detail pane carry their own query string; the server list can open a server.
   detailEl.addEventListener("click", function (event) {
+    var open = event.target.closest("[data-open-server]");
+    if (open) { event.preventDefault(); openServer(open.dataset.openServer); return; }
     var link = event.target.closest("[data-detail]");
     if (!link) return;
     event.preventDefault();
     showDetail(link.dataset.detail);
   });
 
-  var rootNode = {type: "root", db: "", schema: "", table: "", label: root.dataset.serverName, expandable: true};
+  var rootNode = {type: "servers", server: "", db: "", schema: "", table: "", label: "Servers", expandable: true};
   var rootItem = renderNode(rootNode);
   treeEl.appendChild(rootItem);
   rootItem.querySelector(".row").click();

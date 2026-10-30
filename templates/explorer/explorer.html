@@ -1,16 +1,21 @@
 {% extends "base.html" %}
 {% load static %}
-{% block title %}{{ server.name }} · PgDeck{% endblock %}
+{% block title %}Object Browser · PgDeck{% endblock %}
 {% block content %}
 <div class="title-row">
-  <div><div class="eyebrow">SERVERS / <span>{{ server.name|upper }}</span></div><h1>{{ server.name }}</h1>
-    <p class="muted">{{ server.username }}@{{ server.host }}:{{ server.port }}</p></div>
-  <div><a class="btn" href="{% url 'sql_runner' server.pk %}">SQL runner</a> <span class="badge ok">read-only</span></div>
+  <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
+    <p class="muted">Servers → databases → schemas → tables. Everything runs read-only.</p></div>
+  {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
 </div>
-<div class="explorer" id="explorer" data-tree-url="{% url 'tree' server.pk %}" data-detail-url="{% url 'detail' server.pk %}" data-server-name="{{ server.name }}">
+<div class="metrics three">
+  <div class="panel metric"><div><small>SERVERS</small><strong>{{ server_count }}</strong><span class="green">saved connections</span></div></div>
+  <div class="panel metric"><div><small>USERS</small><strong>{{ user_count }}</strong><span class="green">can sign in</span></div></div>
+  <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
+</div>
+<div class="explorer" id="explorer" data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-preselect="{{ preselect }}">
   <section class="panel tree-panel">
     <h2>OBJECT BROWSER</h2>
-    <ul class="tree" id="tree" role="tree" aria-label="Server objects"></ul>
+    <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"></ul>
   </section>
   <section class="panel detail-panel" id="detail" aria-live="polite"><p class="muted">Loading…</p></section>
 </div>

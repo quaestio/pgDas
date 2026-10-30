@@ -15,10 +15,12 @@ staff_required = user_passes_test(lambda user: user.is_staff)
 
 @login_required
 def server_list(request):
-    return render(request, "servers/list.html", {
-        "servers": ServerConnection.objects.all(),
+    """Home page: the Object Browser. Servers is its top node; saved servers sit beneath it."""
+    return render(request, "explorer/explorer.html", {
+        "server_count": ServerConnection.objects.count(),
         "user_count": get_user_model().objects.filter(is_active=True).count(),
         "sql_runs": AuditEntry.objects.filter(action="sql.run").count(),
+        "preselect": request.GET.get("server", ""),
     })
 
 

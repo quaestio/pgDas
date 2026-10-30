@@ -209,27 +209,53 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.client.force_login(self.user)
 
     def nodes(self, **params):
-        response = self.client.get(reverse("tree", args=[self.server.pk]), params)
+        params.setdefault("server", self.server.pk)
+        response = self.client.get(reverse("tree"), params)
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()["nodes"]
 
     def detail(self, **params):
-        return self.client.get(reverse("detail", args=[self.server.pk]), params)
+        params.setdefault("server", self.server.pk)
+        return self.client.get(reverse("detail"), params)
 
     def test_pages_require_login(self):
         self.client.logout()
         pk = self.server.pk
-        for name in ("explorer", "tree", "detail", "sql_runner"):
-            self.assertEqual(self.client.get(reverse(name, args=[pk])).status_code, 302, name)
+        for url in (reverse("server_list"), reverse("tree"), reverse("detail"),
+                    reverse("explorer", args=[pk]), reverse("sql_runner", args=[pk])):
+            self.assertEqual(self.client.get(url).status_code, 302, url)
 
-    def test_explorer_page_renders_the_tree_shell(self):
-        response = self.client.get(reverse("explorer", args=[self.server.pk]))
+    def test_home_page_is_the_single_object_browser(self):
+        response = self.client.get(reverse("server_list"))
         self.assertContains(response, 'id="tree"')
-        self.assertContains(response, reverse("tree", args=[self.server.pk]))
+        self.assertContains(response, reverse("tree"))
+        self.assertContains(response, reverse("detail"))
+        self.assertNotContains(response, "<table")  # the server list is loaded into the detail pane, not a separate page
+
+    def test_old_per_server_address_opens_the_browser_with_that_server_selected(self):
+        response = self.client.get(reverse("explorer", args=[self.server.pk]))
+        self.assertRedirects(response, f"{reverse('server_list')}?server={self.server.pk}")
+        self.assertContains(self.client.get(reverse("server_list"), {"server": self.server.pk}),
+                            f'data-preselect="{self.server.pk}"')
+
+    def test_servers_is_the_top_node_and_lists_every_saved_server(self):
+        second = ServerConnection.objects.create(name="Second", host="db2.example.test", username="u")
+        top = self.nodes(type="servers")
+        self.assertEqual({n["label"] for n in top}, {"test", "Second"})
+        self.assertTrue(all(n["type"] == "server" and n["expandable"] for n in top))
+        self.assertEqual({n["server"] for n in top}, {str(self.server.pk), str(second.pk)})
+        self.assertEqual([n["label"] for n in self.nodes(type="server", server=second.pk)], ["Databases"])  # no connection needed
+
+    def test_unknown_server_is_an_error_not_a_crash(self):
+        response = self.client.get(reverse("tree"), {"type": "databases", "server": 99999})
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("not saved", response.json()["error"])
+        self.assertContains(self.detail(type="server", server=99999), "not saved")
+        self.assertContains(self.detail(type="databases", server=""), "not saved")
 
     def test_tree_walks_server_to_indexes(self):
         db = self.server.database
-        self.assertEqual([n["type"] for n in self.nodes()], ["databases"])
+        self.assertEqual([n["type"] for n in self.nodes(type="server")], ["databases"])
         self.assertIn(db, [n["label"] for n in self.nodes(type="databases")])
         self.assertEqual([n["label"] for n in self.nodes(type="database", db=db)], ["Schemas"])
         self.assertIn("pgdeck_demo", [n["label"] for n in self.nodes(type="schemas", db=db)])
@@ -249,13 +275,18 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertFalse(leaf["expandable"])
 
     def test_tree_reports_unreachable_database_as_error_json(self):
-        response = self.client.get(reverse("tree", args=[self.server.pk]), {"type": "schemas", "db": "no_such_db_xyz"})
+        response = self.client.get(reverse("tree"), {"type": "schemas", "server": self.server.pk, "db": "no_such_db_xyz"})
         self.assertEqual(response.status_code, 502)
         self.assertIn("no_such_db_xyz", response.json()["error"])
 
     def test_detail_for_each_level(self):
         db = self.server.database
-        self.assertContains(self.detail(type="root"), "PostgreSQL")
+        listing = self.detail(type="servers", server="")
+        self.assertContains(listing, "test")
+        self.assertContains(listing, reverse("server_test", args=[self.server.pk]))
+        self.assertContains(listing, 'data-open-server="%s"' % self.server.pk)
+        self.assertContains(self.detail(type="server"), "PostgreSQL")
+        self.assertContains(self.detail(type="server"), "Connection")
         self.assertContains(self.detail(type="databases"), db)
         self.assertContains(self.detail(type="database", db=db), "Encoding")
         self.assertContains(self.detail(type="schemas", db=db), "pgdeck_demo")
@@ -264,7 +295,10 @@ class ExplorerViewTests(PgFixture, TestCase):
 
     def test_table_tabs(self):
         place = {"type": "table", "db": self.server.database, "schema": "pgdeck_demo", "table": "orders"}
-        self.assertContains(self.detail(**place), "Total size")
+        first = self.detail(**place)
+        self.assertContains(first, "Total size")
+        self.assertContains(first, f"server={self.server.pk}")  # tab links keep the server, so they work from the one browser page
+        self.assertContains(first, f"<dd>{self.server.name}</dd>")
         self.assertContains(self.detail(**place, tab="columns"), "numeric(10,2)")
         self.assertContains(self.detail(**place, tab="constraints"), "FOREIGN KEY")
         self.assertContains(self.detail(**place, tab="indexes"), "orders_person_idx")
