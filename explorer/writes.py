@@ -201,8 +201,6 @@ def reinsert(entry, user):
     server = entry.server
     if server is None:
         raise PgError("The server this was deleted from is no longer saved in PgDeck.")
-    if not server.allow_writes:
-        raise PgError("Changes are not allowed on this server. Switch on 'Allow deleting rows' in Edit server first.")
     payload = entry.payload
     schema, table, rows = payload["schema"], payload["table"], payload["rows"]
     with pg.connect_rw(server, payload["database"]) as conn:

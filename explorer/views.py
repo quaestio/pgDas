@@ -210,18 +210,11 @@ def detail(request):
 
 
 def _can_write(user, server):
-    """Changing data needs both: a staff user, and the server's own 'Allow changing data' switch."""
-    return bool(user.is_staff and server.allow_writes)
+    """Staff users can change anything on any saved server. Every change still goes through its popup and the audit log."""
+    return bool(user.is_staff)
 
 
-def _can_structure(user, server):
-    """CREATE, ALTER, TRUNCATE and DROP need the second switch as well, 'Also allow CREATE, ALTER, TRUNCATE and DROP'."""
-    return bool(_can_write(user, server) and server.allow_structure)
-
-
-def _can_admin(user, server):
-    """Databases, users and grants need the third switch as well, 'Also allow databases, users and grants'."""
-    return bool(_can_structure(user, server) and server.allow_admin)
+_can_structure = _can_admin = _can_write
 
 
 def _refuse(message, status=403):
@@ -243,15 +236,6 @@ def _write_request(request, pk):
         kind = changes.classify(str(data.get("sql") or ""))
     except pg.PgError as error:
         return None, None, None, _refuse(str(error), 400)
-    if not server.allow_writes:
-        return None, None, None, _refuse("Changing data is switched off for this server. "
-                                         "Turn on 'Allow changing data' in Edit server first.")
-    if kind in changes.STRUCTURE_KINDS and not server.allow_structure:
-        return None, None, None, _refuse(f"{kind.upper()} is switched off for this server. "
-                                         "Turn on 'Also allow CREATE, ALTER, TRUNCATE and DROP' in Edit server first.")
-    if server_admin.is_admin_statement(str(data.get("sql") or "")) and not server.allow_admin:
-        return None, None, None, _refuse("Databases, users and grants are switched off for this server. "
-                                         "Turn on 'Also allow databases, users and grants' in Edit server first.")
     return server, kind, data, None
 
 
@@ -310,13 +294,6 @@ def sql_runner(request, pk):
                     word = verb.group(1).upper()
                     if not request.user.is_staff:
                         context["hint"] = "Only staff users can change data."
-                    elif not server.allow_writes:
-                        context["hint"] = ("Changing data is switched off here: a staff user can allow it with "
-                                           "'Allow changing data' in Edit server.")
-                    elif server_admin.is_admin_statement(statement) and not server.allow_admin:
-                        context["hint"] = f"{word} on databases, users and grants is switched off here: turn on 'Also allow databases, users and grants' in Edit server."
-                    elif word in ("TRUNCATE", "DROP", "CREATE", "ALTER", "GRANT", "REVOKE") and not server.allow_structure:
-                        context["hint"] = f"{word} is switched off here: turn on 'Also allow CREATE, ALTER, TRUNCATE and DROP' in Edit server."
                     else:
                         context["hint"] = (f"{word} asks for confirmation first, and that popup needs JavaScript. "
                                            "Turn it on and press Run again.")

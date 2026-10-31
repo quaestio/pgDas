@@ -5,7 +5,7 @@
 <div id="servers-overview"{% if deep_link %} hidden{% endif %}>
   <div class="title-row">
     <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
-      <p class="muted">Pick an object in the sidebar to see its details here. Everything runs read-only.</p></div>
+      <p class="muted">Pick an object in the sidebar to see its details here. Queries run read-only; changes are made from the SQL runner.</p></div>
     {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
   </div>
   <div class="metrics three">

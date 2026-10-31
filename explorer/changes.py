@@ -267,8 +267,6 @@ def undo_update(entry, user):
     server = entry.server
     if server is None:
         raise PgError("The server this was updated on is no longer saved in PgDeck.")
-    if not server.allow_writes:
-        raise PgError("Changes are not allowed on this server. Switch on 'Allow changing data' in Edit server first.")
     schema, table, pk = payload["schema"], payload["table"], undo["pk"]
     with pg.connect_rw(server, payload["database"]) as conn:
         _resolve_table(conn, _qualified(conn, schema, table))

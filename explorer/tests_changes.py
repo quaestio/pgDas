@@ -82,11 +82,6 @@ class ClassifyAndParseTests(SimpleTestCase):
 
 
 class ChangeFixture(WriteFixture):
-    def setUp(self):
-        super().setUp()
-        self.server.allow_structure = True
-        self.server.save()
-
     def preview(self, sql):
         return changes.preview(self.server, self.db, sql)
 
@@ -256,14 +251,6 @@ class UndoUpdateTests(ChangeFixture, TestCase):
         self.assertTrue(any("primary key" in n["text"] for n in data["notes"]))
         data = self.preview("UPDATE pgdeck_w.parent SET note = note WHERE id = 1")
         self.assertFalse(data["fingerprint"]["undo"])                                  # no value changes, nothing to put back
-
-    def test_undo_needs_the_server_to_still_allow_changes(self):
-        entry = AuditEntry.objects.get(pk=self.update("UPDATE pgdeck_w.parent SET note = 'one' WHERE id = 1", 1)["entry_id"])
-        self.server.allow_writes = False
-        self.server.save()
-        with self.assertRaisesRegex(pg.PgError, "Changes are not allowed"):
-            changes.undo_update(entry, self.staff)
-        self.assertEqual(self.note(1), "one")
 
     def test_the_audit_page_has_an_undo_button_and_the_endpoint_works_once(self):
         entry = AuditEntry.objects.get(pk=self.update("UPDATE pgdeck_w.parent SET note = 'one' WHERE id <= 2", 2)["entry_id"])
@@ -601,36 +588,15 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
         self.assertEqual(self.query("SELECT what FROM pgdeck_w.logged WHERE id = 5")[0][0], "six")
         self.assertEqual([e.action for e in AuditEntry.objects.order_by("pk")], ["insert", "update"])
 
-    def test_truncate_and_drop_need_their_own_switch(self):
-        self.server.allow_structure = False
-        self.server.save()
-        for sql, word in (("TRUNCATE pgdeck_w.ident", "TRUNCATE"), ("DROP TABLE pgdeck_w.logged", "DROP")):
-            for name in ("write_preview", "write_execute"):
-                response = self.post(name, {"sql": sql, "db": self.db, "confirm": word, "fingerprint": {"tables": [], "notices": []}})
-                self.assertEqual(response.status_code, 403, (sql, name))
-                self.assertIn(f"{word} is switched off for this server", response.json()["error"])
-                self.assertIn("Also allow CREATE, ALTER, TRUNCATE and DROP", response.json()["error"])
-        self.assertEqual(self.count("ident"), 5)
-        self.assertTrue(self.exists("logged"))
-        # data changes themselves are still fine on this server
-        self.assertEqual(self.post("write_preview", {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db}).status_code, 200)
-
-    def test_nothing_works_without_the_first_switch_or_a_staff_user(self):
+    def test_only_staff_can_use_it(self):
         sql = "UPDATE pgdeck_w.parent SET note = 'x'"
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
         for name in ("write_preview", "write_execute"):
-            self.assertEqual(self.post(name, {"sql": sql, "db": self.db}, client=plain).status_code, 403)
-        self.server.allow_writes = False
-        self.server.allow_structure = True               # even with the second switch left on
-        self.server.save()
-        for sql in ("UPDATE pgdeck_w.parent SET note = 'x'", "INSERT INTO pgdeck_w.logged VALUES (8, 'x')", "TRUNCATE pgdeck_w.ident", "DROP TABLE pgdeck_w.logged"):
-            for name in ("write_preview", "write_execute"):
-                response = self.post(name, {"sql": sql, "db": self.db})
-                self.assertEqual(response.status_code, 403, (sql, name))
-                self.assertIn("Changing data is switched off", response.json()["error"])
+            response = self.post(name, {"sql": sql, "db": self.db}, client=plain)
+            self.assertEqual(response.status_code, 403)
+            self.assertIn("Only staff", response.json()["error"])
         self.assertEqual(self.query("SELECT count(*) FROM pgdeck_w.parent WHERE note = 'x'")[0][0], 0)
-        self.assertEqual((self.count("ident"), self.count("logged")), (5, 2))
 
     def test_a_refused_attempt_is_logged_under_its_own_kind(self):
         response = self.post("write_execute", {"sql": "TRUNCATE pgdeck_w.ident", "db": self.db, "confirm": "truncate",
@@ -653,10 +619,10 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
             self.assertContains(page, text)
         self.assertNotContains(page, "Re-insert ")                                # only deletes can be put back
 
-    def test_server_form_switches(self):
+    def test_the_server_form_has_no_change_switches(self):
         page = self.client.get(reverse("server_edit", args=[self.server.pk]))
-        for text in ("Allow changing data", "Also allow CREATE, ALTER, TRUNCATE and DROP", "INSERT, UPDATE and DELETE"):
-            self.assertContains(page, text)
+        for text in ("Allow changing data", "Also allow", "allow_writes", "allow_structure", "allow_admin"):
+            self.assertNotContains(page, text)
 
     def test_popup_markup_and_script_cover_all_statements(self):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]))

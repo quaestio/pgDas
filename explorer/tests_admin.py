@@ -62,9 +62,6 @@ class ParseTests(SimpleTestCase):
 class AdminFixture(WriteFixture):
     def setUp(self):
         super().setUp()
-        self.server.allow_structure = True
-        self.server.allow_admin = True
-        self.server.save()
         self.clean()
         self.addCleanup(self.clean)
 
@@ -275,17 +272,19 @@ class SwitchTests(AdminFixture, TestCase):
         self.client.force_login(self.staff)
         return self.client.post(reverse(name, args=[self.server.pk]), json.dumps({"sql": sql, "db": self.db}), content_type="application/json")
 
-    def test_the_third_switch_gates_these_statements_only(self):
-        self.server.allow_admin = False
-        self.server.save()
+    def test_only_staff_can_use_these_statements(self):
+        from django.contrib.auth import get_user_model
+        plain = self.client_class()
+        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
         for sql in (f"CREATE ROLE {ROLE}", f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}", f"CREATE DATABASE {DB}"):
             with self.subTest(sql=sql):
-                response = self.post("write_preview", sql)
+                response = plain.post(reverse("write_preview", args=[self.server.pk]), json.dumps({"sql": sql, "db": self.db}),
+                                      content_type="application/json")
                 self.assertEqual(response.status_code, 403)
-                self.assertIn("Also allow databases, users and grants", response.json()["error"])
-        self.assertEqual(self.post("write_preview", "CREATE TABLE pgdeck_w.fine (a int)").status_code, 200)
+                self.assertIn("Only staff", response.json()["error"])
+        self.assertFalse(self.role_exists())
 
-    def test_with_the_switch_on_the_endpoint_previews_and_executes(self):
+    def test_the_endpoint_previews_and_executes(self):
         preview = self.post("write_preview", f"CREATE ROLE {ROLE}")
         self.assertEqual(preview.status_code, 200)
         self.client.force_login(self.staff)
@@ -293,19 +292,6 @@ class SwitchTests(AdminFixture, TestCase):
         done = self.client.post(reverse("write_execute", args=[self.server.pk]), json.dumps(body), content_type="application/json")
         self.assertEqual((done.status_code, done.json()["kind"]), (200, "create"))
         self.assertTrue(self.role_exists())
-
-    def test_the_switch_needs_the_structure_switch_and_is_audited(self):
-        from servers.forms import ServerForm
-        form = ServerForm({"name": "x", "host": "h", "port": 5432, "username": "u", "password": "p", "sslmode": "prefer",
-                           "allow_writes": "on", "allow_admin": "on"})
-        self.assertFalse(form.is_valid())
-        self.assertIn("allow_admin", form.errors)
-        self.client.force_login(self.staff)
-        page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
-        self.assertContains(page, "+ DATABASES / USERS / GRANTS")
-        self.server.allow_admin = False
-        self.server.save()
-        self.assertNotContains(self.client.get(reverse("sql_runner", args=[self.server.pk])), "+ DATABASES / USERS / GRANTS")
 
 
 class CreateDatabaseFormTests(AdminFixture, TestCase):
@@ -316,21 +302,17 @@ class CreateDatabaseFormTests(AdminFixture, TestCase):
     def database_list(self):
         return self.client.get(reverse("detail"), {"type": "databases", "server": self.server.pk})
 
-    def test_the_list_offers_create_database_when_all_three_switches_are_on(self):
+    def test_the_list_offers_create_database_to_staff(self):
         page = self.database_list()
         self.assertContains(page, "Review CREATE DATABASE")
         self.assertContains(page, 'name="new_database"')
         self.assertContains(page, "<option>UTF8</option>")
         self.assertContains(page, f'<option value="{TARGET["USER"]}">')                       # owners come from the server's roles
 
-    def test_it_is_absent_without_the_third_switch_or_for_other_users(self):
-        self.server.allow_admin = False
-        self.server.save()
-        self.assertNotContains(self.database_list(), "Review CREATE DATABASE")
-        self.server.allow_admin = True
-        self.server.save()
+    def test_it_is_absent_for_other_users(self):
+        from django.contrib.auth import get_user_model
         plain = self.client_class()
-        plain.force_login(__import__("django.contrib.auth", fromlist=["x"]).get_user_model().objects.create_user("pat", password="pw-12345-abc"))
+        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
         self.assertNotContains(plain.get(reverse("detail"), {"type": "databases", "server": self.server.pk}), "Review CREATE DATABASE")
 
     def test_the_form_fills_in_the_sql_page_and_opens_the_review_popup(self):
@@ -346,9 +328,10 @@ class CreateDatabaseFormTests(AdminFixture, TestCase):
         url = reverse("sql_runner", args=[self.server.pk])
         page = self.client.get(url, {"new_database": 'x"; DROP DATABASE y; --', "encoding": "'; DROP", "db": self.db})
         self.assertEqual(page.context["sql"], 'CREATE DATABASE "x""; DROP DATABASE y; --"')     # one quoted name, no encoding
-        self.server.allow_admin = False
-        self.server.save()
-        self.assertNotContains(self.client.get(url, {"new_database": DB, "db": self.db}), 'data-autorun="1"')
+        plain = self.client_class()
+        from django.contrib.auth import get_user_model
+        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
+        self.assertNotContains(plain.get(url, {"new_database": DB, "db": self.db}), 'data-autorun="1"')       # only staff get the popup
 
 
 class RedactionTests(TestCase):

@@ -91,7 +91,7 @@ class WriteFixture(shared.PgFixture):
             ):
                 conn.execute(statement)
         self.staff = get_user_model().objects.create_user("zed", password="pw-12345-abc", is_staff=True)
-        self.server = shared.make_server(allow_writes=True)
+        self.server = shared.make_server()
         self.db = shared.TARGET["NAME"]
 
     def query(self, text, *params):
@@ -296,11 +296,6 @@ class ReinsertTests(WriteFixture, TestCase):
 
     def test_what_may_not_be_restored(self):
         entry = self.deleted_entry("DELETE FROM pgdeck_w.ident WHERE id = 1", 1)
-        self.server.allow_writes = False
-        self.server.save()
-        entry.refresh_from_db()
-        with self.assertRaisesRegex(pg.PgError, "Changes are not allowed"):
-            writes.reinsert(entry, self.staff)
         self.server.delete()
         entry.refresh_from_db()
         with self.assertRaisesRegex(pg.PgError, "no longer saved"):
@@ -370,13 +365,6 @@ class DeleteEndpointTests(WriteFixture, TestCase):
             response = self.post(name, payload, client=other)
             self.assertEqual(response.status_code, 403, name)
             self.assertIn("Only staff", response.json()["error"])
-        # staff, but the server has not been opened for changes
-        self.server.allow_writes = False
-        self.server.save()
-        for name in ("write_preview", "write_execute"):
-            response = self.post(name, payload)
-            self.assertEqual(response.status_code, 403, name)
-            self.assertIn("switched off", response.json()["error"])
         # not signed in at all
         for name in ("write_preview", "write_execute"):
             self.assertEqual(self.post(name, payload, client=Client()).status_code, 302, name)
@@ -397,58 +385,31 @@ class PagesTests(WriteFixture, TestCase):
         super().setUp()
         self.client.force_login(self.staff)
 
-    def test_sql_page_has_the_popup_only_for_staff_on_an_allowed_server(self):
+    def test_sql_page_has_the_popup_for_staff_only(self):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
-        for text in ("changes allowed", 'data-can-write="1"', 'id="changeModal"', "write_flow.js", 'id="changeConfirm"',
-                     "capital letters", reverse("write_preview", args=[self.server.pk]), reverse("write_execute", args=[self.server.pk])):
+        for text in ('data-can-write="1"', 'id="changeModal"', "write_flow.js", 'id="changeConfirm"', "capital letters",
+                     reverse("write_preview", args=[self.server.pk]), reverse("write_execute", args=[self.server.pk])):
             self.assertContains(page, text)
-        self.assertContains(page, 'data-can-structure="0"')                      # TRUNCATE / DROP not switched on yet
-        self.assertContains(page, "CREATE, ALTER, TRUNCATE and DROP are switched off for this server")
-        self.assertNotContains(page, "+ CREATE / ALTER / TRUNCATE / DROP")
-        self.server.allow_structure = True
-        self.server.save()
-        both = self.client.get(reverse("sql_runner", args=[self.server.pk]))
-        self.assertContains(both, 'data-can-structure="1"')
-        self.assertContains(both, "+ CREATE / ALTER / TRUNCATE / DROP")
-        self.server.allow_writes = False
-        self.server.allow_structure = False
-        self.server.save()
-        off = self.client.get(reverse("sql_runner", args=[self.server.pk]))
-        for text in ("changeModal", "write_flow.js", "changes allowed", "data-can-write"):
-            self.assertNotContains(off, text)
-        self.assertContains(off, "read-only")
-        self.server.allow_writes = True
-        self.server.save()
+        self.assertNotContains(page, "switched off")
+        self.assertNotContains(page, "changes allowed")
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         self.client.force_login(plain)
-        self.assertNotContains(self.client.get(reverse("sql_runner", args=[self.server.pk])), "changeModal")
+        page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
+        for text in ("changeModal", "write_flow.js", "data-can-write"):
+            self.assertNotContains(page, text)
+        self.assertContains(page, "read-only")
 
     def test_a_delete_typed_into_the_normal_form_still_cannot_write(self):
         response = self.client.post(reverse("sql_runner", args=[self.server.pk]),
                                     {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db})
         self.assertContains(response, "read-only transaction")
-        self.assertContains(response, "needs JavaScript")                       # staff on an allowed server: told how to proceed
+        self.assertContains(response, "needs JavaScript")                       # staff: told how to proceed
         self.assertEqual(self.count("ident"), 5)                                 # the plain path stays read-only everywhere
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         self.client.force_login(plain)
         other = self.client.post(reverse("sql_runner", args=[self.server.pk]),
                                  {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db})
         self.assertContains(other, "Only staff users can change data")
-        self.assertEqual(self.count("ident"), 5)
-
-    def test_the_hint_after_a_blocked_change(self):
-        self.server.allow_writes = False
-        self.server.save()
-        for statement in ("DELETE FROM pgdeck_w.ident WHERE id = 1", "UPDATE pgdeck_w.ident SET label = 'x'",
-                          "INSERT INTO pgdeck_w.ident (label) VALUES ('x')", "TRUNCATE pgdeck_w.ident", "DROP TABLE pgdeck_w.ident"):
-            with self.subTest(statement=statement):
-                response = self.client.post(reverse("sql_runner", args=[self.server.pk]), {"sql": statement, "db": self.db})
-                self.assertContains(response, "Changing data is switched off here")
-        self.assertEqual(self.count("ident"), 5)
-        self.server.allow_writes = True                                          # data changes on, TRUNCATE / DROP still off
-        self.server.save()
-        response = self.client.post(reverse("sql_runner", args=[self.server.pk]), {"sql": "TRUNCATE pgdeck_w.ident", "db": self.db})
-        self.assertContains(response, "TRUNCATE is switched off here")
         self.assertEqual(self.count("ident"), 5)
 
     def post_delete(self):
@@ -502,31 +463,6 @@ class PagesTests(WriteFixture, TestCase):
         self.assertIn("15 more rows in the downloadable JSON", entry.payload_preview)
         self.assertNotIn('"id": 24', entry.payload_preview)
         self.assertIn('"id": 9', entry.payload_preview)
-
-    def test_turning_changes_on_or_off_is_audited(self):
-        url = reverse("server_edit", args=[self.server.pk])
-        form = {"name": "test", "host": self.server.host, "port": self.server.port, "username": self.server.username,
-                "password": "", "sslmode": "prefer"}
-        self.client.post(url, form)                                              # the checkboxes are left out: both switched off
-        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="data changes switched OFF").exists())
-        self.client.post(url, {**form, "allow_writes": "on"})
-        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="data changes switched ON").exists())
-        self.client.post(url, {**form, "allow_writes": "on", "allow_structure": "on"})
-        self.assertTrue(AuditEntry.objects.filter(action="server.edit", detail__endswith="structure changes switched ON").exists())
-        self.client.post(url, {**form, "allow_writes": "on", "allow_structure": "on"})   # unchanged: no extra note
-        self.assertEqual(AuditEntry.objects.filter(action="server.edit", detail__contains="switched").count(), 3)
-        self.client.post(url, {**form})                                                  # both off again
-        self.server.refresh_from_db()
-        self.assertEqual((self.server.allow_writes, self.server.allow_structure), (False, False))
-
-    def test_truncate_and_drop_need_data_changes_to_be_on_as_well(self):
-        url = reverse("server_edit", args=[self.server.pk])
-        form = {"name": "test", "host": self.server.host, "port": self.server.port, "username": self.server.username,
-                "password": "", "sslmode": "prefer", "allow_structure": "on"}      # allow_writes left out
-        page = self.client.post(url, form)
-        self.assertContains(page, "Turn on &#x27;Allow changing data&#x27; first")
-        self.server.refresh_from_db()
-        self.assertFalse(self.server.allow_structure)
 
     def test_the_popup_script_checks_the_word_and_writes_values_as_text(self):
         script = open("static/write_flow.js", encoding="utf-8").read()

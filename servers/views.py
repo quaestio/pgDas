@@ -35,9 +35,6 @@ def server_add(request):
         server.created_by = request.user
         server.save()
         detail = f"{server.username}@{server.host}:{server.port}"
-        if server.allow_writes:
-            detail += " · data changes allowed" + (" · structure changes allowed" if server.allow_structure else "")
-            detail += " · database, user and grant changes allowed" if server.allow_admin else ""
         record(request.user, "server.add", server, detail)
         messages.success(request, f"Server {server.name} saved.")
         return redirect("server_list")
@@ -48,18 +45,10 @@ def server_add(request):
 @staff_required
 def server_edit(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
-    was_writes, was_structure, was_admin = server.allow_writes, server.allow_structure, server.allow_admin   # read now: validating the form changes the instance
     form = ServerForm(request.POST or None, instance=server)
     if request.method == "POST" and form.is_valid():
         form.save()
         detail = f"{server.username}@{server.host}:{server.port}"
-        # Turning changes on or off is a security change: say so in the log.
-        if server.allow_writes != was_writes:
-            detail += " · data changes " + ("switched ON" if server.allow_writes else "switched OFF")
-        if server.allow_structure != was_structure:
-            detail += " · structure changes " + ("switched ON" if server.allow_structure else "switched OFF")
-        if server.allow_admin != was_admin:
-            detail += " · database, user and grant changes " + ("switched ON" if server.allow_admin else "switched OFF")
         record(request.user, "server.edit", server, detail)
         messages.success(request, f"Server {server.name} updated.")
         return redirect("server_list")

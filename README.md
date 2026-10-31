@@ -18,23 +18,28 @@ planned next (see the roadmap).
   - A **system** switch in the sidebar also shows built-in `pg_*` roles and objects installed by extensions.
 - Sign in with local accounts; staff users manage servers and see the audit log, everyone signed in can browse.
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
-- SQL runner: read-only, 30 s timeout, 1000-row cap. Optional, per server: INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with
-  warning popups and typed confirmation (see "Changing data").
+- SQL runner: queries run read-only with a 30 s timeout and a 1000-row cap. Staff users can also run INSERT, UPDATE, DELETE,
+  TRUNCATE, DROP, CREATE, ALTER, GRANT and REVOKE (databases and users included) with warning popups and typed
+  confirmation (see "Changing data").
 - Query history: the SQL page lists your own latest 20 statements on that server; click one to reuse it.
 - Audit log of every SQL run, server change and data change (staff only), as JSON, with a Re-insert button for deletes and an Undo button for updates.
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
 
-## Changing data (opt-in, with popups and a safety net)
-PgDeck is read-only until you switch changes on **per server**, with three separate switches in **Edit server**:
+## Changing data (staff only, with popups and a safety net)
+Staff users have full access on every saved server: there are no per-server switches. What a change can actually do is
+limited by the PostgreSQL role saved for the server (use one with just the rights you want PgDeck to have). Everyone else
+stays read-only. Each kind of statement asks first:
 
-| Switch | Allows | How each one asks |
-|---|---|---|
-| **Allow changing data** | `INSERT`, `UPDATE`, `DELETE` | `INSERT` runs at once. `UPDATE` shows a popup with the **number of rows** it changes and a warning if it has **no WHERE**, then a button. `DELETE` shows its popup and asks you to type **`ZAP`**. |
-| **Also allow CREATE, ALTER, TRUNCATE and DROP** (needs the first) | `CREATE`, `ALTER`, `TRUNCATE`, `DROP` | A warning popup. `TRUNCATE` and `DROP` need you to type **`TRUNCATE`** or **`DROP`**; `CREATE` and `ALTER` list what changes (a risky `ALTER` asks for **`ALTER`**). |
-| **Also allow databases, users and grants** (needs the second) | `CREATE`/`ALTER`/`DROP` `DATABASE` and `ROLE` (`USER`, `GROUP`), `GRANT`, `REVOKE` | A popup listing what changes. Dropping asks for **`DROP`**; a role with `SUPERUSER`, `CREATEROLE`, `REPLICATION` or `BYPASSRLS` asks for **`CREATE`**/**`ALTER`**. |
+| Statement | How it asks |
+|---|---|
+| `INSERT` | Runs at once. |
+| `UPDATE` | A popup with the **number of rows** it changes and a warning if it has **no WHERE**, then a button. |
+| `DELETE` | A popup with the row count; you type **`ZAP`**. |
+| `TRUNCATE`, `DROP` | A warning popup; you type **`TRUNCATE`** or **`DROP`**. |
+| `CREATE`, `ALTER` | A popup listing what changes; a risky `ALTER` asks for **`ALTER`**. |
+| `CREATE`/`ALTER`/`DROP` `DATABASE` and `ROLE` (`USER`, `GROUP`), `GRANT`, `REVOKE` | A popup listing what changes. Dropping asks for **`DROP`**; a role with `SUPERUSER`, `CREATEROLE`, `REPLICATION` or `BYPASSRLS` asks for **`CREATE`**/**`ALTER`**. |
 
-All three are off by default, only staff users can use them, and turning either on or off is written to the audit log. Every
-change is checked first in a transaction that is always rolled back, run for real only if the facts you were shown are
+Every change is checked first in a transaction that is always rolled back, run for real only if the facts you were shown are
 still true, and recorded in the audit log (as JSON) *before* it is committed, so nothing changes without a record. Any
 other statement, and anything typed with scripting switched off, still runs read-only.
 
@@ -48,10 +53,10 @@ other statement, and anything typed with scripting switched off, still runs read
   rows are **not** saved, because a table can hold millions; the audit record keeps the tables and counts.
 - **DROP** (tables, views, materialized views, indexes, sequences, schemas, functions, procedures, types, domains,
   triggers, extensions, publications): the popup shows the rows that go with a dropped table and everything `CASCADE`
-  would take along. The audit record keeps the `CREATE` statement of dropped tables for reference. `DROP DATABASE`,
-  `ROLE` and `TABLESPACE` are not available here.
-- **CREATE / ALTER:** the statement is tried in the rolled-back transaction and the popup lists exactly what would be created or changed (tables, columns, indexes, constraints, sequences...). A plain `CREATE` or `ALTER` needs just a button; an `ALTER` that drops, renames, changes a type or owner, or takes another object with it asks you to type **`ALTER`**. The audit record keeps the changes and the previous `CREATE` of an altered table or view. `CREATE DATABASE/ROLE/TABLESPACE`, temporary objects and `CONCURRENTLY` are not available.
-- **Databases, users and grants:** roles and grants are tried in the rolled-back transaction and the popup lists the roles, memberships and privileges that change. ``CREATE DATABASE`` and ``DROP DATABASE`` cannot run inside a transaction, so they are described from the catalogs and cannot be rolled back (``DROP DATABASE`` shows the size and open connections). With the third switch on, the **Databases** list has a **Create database** form (name, owner, encoding) that opens the same review popup. **Passwords are never kept:** the popup, the audit log and the history show ``PASSWORD '********'``. The login saved for the server needs the matching PostgreSQL rights (``CREATEDB``, ``CREATEROLE``, grant option).
+  would take along. The audit record keeps the `CREATE` statement of dropped tables for reference. `DROP TABLESPACE`
+  and `DROP OWNED` are not available here.
+- **CREATE / ALTER:** the statement is tried in the rolled-back transaction and the popup lists exactly what would be created or changed (tables, columns, indexes, constraints, sequences...). A plain `CREATE` or `ALTER` needs just a button; an `ALTER` that drops, renames, changes a type or owner, or takes another object with it asks you to type **`ALTER`**. The audit record keeps the changes and the previous `CREATE` of an altered table or view. `CREATE TABLESPACE`, temporary objects and `CONCURRENTLY` are not available.
+- **Databases, users and grants:** roles and grants are tried in the rolled-back transaction and the popup lists the roles, memberships and privileges that change. `CREATE DATABASE` and `DROP DATABASE` cannot run inside a transaction, so they are described from the catalogs and cannot be rolled back (`DROP DATABASE` shows the size and open connections). The **Databases** list has a **Create database** form (name, owner, encoding) that opens the same review popup. **Passwords are never kept:** the popup, the audit log and the history show `PASSWORD '********'`. The role saved for the server needs the matching PostgreSQL rights (`CREATEDB`, `CREATEROLE`, grant option).
 - Each takes **one plain statement at a time** (no `WITH`, no `RETURNING` on UPDATE/DELETE) and, for row changes,
   ordinary tables only.
 
@@ -86,18 +91,18 @@ people writing at the same moment.
 The PostgreSQL servers you *browse* are separate: you add them in the app.
 
 ## Quick start with Docker (server or local)
-```bash
+``bash
 cp .env.example .env        # then set PGDECK_SECRET_KEY
 docker compose up -d --build
 docker compose exec pgdeck python manage.py createsuperuser
-```
+``
 Open http://localhost:8000. The data lives in the `pgdeck-data` volume. The port is bound to localhost; put an https
 reverse proxy (Caddy, nginx) in front before exposing it, then set `PGDECK_ALLOWED_HOSTS`,
 `PGDECK_CSRF_TRUSTED_ORIGINS` and `PGDECK_SECURE_COOKIES=1`.
 
 ## Quick start without Docker (Windows, macOS, Linux)
 Requires Python 3.12+. No database to set up.
-```bash
+``bash
 python -m venv .venv
 .venv/Scripts/activate       # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
@@ -105,7 +110,7 @@ cp .env.example .env         # set PGDECK_DEBUG=1 for local use, or PGDECK_SECRE
 python manage.py migrate
 python manage.py createsuperuser
 waitress-serve --listen=127.0.0.1:8000 pgdeck.wsgi:application
-```
+``
 Use the virtual environment's Python (the `.venv` above), not your system Python, or packages will be missing.
 
 ## Connecting to the databases you manage
@@ -127,14 +132,14 @@ remote servers.
 ## Tests
 PgDeck's own data uses SQLite, so most tests need nothing. The explorer tests browse a real PostgreSQL server and
 create and drop a scratch database `pgdeck_test_target` on it, so they need a login that can create databases:
-```bash
+``bash
 # in .env, or as environment variables
 PGDECK_TEST_PG_HOST=localhost
 PGDECK_TEST_PG_PORT=5432
 PGDECK_TEST_PG_USER=postgres
 PGDECK_TEST_PG_PASSWORD=...
 python manage.py test
-```
+``
 Without a reachable PostgreSQL those tests are skipped and say why.
 
 ## Roadmap

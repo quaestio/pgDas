@@ -6,25 +6,22 @@
   <div><div class="eyebrow">SERVERS / <span>{{ server.name|upper }}</span> / SQL</div><h1>SQL runner</h1>
     <p class="muted">{{ server.name }}{% if db %} · database {{ db }}{% endif %}</p></div>
   <div><a class="btn" href="{% url 'explorer' server.pk %}">← Object browser</a>
-    {% if can_write %}<span class="badge bad" title="INSERT, UPDATE and DELETE are allowed on this server">changes allowed</span>
-    {% if can_structure %}<span class="badge bad" title="CREATE, ALTER, TRUNCATE and DROP are allowed on this server">+ CREATE / ALTER / TRUNCATE / DROP</span>{% endif %}
-    {% if can_admin %}<span class="badge bad" title="Databases, users (roles) and GRANT / REVOKE are allowed on this server">+ DATABASES / USERS / GRANTS</span>{% endif %}
-    {% else %}<span class="badge ok">read-only</span>{% endif %}</div>
+    {% if not can_write %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
 <section class="panel pad">
-  <form method="post" id="sqlForm"{% if autorun %} data-autorun="1"{% endif %}{% if can_write %} data-can-write="1" data-can-structure="{% if can_structure %}1{% else %}0{% endif %}"
+  <form method="post" id="sqlForm"{% if autorun %} data-autorun="1"{% endif %}{% if can_write %} data-can-write="1"
         data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">
     <label for="sql">SQL</label>
     <textarea id="sql" name="sql" spellcheck="false" placeholder="SELECT * FROM my_table LIMIT 10;">{{ sql }}</textarea>
     {% if can_write %}
-    <p class="muted" style="margin-top:10px">Queries run read-only. Changes are allowed here, one statement at a time, and every one is recorded in the audit log:
+    <p class="muted" style="margin-top:10px">Queries run read-only. Changes are made one statement at a time, and every one is recorded in the audit log:
       <strong>INSERT</strong> runs at once; <strong>UPDATE</strong> shows how many rows it changes and warns if it has no WHERE;
-      <strong>DELETE</strong> asks you to type {{ confirm_words.delete }} (the rows are saved and can be re-inserted){% if can_structure %};
+      <strong>DELETE</strong> asks you to type {{ confirm_words.delete }} (the rows are saved and can be re-inserted);
       <strong>TRUNCATE</strong> and <strong>DROP</strong> show a warning and ask you to type {{ confirm_words.truncate }} or {{ confirm_words.drop }};
-      <strong>CREATE</strong> and <strong>ALTER</strong> list exactly what would be created or changed (a risky ALTER asks you to type {{ confirm_words.alter }}){% if can_admin %};
-      <strong>CREATE / ALTER / DROP DATABASE</strong> and <strong>ROLE</strong>, <strong>GRANT</strong> and <strong>REVOKE</strong> list what changes (dropping asks for {{ confirm_words.drop }}; passwords are never recorded){% endif %}{% else %}. CREATE, ALTER, TRUNCATE and DROP are switched off for this server{% endif %}.</p>
+      <strong>CREATE</strong> and <strong>ALTER</strong> list exactly what would be created or changed (a risky ALTER asks you to type {{ confirm_words.alter }});
+      <strong>CREATE / ALTER / DROP DATABASE</strong> and <strong>ROLE</strong>, <strong>GRANT</strong> and <strong>REVOKE</strong> list what changes (dropping asks for {{ confirm_words.drop }}; passwords are never recorded).</p>
     {% else %}
     <p class="muted" style="margin-top:10px">Runs read-only: PostgreSQL rejects any statement that would change data. Results are capped and time-limited, and every run is recorded in the audit log.</p>
     {% endif %}

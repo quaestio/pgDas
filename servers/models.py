@@ -19,24 +19,6 @@ class ServerConnection(models.Model):
     username = models.CharField(max_length=100)
     password_encrypted = models.TextField(blank=True)
     sslmode = models.CharField(max_length=20, choices=SSL_MODES, default="prefer")
-    # Off by default: PgDeck only reads. When on, staff can run INSERT, UPDATE and DELETE in the SQL runner (UPDATE and DELETE
-    # after a confirmation popup). Every change is recorded in the audit log; deleted rows can be re-inserted from there.
-    allow_writes = models.BooleanField(
-        default=False, verbose_name="Allow changing data",
-        help_text="Lets staff run INSERT, UPDATE and DELETE in the SQL runner on this server. UPDATE and DELETE show a "
-                  "warning popup first, and every change is recorded in the audit log.")
-    # A second, separate switch for changes to the structure of the database, which the audit log cannot undo. Needs allow_writes.
-    allow_structure = models.BooleanField(
-        default=False, verbose_name="Also allow CREATE, ALTER, TRUNCATE and DROP",
-        help_text="Lets staff create and change tables, views, indexes and so on (CREATE, ALTER) and run TRUNCATE (empty a "
-                  "table) and DROP (remove objects). Each shows a warning popup first, and the dangerous ones ask for a word "
-                  "to be typed. Needs 'Allow changing data'.")
-    # A third switch for the server itself: databases, users (roles) and who may do what (GRANT, REVOKE). Needs allow_structure.
-    allow_admin = models.BooleanField(
-        default=False, verbose_name="Also allow databases, users and grants",
-        help_text="Lets staff create, change and drop databases and users (roles), and run GRANT and REVOKE. Each shows a "
-                  "warning popup first; dropping asks for a word to be typed. Passwords are never written to the audit log. "
-                  "Needs 'Also allow CREATE, ALTER, TRUNCATE and DROP'.")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
