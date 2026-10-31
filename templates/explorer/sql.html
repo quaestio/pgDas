@@ -9,7 +9,7 @@
     {% if not can_write %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
 <section class="panel pad">
-  <form method="post" id="sqlForm"{% if autorun %} data-autorun="1"{% endif %}{% if can_write %} data-can-write="1"
+  <form method="post" id="sqlForm"{% if can_write %} data-can-write="1" data-server="{{ server.pk }}"
         data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">
@@ -60,32 +60,6 @@
 </section>
 {% endif %}
 
-{% if can_write %}
-{# The warning popup for UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER. write_flow.js fills it in from the preview. #}
-<div id="changeModal" class="cyber-modal" hidden>
-  <div class="cyber-dialog wide" role="dialog" aria-modal="true" aria-labelledby="changeTitle">
-    <div class="modal-top"><span id="changeTitle">WARNING</span><button type="button" id="changeClose" aria-label="Close">✕</button></div>
-    <div class="modal-icon">⚠</div>
-    <div class="count-big" id="changeCount"></div>
-    <p id="changeLabel"></p>
-    <div class="warn-box" id="changeWarning"></div>
-    <div id="changeNotes"></div>
-    <ul class="object-list" id="changeObjects" hidden></ul>
-    <div class="scroll" id="changeSampleBox" hidden><table><thead id="changeSampleHead"></thead><tbody id="changeSampleBody"></tbody></table></div>
-    <pre class="sql" id="changeStatement"></pre>
-    <div id="changeConfirmBox">
-      <label for="changeConfirm">Type <strong id="changeWord"></strong> (capital letters) to confirm</label>
-      <input type="text" id="changeConfirm" class="zap" autocomplete="off" spellcheck="false" maxlength="12">
-      <p class="muted" style="margin:6px 0 0">Case matters: lower case will not work.</p>
-    </div>
-    <p id="changeError" class="modal-error" hidden></p>
-    <div class="modal-buttons">
-      <button type="button" class="btn" id="changeCancel">Cancel</button>
-      <button type="button" class="btn danger" id="changeGo" disabled>Go</button>
-    </div>
-  </div>
-</div>
-{% endif %}
 {% endblock %}
 {% block scripts %}{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}
 <script>

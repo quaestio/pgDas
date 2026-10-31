@@ -38,28 +38,18 @@
   </p>
   <p class="muted">Expand <strong>Databases</strong> in the tree to browse schemas, tables, columns, constraints and indexes.</p>
 {% elif kind == "databases" %}
-  <h2>Databases</h2>
-  {% if can_admin %}
-  <details class="panel pad" style="margin-bottom:14px">
-    <summary><strong>Create database</strong></summary>
-    <form method="get" action="{{ new_database_url }}" style="margin-top:10px">
-      <label for="newDatabaseName">Name</label>
-      <input type="text" id="newDatabaseName" name="new_database" required maxlength="63" autocomplete="off" spellcheck="false">
-      <label for="newDatabaseOwner">Owner</label>
-      <select id="newDatabaseOwner" name="owner"><option value="">the login PgDeck uses</option>{% for r in roles %}<option value="{{ r.name }}">{{ r.name }}{% if r.kind == "group" %} (group){% endif %}</option>{% endfor %}</select>
-      <label for="newDatabaseEncoding">Encoding</label>
-      <select id="newDatabaseEncoding" name="encoding"><option value="">server default</option><option>UTF8</option><option>LATIN1</option><option>WIN1252</option><option>SQL_ASCII</option></select>
-      <p class="muted" style="margin:8px 0">You see exactly what will be created in a popup before anything happens.</p>
-      <button class="btn primary" type="submit">Review CREATE DATABASE</button>
-    </form>
-  </details>
-  {% endif %}
+  <div {% if can_admin %}data-admin="{{ admin_json }}"{% endif %}>
+  <div class="title-row" style="margin-bottom:12px"><h2 style="margin:0">Databases</h2>
+    {% if can_admin %}<button type="button" class="btn primary" data-admin-dialog="create-db">+ Create database</button>{% endif %}</div>
   <div class="scroll"><table>
-    <thead><tr><th>NAME</th><th>OWNER</th><th>ENCODING</th><th>SIZE</th></tr></thead>
-    <tbody>{% for d in databases %}<tr><td>{{ d.name }}</td><td class="muted">{{ d.owner }}</td><td class="muted">{{ d.encoding }}</td><td class="muted">{{ d.size_text }}</td></tr>
-    {% empty %}<tr><td colspan="4" class="muted">No databases you can connect to.</td></tr>{% endfor %}</tbody>
+    <thead><tr><th>NAME</th><th>OWNER</th><th>ENCODING</th><th>SIZE</th><th>ACTIONS</th></tr></thead>
+    <tbody>{% for d in databases %}<tr><td>{{ d.name }}</td><td class="muted">{{ d.owner }}</td><td class="muted">{{ d.encoding }}</td><td class="muted">{{ d.size_text }}</td>
+      <td class="row-actions"><button type="button" class="btn" data-open-database="{{ d.name }}" data-server="{{ server.pk }}">Details</button>
+        {% if can_admin %}<button type="button" class="btn" data-admin-dialog="rename-db" data-db="{{ d.name }}">Rename</button>
+        <button type="button" class="btn danger" data-admin-dialog="drop-db" data-db="{{ d.name }}">Delete</button>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="5" class="muted">No databases you can connect to.</td></tr>{% endfor %}</tbody>
   </table></div>
-{% elif kind == "database" %}
+  </div>{% elif kind == "database" %}
   <h2>{{ database.name }}</h2>
   <dl class="props"><dt>Server</dt><dd>{{ server.name }}</dd><dt>Owner</dt><dd>{{ database.owner }}</dd><dt>Encoding</dt><dd>{{ database.encoding }}</dd><dt>Size</dt><dd>{{ database.size_text }}</dd></dl>
   <p style="margin-top:18px"><a class="btn" href="{% url 'sql_runner' server.pk %}?db={{ database.name|urlencode }}">SQL runner</a></p>
@@ -74,6 +64,7 @@
   <h2>{% if kind == "schema" or kind == "catalog" %}{{ kind|capfirst }} {{ node.schema }}{% elif kind == "roles" or kind == "tablespaces" %}{{ folder }} on {{ server.name }}{% elif node.schema %}{{ folder }} in {{ node.schema }}{% else %}{{ folder }} in {{ node.db }}{% endif %}</h2>
   {% if kind == "schema" or kind == "catalog" %}<dl class="props"><dt>Owner</dt><dd>{{ owner }}</dd><dt>Database</dt><dd>{{ node.db }}</dd></dl><h2 style="margin-top:22px">Tables</h2>{% endif %}
   {% if kind == "roles" %}
+    {% if can_admin %}<div data-admin="{{ admin_json }}" style="margin-bottom:12px"><button type="button" class="btn primary" data-admin-dialog="create-role">+ Create login / group role</button></div>{% endif %}
     <div class="scroll"><table>
       <thead><tr><th>NAME</th><th>KIND</th><th>CREATE DB</th><th>CREATE ROLE</th></tr></thead>
       <tbody>{% for r in objects %}<tr><td>{{ r.name }}</td><td><span class="badge{% if r.superuser %} bad{% endif %}">{{ r.kind }}</span></td>

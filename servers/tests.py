@@ -53,7 +53,7 @@ class ServerViewTests(TestCase):
         for url in (reverse("server_add"),):
             page = self.client.get(url)
             self.assertNotContains(page, 'name="database"')
-            self.assertNotContains(page, "DATABASE")
+            self.assertNotContains(page, "id_database")
         # A posted `database` (an old form, a script) is ignored: the server is saved with the default.
         response = self.client.post(reverse("server_add"), {**FORM, "database": "should_be_ignored"})
         self.assertRedirects(response, reverse("server_list"))

@@ -465,7 +465,7 @@ class PagesTests(WriteFixture, TestCase):
         self.assertIn('"id": 9', entry.payload_preview)
 
     def test_the_popup_script_checks_the_word_and_writes_values_as_text(self):
-        script = open("static/write_flow.js", encoding="utf-8").read()
+        script = open("static/review.js", encoding="utf-8").read() + open("static/write_flow.js", encoding="utf-8").read()
         self.assertIn("confirmInput.value !== checked.word", script)               # exact, case-sensitive, whatever the word is
         self.assertNotIn(".innerHTML = row", script)
         self.assertNotIn(".innerHTML = preview", script)

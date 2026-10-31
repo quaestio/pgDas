@@ -629,7 +629,7 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
         for text in ('id="changeWarning"', 'id="changeObjects"', 'id="changeWord"', "INSERT</strong> runs at once", "UPDATE</strong> shows how many rows",
                      "type ZAP", "type TRUNCATE or DROP", "CREATE</strong> and <strong>ALTER"):
             self.assertContains(page, text)
-        script = open("static/write_flow.js", encoding="utf-8").read()
+        script = open("static/review.js", encoding="utf-8").read() + open("static/write_flow.js", encoding="utf-8").read()
         for needle in ('kind === "insert"', "preview.confirm_word", "preview.fingerprint", "preview.objects", "preview.notes",
                        "(insert|update|delete|truncate|drop|create|alter|grant|revoke)", "tone(\"error\")", "tone(\"success\")"):
             self.assertIn(needle, script)

@@ -160,8 +160,7 @@ def detail(request):
             with pg.connect(server) as conn:
                 context["databases"] = pg.list_databases(conn)
                 if context["can_admin"]:
-                    context["roles"] = pg.list_roles(conn)
-                    context["new_database_url"] = reverse("sql_runner", args=[server.pk])
+                    context["admin_json"] = _admin_json(server, pg.list_roles(conn), context["databases"])
         elif kind == "database":
             with pg.connect(server) as conn:
                 context["database"] = next((d for d in pg.list_databases(conn) if d["name"] == db), None)
@@ -172,6 +171,9 @@ def detail(request):
             # Roles and tablespaces belong to the whole server (any database will do); the rest are per database.
             with pg.connect(server, db or None) as conn:
                 context["objects"] = _object_list(conn, kind, system)
+                if kind == "roles" and _can_admin(request.user, server):
+                    context["can_admin"] = True
+                    context["admin_json"] = _admin_json(server, pg.list_roles(conn, True), [])
         elif kind in OBJECTS:
             with pg.connect(server, node["db"] or None) as conn:
                 context.update(_object_context(conn, node, request))
@@ -215,6 +217,11 @@ def _can_write(user, server):
 
 
 _can_structure = _can_admin = _can_write
+
+
+def _admin_json(server, roles, databases):
+    """What the Create database / Create role / Rename dialogs need to fill their lists, as one JSON attribute."""
+    return json.dumps({"server": server.pk, "roles": [r["name"] for r in roles], "databases": [d["name"] for d in databases]})
 
 
 def _refuse(message, status=403):
@@ -277,9 +284,6 @@ def sql_runner(request, pk):
     context = {"server": server, "sql": "", "db": db, "can_write": _can_write(request.user, server),
                "can_structure": _can_structure(request.user, server), "can_admin": _can_admin(request.user, server),
                "confirm_words": changes.CONFIRM_WORDS}
-    if request.method == "GET" and request.GET.get("new_database"):
-        context["sql"] = _create_database_sql(request.GET)           # from "Create database" in the list: reviewed in the popup
-        context["autorun"] = context["can_admin"]
     if request.method == "POST":
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
@@ -302,23 +306,6 @@ def sql_runner(request, pk):
                 context["result"] = result
     context["history"] = _history(request.user, server)
     return render(request, "explorer/sql.html", context)
-
-
-def _quote_name(name):
-    return '"' + name.replace('"', '""') + '"'
-
-
-ENCODINGS = ("UTF8", "LATIN1", "WIN1252", "SQL_ASCII")
-
-
-def _create_database_sql(params):
-    """The CREATE DATABASE statement for the small form in the Databases list. It is only filled in: the person still reviews it."""
-    sql = f"CREATE DATABASE {_quote_name(params['new_database'].strip())}"
-    if params.get("owner", "").strip():
-        sql += f" OWNER {_quote_name(params['owner'].strip())}"
-    if params.get("encoding") in ENCODINGS:
-        sql += f" ENCODING '{params['encoding']}' TEMPLATE template0"
-    return sql
 
 
 HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter", "grant", "revoke")

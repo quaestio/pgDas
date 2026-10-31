@@ -138,6 +138,10 @@
       if (open && !li.loaded) loadChildren(node, list, function (ok) { li.loaded = ok; });
     }
     li.expand = function () { if (!open) toggle(); };
+    li.reload = function () {                          // after a change: list the children again (only if they were ever shown)
+      li.loaded = false;
+      if (list && open) loadChildren(node, list, function (ok) { li.loaded = ok; });
+    };
     twist.addEventListener("click", function (event) { event.stopPropagation(); toggle(); });
     row.addEventListener("click", function () { select(row, node); if (detailEl) li.expand(); });
     row.tabIndex = 0;
@@ -241,12 +245,23 @@
     detailEl.addEventListener("click", function (event) {
       var open = event.target.closest("[data-open-server]");
       if (open) { event.preventDefault(); openPath({type: "server", server: open.dataset.openServer}); return; }
+      var details = event.target.closest("[data-open-database]");       // "Details" in the Databases list: open it in the tree
+      if (details) { event.preventDefault(); openPath({type: "database", server: details.dataset.server, db: details.dataset.openDatabase}); return; }
       var link = event.target.closest("[data-detail]");
       if (!link) return;
       event.preventDefault();
       showDetail(link.dataset.detail);
     });
   }
+
+  // After a database or role was created, renamed or dropped: list that folder again and redraw the details if they show it.
+  document.addEventListener("pgdeck:changed", function (event) {
+    var change = event.detail || {};
+    var item = findItem({type: change.what, server: String(change.server)});
+    if (item) item.reload();
+    var current = selected && selected.parentNode;
+    if (detailEl && current && current.nodeData && current.nodeData.type === change.what) showDetail(query(current.nodeData));
+  });
 
   // What to show first: a node named in the address (/?type=table&server=1&db=...), an old /?server=3 link, or Servers.
   function startNode() {

@@ -294,45 +294,96 @@ class SwitchTests(AdminFixture, TestCase):
         self.assertTrue(self.role_exists())
 
 
-class CreateDatabaseFormTests(AdminFixture, TestCase):
+class DialogTests(AdminFixture, TestCase):
+    """Create database / Create role / Rename / Delete: the buttons, the dialogs and the scripts behind them."""
+
     def setUp(self):
         super().setUp()
         self.client.force_login(self.staff)
 
-    def database_list(self):
-        return self.client.get(reverse("detail"), {"type": "databases", "server": self.server.pk})
+    def database_list(self, client=None):
+        return (client or self.client).get(reverse("detail"), {"type": "databases", "server": self.server.pk})
 
-    def test_the_list_offers_create_database_to_staff(self):
+    def other_user(self):
+        from django.contrib.auth import get_user_model
+        plain = self.client_class()
+        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
+        return plain
+
+    def test_the_databases_list_has_create_rename_delete_and_details(self):
         page = self.database_list()
-        self.assertContains(page, "Review CREATE DATABASE")
-        self.assertContains(page, 'name="new_database"')
-        self.assertContains(page, "<option>UTF8</option>")
-        self.assertContains(page, f'<option value="{TARGET["USER"]}">')                       # owners come from the server's roles
+        for text in ('data-admin-dialog="create-db"', "+ Create database", 'data-admin-dialog="rename-db"', 'data-admin-dialog="drop-db"',
+                     "data-open-database=", "Details", "Rename", "Delete"):
+            self.assertContains(page, text)
+        self.assertContains(page, f'data-db="{TARGET["NAME"]}"')
+        self.assertNotContains(page, "Review CREATE DATABASE")                       # the old inline form is gone
+        data = json.loads(page.content.decode().split('data-admin="')[1].split('"')[0].replace("&quot;", '"'))
+        self.assertEqual(data["server"], self.server.pk)
+        self.assertIn(TARGET["USER"], data["roles"])
+        self.assertIn(TARGET["NAME"], data["databases"])
 
-    def test_it_is_absent_for_other_users(self):
-        from django.contrib.auth import get_user_model
-        plain = self.client_class()
-        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
-        self.assertNotContains(plain.get(reverse("detail"), {"type": "databases", "server": self.server.pk}), "Review CREATE DATABASE")
+    def test_other_users_only_get_details(self):
+        page = self.database_list(self.other_user())
+        self.assertContains(page, "data-open-database=")
+        for text in ("Create database", "Rename", "Delete", "data-admin"):
+            self.assertNotContains(page, text)
 
-    def test_the_form_fills_in_the_sql_page_and_opens_the_review_popup(self):
-        url = reverse("sql_runner", args=[self.server.pk])
-        page = self.client.get(url, {"new_database": DB, "owner": ROLE, "encoding": "UTF8", "db": self.db})
-        self.assertEqual(page.context["sql"], f'CREATE DATABASE "{DB}" OWNER "{ROLE}" ENCODING \'UTF8\' TEMPLATE template0')
-        self.assertContains(page, 'data-autorun="1"')
-        self.assertFalse(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB))     # filled in, not run
-        minimal = self.client.get(url, {"new_database": DB, "db": self.db})
-        self.assertEqual(minimal.context["sql"], f'CREATE DATABASE "{DB}"')
+    def test_the_roles_list_has_create_role(self):
+        page = self.client.get(reverse("detail"), {"type": "roles", "server": self.server.pk})
+        self.assertContains(page, 'data-admin-dialog="create-role"')
+        self.assertContains(page, "+ Create login / group role")
+        data = json.loads(page.content.decode().split('data-admin="')[1].split('"')[0].replace("&quot;", '"'))
+        self.assertIn(TARGET["USER"], data["roles"])
+        tablespaces = self.client.get(reverse("detail"), {"type": "tablespaces", "server": self.server.pk})
+        self.assertNotContains(tablespaces, "Create login")
 
-    def test_a_hostile_name_is_quoted_and_nothing_else_is_accepted(self):
-        url = reverse("sql_runner", args=[self.server.pk])
-        page = self.client.get(url, {"new_database": 'x"; DROP DATABASE y; --', "encoding": "'; DROP", "db": self.db})
-        self.assertEqual(page.context["sql"], 'CREATE DATABASE "x""; DROP DATABASE y; --"')     # one quoted name, no encoding
-        plain = self.client_class()
-        from django.contrib.auth import get_user_model
-        plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
-        self.assertNotContains(plain.get(url, {"new_database": DB, "db": self.db}), 'data-autorun="1"')       # only staff get the popup
+    def test_the_dialogs_and_the_review_popup_are_on_every_page_for_staff_only(self):
+        for name in ("server_list", "audit_list"):
+            page = self.client.get(reverse(name))
+            for text in ('id="dlgCreateDb"', 'id="dlgCreateRole"', 'id="dlgRenameDb"', 'id="changeModal"', "admin_dialogs.js", "review.js",
+                         'data-tab="privileges"', 'data-tab="membership"', 'data-tab="sql"', "Can login?", "Superuser?"):
+                self.assertContains(page, text)
+        page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
+        self.assertContains(page, 'id="changeModal"')
+        plain = self.other_user()
+        for name in ("server_list",):
+            page = plain.get(reverse(name))
+            for text in ("dlgCreateDb", "changeModal", "admin_dialogs.js", "review.js"):
+                self.assertNotContains(page, text)
 
+    def test_the_scripts_build_quoted_sql_and_go_through_the_review_popup(self):
+        script = open("static/admin_dialogs.js", encoding="utf-8").read()
+        for needle in ("pgdeckReview.start", "CREATE DATABASE", "CREATE ROLE", "RENAME TO", "DROP DATABASE", "function ident", "function literal",
+                       "'********'", "pgdeck:changed", "cannot be empty", "textContent"):
+            self.assertIn(needle, script)
+        self.assertNotIn(".innerHTML = r", script)                                    # values go in as text, never as HTML
+        review = open("static/review.js", encoding="utf-8").read()
+        for needle in ("pgdeckReview", "preview.confirm_word", "confirmInput.value !== checked.word", "onSuccess"):
+            self.assertIn(needle, review)
+        explorer = open("static/explorer.js", encoding="utf-8").read()
+        self.assertIn("data-open-database", explorer)
+        self.assertIn("pgdeck:changed", explorer)
+
+    def test_the_statements_the_dialogs_send_are_understood_by_the_server(self):
+        post = lambda sql: self.client.post(reverse("write_preview", args=[self.server.pk]), json.dumps({"sql": sql, "db": ""}),
+                                            content_type="application/json").json()
+        created = post(f'CREATE DATABASE "{DB}"\n    WITH OWNER = "{TARGET["USER"]}"\n         TEMPLATE = "template0"\n         ENCODING = \'UTF8\'\n         CONNECTION LIMIT = 5')
+        self.assertEqual((created["ok"], created["title"], created["button"]), (True, "CREATE DATABASE?", "Create database"))
+        role = post(f'CREATE ROLE "{ROLE}" WITH\n    LOGIN\n    NOSUPERUSER\n    CREATEDB\n    NOCREATEROLE\n    INHERIT\n    NOREPLICATION\n    NOBYPASSRLS\n'
+                    f'    CONNECTION LIMIT 3\n    PASSWORD \'pw-1\'\n    VALID UNTIL \'2030-01-01 10:00\'')
+        self.assertEqual((role["ok"], role["title"], role["confirm_word"]), (True, "CREATE ROLE?", None))
+        self.assertNotIn("pw-1", json.dumps(role))
+        with admin_connect("postgres") as conn:
+            conn.execute(f'CREATE DATABASE "{DB}"')
+        renamed = post(f'ALTER DATABASE "{DB}" RENAME TO "{DB}2"')
+        self.assertEqual((renamed["ok"], renamed["confirm_word"]), (True, "ALTER"))
+        dropped = post(f'DROP DATABASE "{DB}"')
+        self.assertEqual((dropped["ok"], dropped["confirm_word"], dropped["button"]), (True, "DROP", "Drop database"))
+
+    def test_the_old_prefill_route_is_gone(self):
+        page = self.client.get(reverse("sql_runner", args=[self.server.pk]), {"new_database": DB, "db": self.db})
+        self.assertEqual(page.context["sql"], "")
+        self.assertNotContains(page, "data-autorun")
 
 class RedactionTests(TestCase):
     def test_record_never_keeps_a_password(self):

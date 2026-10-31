@@ -1,0 +1,97 @@
+{# Create database / Create role / Rename database, as tabbed dialogs like pgAdmin's. static/admin_dialogs.js drives them: it builds the SQL
+   on the SQL tab, and Save opens the review popup (_review_modal.html) before anything is changed. Staff only. #}
+<div id="dlgCreateDb" class="cyber-modal" hidden data-dialog>
+  <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgCreateDbTitle">
+    <div class="modal-top"><span id="dlgCreateDbTitle">CREATE — DATABASE</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <div class="dlg-tabs" role="tablist">
+      <button type="button" class="dlg-tab active" data-tab="general">General</button>
+      <button type="button" class="dlg-tab" data-tab="definition">Definition</button>
+      <button type="button" class="dlg-tab" data-tab="sql">SQL</button>
+    </div>
+    <div class="dlg-panel" data-panel="general">
+      <div class="dlg-row"><label for="cdName">Database</label><input type="text" id="cdName" data-field="name" maxlength="63" autocomplete="off" spellcheck="false"></div>
+      <div class="dlg-row"><label for="cdOwner">Owner</label><select id="cdOwner" data-field="owner"></select></div>
+    </div>
+    <div class="dlg-panel" data-panel="definition" hidden>
+      <div class="dlg-row"><label for="cdTemplate">Template</label><select id="cdTemplate" data-field="template"></select></div>
+      <div class="dlg-row"><label for="cdEncoding">Encoding</label>
+        <select id="cdEncoding" data-field="encoding"><option value="">server default</option><option>UTF8</option><option>LATIN1</option><option>WIN1252</option><option>SQL_ASCII</option></select></div>
+      <div class="dlg-row"><label for="cdCollate">Collation</label><input type="text" id="cdCollate" data-field="collate" autocomplete="off" spellcheck="false" placeholder="e.g. en_US.UTF-8 (optional)"></div>
+      <div class="dlg-row"><label for="cdCtype">Character type</label><input type="text" id="cdCtype" data-field="ctype" autocomplete="off" spellcheck="false" placeholder="e.g. en_US.UTF-8 (optional)"></div>
+      <div class="dlg-row"><label for="cdLimit">Connection limit</label><input type="number" id="cdLimit" data-field="limit" min="-1" placeholder="-1 = no limit"></div>
+    </div>
+    <div class="dlg-panel" data-panel="sql" hidden><pre class="sql dlg-sql" data-sql></pre></div>
+    <p class="dlg-problem" data-problem hidden></p>
+    <div class="dlg-foot">
+      <button type="button" class="btn" data-dlg-close>Close</button>
+      <button type="button" class="btn" data-dlg-reset>Reset</button>
+      <button type="button" class="btn primary" data-dlg-save disabled>Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="dlgCreateRole" class="cyber-modal" hidden data-dialog>
+  <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgCreateRoleTitle">
+    <div class="modal-top"><span id="dlgCreateRoleTitle">CREATE — LOGIN / GROUP ROLE</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <div class="dlg-tabs" role="tablist">
+      <button type="button" class="dlg-tab active" data-tab="general">General</button>
+      <button type="button" class="dlg-tab" data-tab="definition">Definition</button>
+      <button type="button" class="dlg-tab" data-tab="privileges">Privileges</button>
+      <button type="button" class="dlg-tab" data-tab="membership">Membership</button>
+      <button type="button" class="dlg-tab" data-tab="sql">SQL</button>
+    </div>
+    <div class="dlg-panel" data-panel="general">
+      <div class="dlg-row"><label for="crName">Name</label><input type="text" id="crName" data-field="name" maxlength="63" autocomplete="off" spellcheck="false"></div>
+      <p class="dlg-hint">A role that can log in is a user; a role that cannot is a group other roles can be members of.</p>
+    </div>
+    <div class="dlg-panel" data-panel="definition" hidden>
+      <div class="dlg-row"><label for="crPassword">Password</label><input type="password" id="crPassword" data-field="password" autocomplete="new-password"></div>
+      <div class="dlg-row"><label for="crExpires">Account expires</label><input type="datetime-local" id="crExpires" data-field="expires"></div>
+      <div class="dlg-row"><label for="crLimit">Connection limit</label><input type="number" id="crLimit" data-field="limit" min="-1" placeholder="-1 = no limit"></div>
+      <p class="dlg-hint">The password is sent to the server once and is never written to the audit log.</p>
+    </div>
+    <div class="dlg-panel" data-panel="privileges" hidden>
+      <label class="dlg-check"><input type="checkbox" data-field="login" checked> Can login?</label>
+      <label class="dlg-check"><input type="checkbox" data-field="superuser"> Superuser?</label>
+      <label class="dlg-check"><input type="checkbox" data-field="createrole"> Create roles?</label>
+      <label class="dlg-check"><input type="checkbox" data-field="createdb"> Create databases?</label>
+      <label class="dlg-check"><input type="checkbox" data-field="inherit" checked> Inherit rights from the parent roles?</label>
+      <label class="dlg-check"><input type="checkbox" data-field="replication"> Can initiate streaming replication and backups?</label>
+      <label class="dlg-check"><input type="checkbox" data-field="bypassrls"> Bypass row-level security?</label>
+    </div>
+    <div class="dlg-panel" data-panel="membership" hidden>
+      <p class="dlg-hint">Make the new role a member of these roles:</p>
+      <div class="dlg-members" data-members></div>
+    </div>
+    <div class="dlg-panel" data-panel="sql" hidden><pre class="sql dlg-sql" data-sql></pre></div>
+    <p class="dlg-problem" data-problem hidden></p>
+    <div class="dlg-foot">
+      <button type="button" class="btn" data-dlg-close>Close</button>
+      <button type="button" class="btn" data-dlg-reset>Reset</button>
+      <button type="button" class="btn primary" data-dlg-save disabled>Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="dlgRenameDb" class="cyber-modal" hidden data-dialog>
+  <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgRenameDbTitle">
+    <div class="modal-top"><span id="dlgRenameDbTitle">RENAME — DATABASE</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <div class="dlg-tabs" role="tablist">
+      <button type="button" class="dlg-tab active" data-tab="general">General</button>
+      <button type="button" class="dlg-tab" data-tab="sql">SQL</button>
+    </div>
+    <div class="dlg-panel" data-panel="general">
+      <div class="dlg-row"><label for="rdOld">Database</label><input type="text" id="rdOld" data-field="old" readonly></div>
+      <div class="dlg-row"><label for="rdNew">New name</label><input type="text" id="rdNew" data-field="name" maxlength="63" autocomplete="off" spellcheck="false"></div>
+      <p class="dlg-hint">PostgreSQL refuses to rename a database that has open connections; close them first.</p>
+    </div>
+    <div class="dlg-panel" data-panel="sql" hidden><pre class="sql dlg-sql" data-sql></pre></div>
+    <p class="dlg-problem" data-problem hidden></p>
+    <div class="dlg-foot">
+      <button type="button" class="btn" data-dlg-close>Close</button>
+      <button type="button" class="btn" data-dlg-reset>Reset</button>
+      <button type="button" class="btn primary" data-dlg-save disabled>Save</button>
+    </div>
+  </div>
+</div>
+<div id="pgToast" class="toast" hidden role="status" aria-live="polite"></div>

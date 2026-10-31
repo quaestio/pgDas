@@ -131,3 +131,35 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 
 .object-list { list-style: none; margin: 8px 0; padding: 0; text-align: left; }
 .object-list li { padding: 4px 10px; border-left: 2px solid #7a2c3a; margin: 3px 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: #ffc2cb; }
+
+/* Create / Rename dialogs (tabs like pgAdmin's), the row buttons in lists, and the little result message */
+.cyber-dialog.dlg { width: min(100%, 640px); max-height: 92vh; display: flex; flex-direction: column; text-align: left; padding-bottom: 14px; }
+.dlg .modal-top { flex: none; }
+.dlg-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: 6px 0 14px; flex: none; }
+.dlg-tab { background: none; border: 0; border-bottom: 2px solid transparent; color: #8fc8e8; font: inherit; font-size: 13px; padding: 9px 14px; cursor: pointer; }
+.dlg-tab:hover { color: #fff; }
+.dlg-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.dlg-panel { overflow-y: auto; min-height: 150px; padding: 2px 4px; }
+.dlg-panel[hidden] { display: none; }
+.dlg-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; align-items: center; margin-bottom: 12px; }
+.dlg label, .dlg .dlg-row label { text-align: left; margin: 0; color: #9cd4f5; font-size: 12px; letter-spacing: .5px; }
+.dlg select, .dlg input[type=text], .dlg input[type=password], .dlg input[type=number], .dlg input[type=datetime-local] {
+  display: block; width: 100%; background: #031125; border: 1px solid #125079; color: #e6f8ff; padding: 9px 11px; border-radius: 3px; outline: 0; font: inherit; font-size: 14px; }
+.dlg select:focus, .dlg input:focus { border-color: #00c8ff; box-shadow: 0 0 12px #00bfff45; }
+.dlg input[readonly] { opacity: .65; }
+.dlg input.bad { border-color: #ff6676; }
+.dlg p { text-align: left; }
+.dlg-hint { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.dlg-check { display: flex !important; align-items: center; gap: 8px; margin: 0 0 10px !important; font-size: 14px !important; color: #d6efff !important; letter-spacing: 0 !important; text-transform: none !important; }
+.dlg-check input { accent-color: var(--accent); width: auto; margin: 0; }
+.dlg-members { max-height: 240px; overflow-y: auto; border: 1px solid var(--line); padding: 10px 12px; }
+.dlg-sql { max-height: 300px; overflow: auto; white-space: pre-wrap; margin: 0; }
+.dlg-problem { flex: none; color: #ff8d9b; background: #2a0f18; border: 1px solid #7a2c3a; padding: 8px 12px; margin: 10px 0 0; font-size: 13px; }
+.dlg-foot { flex: none; display: flex; gap: 10px; justify-content: flex-end; margin-top: 14px; }
+.dlg-foot .btn[disabled] { opacity: .4; cursor: not-allowed; }
+.row-actions { white-space: nowrap; }
+.row-actions .btn { padding: 4px 10px; margin-right: 6px; font-size: 11px; }
+.toast { position: fixed; right: 22px; bottom: 22px; z-index: 130; max-width: 420px; background: #052a1f; border: 1px solid #00ed96; color: #5ff0b4; padding: 12px 16px; box-shadow: 0 0 24px #00ed9640; }
+.toast.err { background: #2a0f18; border-color: #ff6676; color: #ff8d9b; box-shadow: 0 0 24px #ff667640; }
+.toast[hidden] { display: none; }
+#changeModal { z-index: 120; }   /* above the Create / Rename dialogs it opens from */
