@@ -168,3 +168,4 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-icon { display: block; border-radius: 6px; flex: none; }
 .login-logo { display: block; max-width: 100%; height: auto; margin: 0 auto 8px; border-radius: 6px; }
+.sessions-badge { margin-left: 4px; vertical-align: middle; }

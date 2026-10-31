@@ -44,9 +44,10 @@
   <div class="scroll"><table>
     <thead><tr><th>NAME</th><th>OWNER</th><th>ENCODING</th><th>SIZE</th><th>ACTIONS</th></tr></thead>
     <tbody>{% for d in databases %}<tr><td>{{ d.name }}</td><td class="muted">{{ d.owner }}</td><td class="muted">{{ d.encoding }}</td><td class="muted">{{ d.size_text }}</td>
-      <td class="row-actions">{% if d.sessions and can_admin %}<span class="badge bad" title="Other sessions are connected to this database right now">{{ d.sessions }} session{{ d.sessions|pluralize }}</span> {% endif %}<button type="button" class="btn" data-open-database="{{ d.name }}" data-server="{{ server.pk }}">Details</button>
+      <td class="row-actions"><button type="button" class="btn" data-open-database="{{ d.name }}" data-server="{{ server.pk }}">Details</button>
         {% if can_admin %}<button type="button" class="btn" data-admin-dialog="rename-db" data-db="{{ d.name }}">Rename</button>
-        <button type="button" class="btn danger" data-admin-dialog="drop-db" data-db="{{ d.name }}" data-sessions="{{ d.sessions }}">Delete</button>{% endif %}</td></tr>
+        <button type="button" class="btn danger" data-admin-dialog="drop-db" data-db="{{ d.name }}" data-sessions="{{ d.sessions }}">Delete</button>{% endif %}
+        {% if d.sessions and can_admin %}<span class="badge bad sessions-badge" title="Other sessions are connected to this database right now">{{ d.sessions }} session{{ d.sessions|pluralize }}</span>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5" class="muted">No databases you can connect to.</td></tr>{% endfor %}</tbody>
   </table></div>
   </div>{% elif kind == "database" %}
