@@ -3,7 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}PgDeck{% endblock %}</title>
+  <title>{% block title %}PGDAS{% endblock %}</title>
+  <link rel="icon" href="{% static 'img/favicon.ico' %}" sizes="16x16 32x32 48x48">
+  <link rel="icon" type="image/png" sizes="32x32" href="{% static 'img/pgdas-32.png' %}">
+  <link rel="icon" type="image/png" sizes="192x192" href="{% static 'img/pgdas-192.png' %}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{% static 'img/pgdas-180.png' %}">
+  <meta name="theme-color" content="#011638">
   <link rel="stylesheet" href="{% static 'adminweb-theme.css' %}">
   <link rel="stylesheet" href="{% static 'pgdeck.css' %}">
   {# Restore the sidebar width / collapsed state before the page paints, so it does not jump. #}
@@ -15,7 +20,7 @@
 {% with url_name=request.resolver_match.url_name %}
 <div class="app">
   <aside id="sidebar">
-    <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><span class="glyph">⬡</span> PG<span>DECK</span></a>
+    <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><img class="brand-icon" src="{% static 'img/pgdas-64.png' %}" width="30" height="30" alt=""> PG<span>DAS</span></a>
     {# The object tree is in the sidebar on every page; explorer.js fills it in. #}
     <div class="sidebar-tree">
       <div class="nav-label tree-head"><span>OBJECT BROWSER</span>

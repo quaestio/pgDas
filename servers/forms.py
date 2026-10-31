@@ -9,7 +9,7 @@ class ServerForm(forms.ModelForm):
 
     class Meta:
         model = ServerConnection
-        # No Database field: PgDeck picks a database this login can open (see explorer.pg.connect),
+        # No Database field: PGDAS picks a database this login can open (see explorer.pg.connect),
         # and the tree lists only the databases the login is allowed to connect to.
         fields = ["name", "host", "port", "username", "password", "sslmode"]
 

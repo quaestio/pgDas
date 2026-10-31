@@ -1,6 +1,6 @@
 """Deleting rows, and putting them back.
 
-PgDeck is read-only everywhere except here. A DELETE goes through three steps, and the audit log keeps every deleted row:
+PGDAS is read-only everywhere except here. A DELETE goes through three steps, and the audit log keeps every deleted row:
 
   1. preview_delete  runs the statement inside a transaction that is ALWAYS rolled back, and reports how many rows it
                      would delete, a sample of them, and any other tables it would also change (ON DELETE CASCADE, triggers).
@@ -36,7 +36,7 @@ _NOT_ALIASES = {"USING", "WHERE", "RETURNING"}
 def prepare_statement(text, verb, allow_returning=False):
     """The checks every changing statement goes through. Returns (statement text without comments, sqlparse tree).
 
-    It must be exactly one `verb` statement (DELETE, UPDATE, ...) with balanced parentheses, and no WITH in front. PgDeck wraps
+    It must be exactly one `verb` statement (DELETE, UPDATE, ...) with balanced parentheses, and no WITH in front. PGDAS wraps
     some statements to capture what they change, so each must be one self-contained statement.
     """
     statements = [s for s in sqlparse.split(text or "") if s.strip(" \t\r\n;")]
@@ -54,7 +54,7 @@ def prepare_statement(text, verb, allow_returning=False):
     depth = 0
     for token in parsed.flatten():
         if token.ttype in T.Keyword and token.value.upper() == "RETURNING" and not allow_returning:
-            raise PgError("Remove the RETURNING clause: PgDeck records what changed itself.")
+            raise PgError("Remove the RETURNING clause: PGDAS records what changed itself.")
         if token.ttype in T.Punctuation:
             if token.value == "(":
                 depth += 1
@@ -104,7 +104,7 @@ def _delete_and_capture(conn, parsed):
     limit = int(settings.MAX_DELETE_ROWS)
     rows = [row[0] for row in conn.execute(wrapped).fetchmany(limit + 1)]
     if len(rows) > limit:
-        raise PgError(f"This would delete more than {limit:,} rows, more than PgDeck can record for re-insertion. "
+        raise PgError(f"This would delete more than {limit:,} rows, more than PGDAS can record for re-insertion. "
                       "Narrow the WHERE clause, or delete in smaller batches.")
     return rows
 
@@ -174,7 +174,7 @@ def execute_delete(server, database, text, expected_count, expected_side_effects
         try:
             entry = record(user, "delete", server, parsed["statement"], ok=True, rows=len(rows), payload=payload)
         except Exception:
-            raise PgError("PgDeck could not save the audit record, so nothing was deleted.")
+            raise PgError("PGDAS could not save the audit record, so nothing was deleted.")
         try:
             conn.commit()
         except Exception as error:                      # the database refused the commit: say so in the record
@@ -200,7 +200,7 @@ def reinsert(entry, user):
         raise PgError("There are no rows to re-insert in this entry.")
     server = entry.server
     if server is None:
-        raise PgError("The server this was deleted from is no longer saved in PgDeck.")
+        raise PgError("The server this was deleted from is no longer saved in PGDAS.")
     payload = entry.payload
     schema, table, rows = payload["schema"], payload["table"], payload["rows"]
     with pg.connect_rw(server, payload["database"]) as conn:

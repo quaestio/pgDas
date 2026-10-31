@@ -469,7 +469,7 @@ class DropTests(ChangeFixture, TestCase):
 
     def test_what_is_refused(self):
         for sql, message in (("DROP TABLESPACE x", "not available here"), ("DROP OWNED BY x", "not available here"),
-                             ("DROP WIDGET w", "PgDeck can drop tables"), ("DROP TABLE pgdeck_w.a; DROP TABLE pgdeck_w.b", "one DROP statement"),
+                             ("DROP WIDGET w", "PGDAS can drop tables"), ("DROP TABLE pgdeck_w.a; DROP TABLE pgdeck_w.b", "one DROP statement"),
                              ("DROP TABLE pgdeck_w.nope", "does not exist")):
             with self.subTest(sql=sql), self.assertRaisesRegex(pg.PgError, message):
                 self.preview(sql)

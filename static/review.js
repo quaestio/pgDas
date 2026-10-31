@@ -1,6 +1,6 @@
 // The review popup for a changing statement, shared by the SQL runner and the Create / Rename / Delete dialogs.
 //   pgdeckReview.start({server, db, sql, onError(message), onSuccess(result)})
-// asks PgDeck what the statement would do (nothing changes: the server rolls the check back), shows the popup with
+// asks PGDAS what the statement would do (nothing changes: the server rolls the check back), shows the popup with
 // the facts and the warning, and runs it for real only when the person confirms (typing the word when one is needed).
 // Values from the database are inserted as text, never as HTML.
 (function () {
@@ -135,7 +135,7 @@
         if (request.onError) request.onError(message);
       }
     }).catch(function () {
-      errorLine.textContent = "Could not reach PgDeck. Nothing was changed.";
+      errorLine.textContent = "Could not reach PGDAS. Nothing was changed.";
       errorLine.hidden = false;
     }).then(function () {
       if (checked) { goButton.textContent = checked.button; goButton.disabled = !!checked.word && confirmInput.value !== checked.word; }
@@ -158,7 +158,7 @@
         if (!response.ok) { if (options.onError) options.onError(response.body.error || "That statement could not be run."); return; }
         openModal(request, response.body);
       }).catch(function () {
-        if (options.onError) options.onError("Could not reach PgDeck to run this statement.");
+        if (options.onError) options.onError("Could not reach PGDAS to run this statement.");
       });
     },
   };

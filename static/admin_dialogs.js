@@ -31,7 +31,7 @@
       fill: function (el, ctx) {
         var owner = el.querySelector('[data-field="owner"]'), template = el.querySelector('[data-field="template"]');
         owner.innerHTML = ""; template.innerHTML = "";
-        option(owner, "", "the login PgDeck uses");
+        option(owner, "", "the login PGDAS uses");
         ctx.roles.forEach(function (r) { option(owner, r, r); });
         option(template, "", "template1 (default)");
         option(template, "template0", "template0");

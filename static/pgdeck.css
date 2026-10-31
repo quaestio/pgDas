@@ -1,4 +1,4 @@
-/* PgDeck additions on top of adminweb-theme.css (the dark "cyber" template). No external fonts, icons or CDNs. */
+/* PGDAS additions on top of adminweb-theme.css (the dark "cyber" template). No external fonts, icons or CDNs. */
 .brand .glyph { color: var(--accent); font-size: 26px; text-shadow: 0 0 14px var(--accent); }
 nav a .ico { width: 20px; text-align: center; color: var(--accent); }
 a { color: var(--accent); }
@@ -163,3 +163,8 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .toast.err { background: #2a0f18; border-color: #ff6676; color: #ff8d9b; box-shadow: 0 0 24px #ff667640; }
 .toast[hidden] { display: none; }
 #changeModal { z-index: 120; }   /* above the Create / Rename dialogs it opens from */
+
+/* PGDAS logo: the icon beside the name in the sidebar, the full logo on the sign-in card */
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-icon { display: block; border-radius: 6px; flex: none; }
+.login-logo { display: block; max-width: 100%; height: auto; margin: 0 auto 8px; border-radius: 6px; }

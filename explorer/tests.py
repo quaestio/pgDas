@@ -1,4 +1,4 @@
-"""Tests run against a real PostgreSQL server: the one PgDeck browses. PgDeck's own data is in SQLite.
+"""Tests run against a real PostgreSQL server: the one PGDAS browses. PGDAS's own data is in SQLite.
 
 The PostgreSQL server comes from PGDECK_TEST_PG_HOST / _PORT / _USER / _PASSWORD (falling back to the older
 PGDECK_DB_* names); its login needs CREATEDB. A scratch database, pgdeck_test_target, is created and dropped here.
@@ -45,7 +45,7 @@ def make_server(**overrides):
 
 
 class PgFixture:
-    """Creates a scratch PostgreSQL database with sample objects, which PgDeck then browses."""
+    """Creates a scratch PostgreSQL database with sample objects, which PGDAS then browses."""
 
     @classmethod
     def setUpClass(cls):

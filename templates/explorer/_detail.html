@@ -30,7 +30,7 @@
     <dt>SSL mode</dt><dd>{{ server.sslmode }}</dd>
     <dt>PostgreSQL</dt><dd>{{ summary.version }}</dd>
     <dt>Connected as</dt><dd>{{ summary.user }}</dd>
-    <dt>Logged into</dt><dd>{{ summary.database }} <span class="muted">(the database PgDeck opened first; the tree lists every database this login may connect to)</span></dd>
+    <dt>Logged into</dt><dd>{{ summary.database }} <span class="muted">(the database PGDAS opened first; the tree lists every database this login may connect to)</span></dd>
   </dl>
   <p style="margin-top:18px">
     <a class="btn" href="{% url 'sql_runner' server.pk %}">SQL runner</a>

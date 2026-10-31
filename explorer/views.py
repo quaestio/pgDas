@@ -148,7 +148,7 @@ def detail(request):
         return render(request, "explorer/_detail.html", context)
     server = tree.get_server(node)
     if server is None:
-        context["error"] = "That server is not saved in PgDeck."
+        context["error"] = "That server is not saved in PGDAS."
         return render(request, "explorer/_detail.html", context)
     context["server"] = server
     try:

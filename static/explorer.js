@@ -1,7 +1,7 @@
 // Object tree in the sidebar (on every page) and the details pane (on the Object Browser page). No libraries.
 //  - Clicking the arrow only opens or closes a node.
 //  - Clicking a node selects it. On the Object Browser page its details load in place; on any other page
-//    PgDeck goes to the Object Browser with that node (and its path in the tree) selected.
+//    PGDAS goes to the Object Browser with that node (and its path in the tree) selected.
 (function () {
   var treeEl = document.getElementById("tree");
   if (!treeEl) return;

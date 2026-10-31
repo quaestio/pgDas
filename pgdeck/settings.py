@@ -60,7 +60,7 @@ TEMPLATES = [{
 
 WSGI_APPLICATION = "pgdeck.wsgi.application"
 
-# PgDeck keeps its own data (users, saved servers, audit log, sessions) in one SQLite file, so installing it needs no
+# PGDAS keeps its own data (users, saved servers, audit log, sessions) in one SQLite file, so installing it needs no
 # database server. The PostgreSQL servers it browses are separate and are added in the app.
 SQLITE_PATH = Path(os.getenv("PGDECK_SQLITE_PATH") or BASE_DIR / "data" / "pgdeck.sqlite3")
 SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)

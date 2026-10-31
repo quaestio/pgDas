@@ -1,4 +1,4 @@
-"""PgDeck's own storage is one SQLite file: no database server is needed to install or run it."""
+"""PGDAS's own storage is one SQLite file: no database server is needed to install or run it."""
 import os
 import sqlite3
 import subprocess
@@ -8,7 +8,8 @@ from contextlib import closing
 from pathlib import Path
 
 from django.conf import settings
-from django.test import SimpleTestCase
+from django.contrib.auth import get_user_model
+from django.test import SimpleTestCase, TestCase
 
 BASE_DIR = Path(settings.BASE_DIR)
 
@@ -73,3 +74,32 @@ class OwnStorageIsSqliteTests(SimpleTestCase):
                 mode = db.execute("PRAGMA journal_mode").fetchone()[0]
             self.assertTrue({"auth_user", "servers_serverconnection", "audit_auditentry", "django_session"} <= tables)
             self.assertEqual(mode, "wal")                                       # persisted in the file by init_command
+
+
+class BrandingTests(TestCase):
+    """The product is called PGDAS (PG Database Access System) and uses its logo and icons."""
+
+    def test_icons_and_logos_are_shipped(self):
+        for name in ("favicon.ico", "pgdas-32.png", "pgdas-64.png", "pgdas-180.png", "pgdas-192.png", "pgdas-400.png", "pgdas-800.png"):
+            self.assertTrue((BASE_DIR / "static" / "img" / name).is_file(), name)
+
+    def test_the_sign_in_page_shows_the_logo_and_the_icons_are_linked(self):
+        page = self.client.get("/login/")
+        for text in ("img/pgdas-400.png", "img/pgdas-800.png", "PGDAS — PG Database Access System", "img/favicon.ico", "apple-touch-icon",
+                     "<title>Sign in · PGDAS</title>"):
+            self.assertContains(page, text)
+        self.assertNotContains(page, "PgDeck")
+        self.assertNotContains(page, "DECK")
+
+    def test_the_app_shows_the_icon_and_the_new_name_when_signed_in(self):
+        user = get_user_model().objects.create_user("pat", password="pw-12345-abc", is_staff=True)
+        self.client.force_login(user)
+        page = self.client.get("/")
+        self.assertContains(page, "brand-icon")
+        self.assertContains(page, "PG<span>DAS</span>")
+        self.assertContains(page, "· PGDAS</title>")
+        self.assertNotContains(page, "PgDeck")
+
+    def test_no_visible_template_text_still_says_the_old_name(self):
+        for path in (BASE_DIR / "templates").rglob("*.html"):
+            self.assertNotIn("PgDeck", path.read_text(encoding="utf-8"), path.name)

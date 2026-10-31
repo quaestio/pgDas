@@ -9,7 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN PGDECK_SECRET_KEY=build-only python manage.py collectstatic --noinput
 
-# PgDeck's own data is one SQLite file; mount a volume here to keep it across container restarts.
+# PGDAS's own data is one SQLite file; mount a volume here to keep it across container restarts.
 ENV PGDECK_SQLITE_PATH=/app/data/pgdeck.sqlite3
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]

@@ -1,12 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Sign in · PgDeck{% endblock %}
+{% load static %}
+{% block title %}Sign in · PGDAS{% endblock %}
 {% block anonymous %}
 <div class="login-screen">
   <div class="login-card">
-    <div class="login-symbol">⬡</div>
+    <img class="login-logo" src="{% static 'img/pgdas-400.png' %}" srcset="{% static 'img/pgdas-400.png' %} 1x, {% static 'img/pgdas-800.png' %} 2x" width="300" height="150" alt="PGDAS — PG Database Access System">
     <div class="login-kicker">SECURE ACCESS TERMINAL</div>
-    <h1>PG<span>DECK</span></h1>
-    <p>POSTGRESQL WEB ADMIN</p>
     <form method="post">{% csrf_token %}
       {{ form.non_field_errors }}
       <label for="{{ form.username.id_for_label }}">USERNAME</label>
@@ -16,7 +15,7 @@
       <input type="hidden" name="next" value="{{ next }}">
       <button type="submit" class="cyber-primary">SIGN IN <span>↗</span></button>
     </form>
-    <div class="login-foot"><span class="dot"></span> POSTGRESQL ADMIN</div>
+    <div class="login-foot"><span class="dot"></span> PG DATABASE ACCESS SYSTEM</div>
   </div>
 </div>
 {% endblock %}

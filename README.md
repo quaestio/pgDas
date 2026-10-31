@@ -1,12 +1,18 @@
-# PgDeck
+<p align="center"><img src="static/img/pgdas-400.png" alt="PGDAS — PG Database Access System" width="300"></p>
 
-A small, safe web admin for PostgreSQL. Browse servers, databases, schemas, tables, views, functions and more,
-run read-only SQL, and keep an audit log of everything users do. Built with Django; nothing to install but PgDeck
-itself — it keeps its own data in a single SQLite file.
+# PGDAS — PG Database Access System
 
-**Status: in development.** Read-only by design: every query runs in a `READ ONLY` transaction enforced by
-PostgreSQL itself, with a statement timeout and a row cap. Write mode, scheduled backups and monitoring are
-planned next (see the roadmap).
+A web admin for PostgreSQL. Browse servers, databases, roles, schemas, tables, views, functions and more; run SQL; create
+and drop databases and users; and keep an audit log of everything people do. Built with Django; nothing to install but
+PGDAS itself, which keeps its own data in a single SQLite file.
+
+**Status: in development.** Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
+timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
+popup and recorded in the audit log (see "Changing data"). Scheduled backups and monitoring are planned next (see the
+roadmap).
+
+The Python package, the `PGDECK_*` environment variables and the `pgdeck.sqlite3` file keep their earlier names, so
+existing installs and `.env` files work unchanged.
 
 ## Features
 - One Object Browser in the sidebar, laid out like pgAdmin's:
@@ -27,7 +33,7 @@ planned next (see the roadmap).
 
 ## Changing data (staff only, with popups and a safety net)
 Staff users have full access on every saved server: there are no per-server switches. What a change can actually do is
-limited by the PostgreSQL role saved for the server (use one with just the rights you want PgDeck to have). Everyone else
+limited by the PostgreSQL role saved for the server (use one with just the rights you want PGDAS to have). Everyone else
 stays read-only. Each kind of statement asks first:
 
 | Statement | How it asks |
@@ -62,12 +68,12 @@ other statement, and anything typed with scripting switched off, still runs read
 
 ### Deleting rows
 On such a server, a `DELETE` typed into the SQL runner works like this:
-1. **Check:** PgDeck runs it inside a transaction that is always rolled back, and shows a popup with the **number of
+1. **Check:** PGDAS runs it inside a transaction that is always rolled back, and shows a popup with the **number of
    records** that would be deleted, a sample of them, whether the statement has no `WHERE`, and any *other* tables it
    would also change (`ON DELETE CASCADE`, triggers).
 2. **Warning:** the popup says there is **no rollback** and asks you to type **`ZAP`** in capital letters (`zap`, `Zap`
    or a stray space does not count). The Delete button stays disabled until the box holds exactly `ZAP`.
-3. **Delete:** PgDeck runs it again and commits only if the number of rows and the side effects are still exactly what
+3. **Delete:** PGDAS runs it again and commits only if the number of rows and the side effects are still exactly what
    you confirmed; otherwise nothing is deleted and you are asked to check again.
 4. **Record:** every deleted row is saved in the audit log as **JSON** (database, schema, table, the statement, the
    column names and each row, with types kept: numbers, nested JSON, arrays, NULLs). The record is saved *before* the
@@ -79,12 +85,12 @@ Limits, on purpose: one plain `DELETE FROM table …` at a time (no `WITH`, no `
 `PGDECK_MAX_DELETE_ROWS` (default 10,000) rows per delete, because each is stored for re-insertion. Rows removed by
 `ON DELETE CASCADE` or a trigger are shown in the popup but are **not** saved, so re-insert cannot bring them back.
 Re-insert fails, and changes nothing, if a row with the same key now exists or a column was dropped. Give the PostgreSQL
-login only the rights it needs (for example `DELETE` on the tables staff may clear): PgDeck can only do what that login may.
+login only the rights it needs (for example `DELETE` on the tables staff may clear): PGDAS can only do what that login may.
 
-## Where PgDeck keeps its own data
-PgDeck needs **no database server of its own**. Its users, saved servers, audit log and sessions are stored in one
+## Where PGDAS keeps its own data
+PGDAS needs **no database server of its own**. Its users, saved servers, audit log and sessions are stored in one
 SQLite file, `data/pgdeck.sqlite3` (change it with `PGDECK_SQLITE_PATH`). The file and its folder are created on
-first start. **Back it up** by copying the file while PgDeck is stopped, or with `sqlite3 data/pgdeck.sqlite3 ".backup copy.sqlite3"`.
+first start. **Back it up** by copying the file while PGDAS is stopped, or with `sqlite3 data/pgdeck.sqlite3 ".backup copy.sqlite3"`.
 SQLite allows one writer at a time, which is plenty for a team browsing and querying; it is not meant for dozens of
 people writing at the same moment.
 
@@ -116,21 +122,21 @@ Use the virtual environment's Python (the `.venv` above), not your system Python
 ## Connecting to the databases you manage
 Use **Add server** and give a name, host, port, a PostgreSQL role with read access (for example
 `GRANT pg_read_all_data TO pgdeck_reader;`), its password and an SSL mode. There is no database to fill in:
-PgDeck logs into a database the role can open (it tries `postgres`, then a database named after the role, then
+PGDAS logs into a database the role can open (it tries `postgres`, then a database named after the role, then
 `template1`) and the tree lists only the databases that role is allowed to connect to. Adding a server never
-creates or changes anything on it. PgDeck never needs write access. Use `sslmode=require` or stronger for
+creates or changes anything on it. PGDAS never needs write access. Use `sslmode=require` or stronger for
 remote servers.
 
 ## Security notes
-- Never expose PgDeck on the public internet without https and access restrictions (VPN or IP allow-list).
+- Never expose PGDAS on the public internet without https and access restrictions (VPN or IP allow-list).
 - `PGDECK_SECRET_KEY` signs sessions and, unless you set `PGDECK_ENCRYPTION_KEY`, derives the key that encrypts saved
   passwords. Changing it makes saved passwords unreadable; edit each server and re-enter its password.
 - `data/pgdeck.sqlite3` holds password hashes and encrypted server passwords: keep it out of git (it is ignored),
-  out of shared folders, and readable only by the account that runs PgDeck.
+  out of shared folders, and readable only by the account that runs PGDAS.
 - Read-only is enforced by PostgreSQL (`BEGIN READ ONLY`), not by filtering SQL text.
 
 ## Tests
-PgDeck's own data uses SQLite, so most tests need nothing. The explorer tests browse a real PostgreSQL server and
+PGDAS's own data uses SQLite, so most tests need nothing. The explorer tests browse a real PostgreSQL server and
 create and drop a scratch database `pgdeck_test_target` on it, so they need a login that can create databases:
 ``bash
 # in .env, or as environment variables

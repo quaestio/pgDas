@@ -1,4 +1,4 @@
-"""PostgreSQL access for PgDeck. Everything here runs in a READ ONLY transaction enforced by the server."""
+"""PostgreSQL access for PGDAS. Everything here runs in a READ ONLY transaction enforced by the server."""
 import json
 import re
 import time
@@ -33,12 +33,12 @@ def _open(server, dbname):
     return psycopg.connect(
         host=server.host, port=server.port, dbname=dbname, user=server.username,
         password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
-        application_name="PgDeck", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
+        application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
     )
 
 
 def _connect_first_usable(server):
-    """The server entry has no database to type in, so PgDeck picks one this login can open.
+    """The server entry has no database to type in, so PGDAS picks one this login can open.
 
     It tries the saved database (older entries), then the standard `postgres`, a database named after the login
     (PostgreSQL's own default), then `template1`. Only a missing or forbidden database moves on to the next one;
@@ -59,7 +59,7 @@ def _connect_first_usable(server):
 
 @contextmanager
 def connect(server, database=None):
-    """Open a read-only connection. Without `database` PgDeck picks one the login can open; with it, exactly that one
+    """Open a read-only connection. Without `database` PGDAS picks one the login can open; with it, exactly that one
     (this is how the tree opens another database on the same server)."""
     try:
         conn = _connect_first_usable(server) if not database else _open(server, database)
@@ -215,7 +215,7 @@ def role_info(conn, name):
 
 
 def role_ddl(conn, name):
-    """CREATE ROLE (without any password, which PgDeck never reads) plus its group memberships."""
+    """CREATE ROLE (without any password, which PGDAS never reads) plus its group memberships."""
     info = role_info(conn, name)
     flag = lambda on, word: word if on else "NO" + word
     options = [flag(info["superuser"], "SUPERUSER"), flag(info["createdb"], "CREATEDB"), flag(info["createrole"], "CREATEROLE"),

@@ -68,7 +68,7 @@ def parse(text):
         if not result["name"]:
             raise PgError(f"Write it as {verb} DATABASE name.")
     if verb == "ALTER" and result["object_type"] == "DATABASE" and _TABLESPACE_MOVE.search(plain):
-        raise PgError("Moving a database to another tablespace cannot run inside PgDeck's safety transaction; run it in psql.")
+        raise PgError("Moving a database to another tablespace cannot run inside PGDAS's safety transaction; run it in psql.")
     risky = set()
     if verb in ("CREATE", "ALTER") and result["object_type"] == "ROLE":
         risky |= {w.upper() for w in _ESCALATION.findall(plain)}
@@ -173,7 +173,7 @@ def _notes(parsed):
     if parsed["risky_words"]:
         notes.append({"text": "Needs extra care because of: " + ", ".join(parsed["risky_words"]) + ".", "bad": True})
     if re.search(r"\bPASSWORD\b", changes._QUOTED.sub(" ", parsed["statement"]), re.I):
-        notes.append({"text": "A password is set. PgDeck does not keep it anywhere: the audit log shows PASSWORD '********'.", "bad": False})
+        notes.append({"text": "A password is set. PGDAS does not keep it anywhere: the audit log shows PASSWORD '********'.", "bad": False})
     return notes
 
 
@@ -264,7 +264,7 @@ def _execute_database(server, parsed, fingerprint, confirm, user):
         try:    # these cannot be rolled back, so the record comes first and is corrected if the statement fails
             entry = record(user, verb.lower(), server, parsed["shown"], ok=True, rows=1, payload=payload)
         except Exception:
-            raise PgError("PgDeck could not save the audit record, so nothing was changed.")
+            raise PgError("PGDAS could not save the audit record, so nothing was changed.")
         try:
             changes._run(conn, parsed["statement"])
         except PgError as error:

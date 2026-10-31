@@ -71,7 +71,7 @@ def _commit_after_recording(conn, server, user, kind, detail, rows, payload, wha
     try:
         entry = record(user, kind, server, detail, ok=True, rows=rows, payload=payload)
     except Exception:
-        raise PgError(f"PgDeck could not save the audit record, so nothing was {what}.")
+        raise PgError(f"PGDAS could not save the audit record, so nothing was {what}.")
     try:
         conn.commit()
     except Exception as error:
@@ -174,7 +174,7 @@ def _update_with_undo(conn, parsed, schema, table):
     pk = _primary_key(conn, schema, table)
     if not pk:
         count, sample = _update_and_count(conn, parsed)
-        return count, sample, {"unavailable": "the table has no primary key, so PgDeck cannot find the rows again"}, \
+        return count, sample, {"unavailable": "the table has no primary key, so PGDAS cannot find the rows again"}, \
             _side_effects(conn, schema, table, own="updated")
     conn.execute(sql.SQL("LOCK TABLE {}.{} IN SHARE ROW EXCLUSIVE MODE").format(sql.Identifier(schema), sql.Identifier(table)))
     with conn.transaction(force_rollback=True):                      # a trial run, only to learn which rows it touches
@@ -182,7 +182,7 @@ def _update_with_undo(conn, parsed, schema, table):
     trial_effects = _side_effects(conn, schema, table, own="updated")
     if len(trial) > limit:
         count, sample = _update_and_count(conn, parsed)
-        return count, sample, {"unavailable": f"it changes more than {limit:,} rows, more than PgDeck keeps old values for"}, \
+        return count, sample, {"unavailable": f"it changes more than {limit:,} rows, more than PGDAS keeps old values for"}, \
             _minus(_side_effects(conn, schema, table, own="updated"), trial_effects)
     old = _old_rows(conn, schema, table, pk, trial) if trial else []
     new = _update_rows(conn, parsed, limit)
@@ -222,7 +222,7 @@ def _preview_update(server, database, text):
         "title": f"UPDATE {count:,} {plural.upper()}?" if count else "UPDATE — NOTHING TO CHANGE",
         "headline": f"{count:,}",
         "headline_label": f"will be changed in {schema}.{table}." if count else "No rows match, so there is nothing to update.",
-        "warning": ("There is no rollback, but PgDeck saves the old values of these rows in the audit log, where a staff user "
+        "warning": ("There is no rollback, but PGDAS saves the old values of these rows in the audit log, where a staff user "
                     "can undo the update (as long as the rows have not been changed again)." if undoable else
                     "There is no rollback. The old values are not saved, so the audit log cannot undo this UPDATE."),
         "notes": notes, "confirm_word": None, "button": f"Update {count:,} {plural}" if count else None,
@@ -266,7 +266,7 @@ def undo_update(entry, user):
         raise PgError(f"This update cannot be undone: {undo.get('unavailable', 'its old values were not saved')}.")
     server = entry.server
     if server is None:
-        raise PgError("The server this was updated on is no longer saved in PgDeck.")
+        raise PgError("The server this was updated on is no longer saved in PGDAS.")
     schema, table, pk = payload["schema"], payload["table"], undo["pk"]
     with pg.connect_rw(server, payload["database"]) as conn:
         _resolve_table(conn, _qualified(conn, schema, table))
@@ -433,14 +433,14 @@ def parse_drop(text):
         raise PgError("DROP TABLESPACE and DROP OWNED are not available here; run those in psql.")
     match = _DROP.match(cleaned)
     if not match:
-        raise PgError("PgDeck can drop tables, views, materialized views, indexes, sequences, schemas, functions, procedures, "
+        raise PgError("PGDAS can drop tables, views, materialized views, indexes, sequences, schemas, functions, procedures, "
                       "types, domains, triggers, extensions and publications.")
     object_type = re.sub(r"\s+", " ", match["type"]).upper()
     rest = re.sub(r"^\s*IF\s+EXISTS\s+", "", match["rest"], flags=re.I)
     cascade = bool(re.search(r"\s+CASCADE\s*$", rest, re.I))
     rest = re.sub(r"\s+(CASCADE|RESTRICT)\s*$", "", rest, flags=re.I)
     names = []
-    if object_type in ("TABLE", "MATERIALIZED VIEW"):            # for these PgDeck shows how many rows go with them
+    if object_type in ("TABLE", "MATERIALIZED VIEW"):            # for these PGDAS shows how many rows go with them
         parts = [p.strip() for p in rest.split(",") if p.strip()]
         names = [_normalise(p) for p in parts] if all(_PLAIN_TABLE_NAME.match(p) for p in parts) else []
     return {"statement": cleaned, "object_type": object_type, "names": names, "cascade": cascade}
@@ -516,7 +516,7 @@ def _execute_drop(server, database, text, fingerprint, confirm, user):
 
 
 # ------------------------------------------------------------------------------------------ CREATE and ALTER
-# PgDeck does not try to understand every DDL statement. It runs the statement inside a transaction, looks at the database
+# PGDAS does not try to understand every DDL statement. It runs the statement inside a transaction, looks at the database
 # before and after, and reports the difference: that is exactly what the popup shows, and what must still be true when the
 # person confirms.
 _OBJECT_TYPES = (r"MATERIALIZED\s+VIEW|FOREIGN\s+TABLE|EVENT\s+TRIGGER|TABLE|VIEW|INDEX|SEQUENCE|SCHEMA|TYPE|DOMAIN|"
@@ -547,14 +547,14 @@ def parse_create(text):
         raise PgError("CREATE TABLESPACE, SERVER and similar server-level objects are not available here; run those in psql.")
     match = _CREATE.match(cleaned)
     if not match:
-        raise PgError("PgDeck can create tables, views, materialized views, indexes, sequences, schemas, types, domains, "
+        raise PgError("PGDAS can create tables, views, materialized views, indexes, sequences, schemas, types, domains, "
                       "functions, procedures, triggers, extensions and publications.")
     mods = re.sub(r"\s+", " ", match["mods"]).upper()
     object_type = re.sub(r"\s+", " ", match["type"]).upper()
     if "TEMP" in mods:
         raise PgError("Temporary objects disappear when the connection closes, so there is nothing to keep. Create a normal one instead.")
     if re.search(r"\bCONCURRENTLY\b", _QUOTED.sub(" ", cleaned), re.I):
-        raise PgError("CREATE INDEX CONCURRENTLY cannot run inside PgDeck's safety transaction. Create the index without "
+        raise PgError("CREATE INDEX CONCURRENTLY cannot run inside PGDAS's safety transaction. Create the index without "
                       "CONCURRENTLY, or run it in psql.")
     return {"statement": cleaned, "object_type": object_type, "or_replace": "OR REPLACE" in mods,
             "names": _target_names(object_type, match["rest"])}
@@ -566,7 +566,7 @@ def parse_alter(text):
         raise PgError("ALTER SYSTEM, TABLESPACE and similar server-level settings are not available here; run those in psql.")
     match = _ALTER.match(cleaned)
     if not match:
-        raise PgError("PgDeck can alter tables, indexes, sequences, views, materialized views, schemas, types, domains, functions, "
+        raise PgError("PGDAS can alter tables, indexes, sequences, views, materialized views, schemas, types, domains, functions, "
                       "procedures, triggers, extensions and publications.")
     object_type = re.sub(r"\s+", " ", match["type"]).upper()
     return {"statement": cleaned, "object_type": object_type, "names": _target_names(object_type, match["rest"]),
@@ -830,7 +830,7 @@ def _preview_delete(server, database, text):
             "headline": f"{count:,}",
             "headline_label": f"will be permanently deleted from {data['schema']}.{data['table']}." if count
                               else "No rows match, so there is nothing to delete.",
-            "warning": "There is no rollback. Once you confirm, the rows are deleted for good. PgDeck saves a copy of every deleted "
+            "warning": "There is no rollback. Once you confirm, the rows are deleted for good. PGDAS saves a copy of every deleted "
                        "row in the audit log (as JSON), where a staff user can re-insert them, but nothing else is undone.",
             "confirm_word": CONFIRM_WORDS["delete"] if count else None,
             "button": f"Delete {count:,} {plural}" if count else None,

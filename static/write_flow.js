@@ -77,7 +77,7 @@
         if (!response.ok) { failed(response.body.error || "That statement could not be run."); return; }
         showMessage("success", response.body.message, {url: form.dataset.auditUrl, text: "Open the audit log", table: response.body.returned});
         tone("success");
-      }).catch(function () { failed("Could not reach PgDeck to run this statement."); }).then(finish);
+      }).catch(function () { failed("Could not reach PGDAS to run this statement."); }).then(finish);
       return;
     }
     window.pgdeckReview.start({

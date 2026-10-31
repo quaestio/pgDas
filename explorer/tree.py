@@ -54,7 +54,7 @@ def children(node):
         return [make_node(s.name, "server", server=s.pk) for s in ServerConnection.objects.all()]
     server = get_server(node)
     if server is None:
-        raise pg.PgError("That server is not saved in PgDeck.")
+        raise pg.PgError("That server is not saved in PGDAS.")
     db, schema, table, system = node["db"], node["schema"], node["table"], node["system"]
     sid = server.pk
     if kind == "server":

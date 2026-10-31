@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ title }} · PgDeck{% endblock %}
+{% block title %}{{ title }} · PGDAS{% endblock %}
 {% block content %}
 <div class="title-row"><div><div class="eyebrow">SERVERS / <span>{{ title|upper }}</span></div><h1>{{ title }}</h1></div></div>
 <section class="panel pad" style="max-width:600px">
@@ -8,6 +8,6 @@
     <button class="btn primary" type="submit">Save</button>
     <a class="btn" href="{% url 'server_list' %}">Cancel</a>
   </form>
-<p class="muted" style="margin-top:18px">Staff users can change data, structure, databases and users on this server from the SQL runner, each change after a warning popup and recorded in the audit log. What they can actually do is limited by the rights of the PostgreSQL role you enter here: use a role with just the access you want PgDeck to have.</p>
+<p class="muted" style="margin-top:18px">Staff users can change data, structure, databases and users on this server from the SQL runner, each change after a warning popup and recorded in the audit log. What they can actually do is limited by the rights of the PostgreSQL role you enter here: use a role with just the access you want PGDAS to have.</p>
 </section>
 {% endblock %}
