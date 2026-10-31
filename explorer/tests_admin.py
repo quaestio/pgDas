@@ -308,6 +308,49 @@ class SwitchTests(AdminFixture, TestCase):
         self.assertNotContains(self.client.get(reverse("sql_runner", args=[self.server.pk])), "+ DATABASES / USERS / GRANTS")
 
 
+class CreateDatabaseFormTests(AdminFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.staff)
+
+    def database_list(self):
+        return self.client.get(reverse("detail"), {"type": "databases", "server": self.server.pk})
+
+    def test_the_list_offers_create_database_when_all_three_switches_are_on(self):
+        page = self.database_list()
+        self.assertContains(page, "Review CREATE DATABASE")
+        self.assertContains(page, 'name="new_database"')
+        self.assertContains(page, "<option>UTF8</option>")
+        self.assertContains(page, f'<option value="{TARGET["USER"]}">')                       # owners come from the server's roles
+
+    def test_it_is_absent_without_the_third_switch_or_for_other_users(self):
+        self.server.allow_admin = False
+        self.server.save()
+        self.assertNotContains(self.database_list(), "Review CREATE DATABASE")
+        self.server.allow_admin = True
+        self.server.save()
+        plain = self.client_class()
+        plain.force_login(__import__("django.contrib.auth", fromlist=["x"]).get_user_model().objects.create_user("pat", password="pw-12345-abc"))
+        self.assertNotContains(plain.get(reverse("detail"), {"type": "databases", "server": self.server.pk}), "Review CREATE DATABASE")
+
+    def test_the_form_fills_in_the_sql_page_and_opens_the_review_popup(self):
+        url = reverse("sql_runner", args=[self.server.pk])
+        page = self.client.get(url, {"new_database": DB, "owner": ROLE, "encoding": "UTF8", "db": self.db})
+        self.assertEqual(page.context["sql"], f'CREATE DATABASE "{DB}" OWNER "{ROLE}" ENCODING \'UTF8\' TEMPLATE template0')
+        self.assertContains(page, 'data-autorun="1"')
+        self.assertFalse(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB))     # filled in, not run
+        minimal = self.client.get(url, {"new_database": DB, "db": self.db})
+        self.assertEqual(minimal.context["sql"], f'CREATE DATABASE "{DB}"')
+
+    def test_a_hostile_name_is_quoted_and_nothing_else_is_accepted(self):
+        url = reverse("sql_runner", args=[self.server.pk])
+        page = self.client.get(url, {"new_database": 'x"; DROP DATABASE y; --', "encoding": "'; DROP", "db": self.db})
+        self.assertEqual(page.context["sql"], 'CREATE DATABASE "x""; DROP DATABASE y; --"')     # one quoted name, no encoding
+        self.server.allow_admin = False
+        self.server.save()
+        self.assertNotContains(self.client.get(url, {"new_database": DB, "db": self.db}), 'data-autorun="1"')
+
+
 class RedactionTests(TestCase):
     def test_record_never_keeps_a_password(self):
         entry = record(None, "sql.run", None, "CREATE ROLE a PASSWORD 'hunter2'")

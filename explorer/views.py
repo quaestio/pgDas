@@ -156,8 +156,12 @@ def detail(request):
             with pg.connect(server) as conn:
                 context["summary"] = pg.server_summary(conn)
         elif kind == "databases":
+            context["can_admin"] = _can_admin(request.user, server)
             with pg.connect(server) as conn:
                 context["databases"] = pg.list_databases(conn)
+                if context["can_admin"]:
+                    context["roles"] = pg.list_roles(conn)
+                    context["new_database_url"] = reverse("sql_runner", args=[server.pk])
         elif kind == "database":
             with pg.connect(server) as conn:
                 context["database"] = next((d for d in pg.list_databases(conn) if d["name"] == db), None)
@@ -289,6 +293,9 @@ def sql_runner(request, pk):
     context = {"server": server, "sql": "", "db": db, "can_write": _can_write(request.user, server),
                "can_structure": _can_structure(request.user, server), "can_admin": _can_admin(request.user, server),
                "confirm_words": changes.CONFIRM_WORDS}
+    if request.method == "GET" and request.GET.get("new_database"):
+        context["sql"] = _create_database_sql(request.GET)           # from "Create database" in the list: reviewed in the popup
+        context["autorun"] = context["can_admin"]
     if request.method == "POST":
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
@@ -318,6 +325,23 @@ def sql_runner(request, pk):
                 context["result"] = result
     context["history"] = _history(request.user, server)
     return render(request, "explorer/sql.html", context)
+
+
+def _quote_name(name):
+    return '"' + name.replace('"', '""') + '"'
+
+
+ENCODINGS = ("UTF8", "LATIN1", "WIN1252", "SQL_ASCII")
+
+
+def _create_database_sql(params):
+    """The CREATE DATABASE statement for the small form in the Databases list. It is only filled in: the person still reviews it."""
+    sql = f"CREATE DATABASE {_quote_name(params['new_database'].strip())}"
+    if params.get("owner", "").strip():
+        sql += f" OWNER {_quote_name(params['owner'].strip())}"
+    if params.get("encoding") in ENCODINGS:
+        sql += f" ENCODING '{params['encoding']}' TEMPLATE template0"
+    return sql
 
 
 HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter", "grant", "revoke")

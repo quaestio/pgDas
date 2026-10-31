@@ -12,7 +12,7 @@
     {% else %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
 <section class="panel pad">
-  <form method="post" id="sqlForm"{% if can_write %} data-can-write="1" data-can-structure="{% if can_structure %}1{% else %}0{% endif %}"
+  <form method="post" id="sqlForm"{% if autorun %} data-autorun="1"{% endif %}{% if can_write %} data-can-write="1" data-can-structure="{% if can_structure %}1{% else %}0{% endif %}"
         data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">

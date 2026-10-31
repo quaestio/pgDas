@@ -39,6 +39,21 @@
   <p class="muted">Expand <strong>Databases</strong> in the tree to browse schemas, tables, columns, constraints and indexes.</p>
 {% elif kind == "databases" %}
   <h2>Databases</h2>
+  {% if can_admin %}
+  <details class="panel pad" style="margin-bottom:14px">
+    <summary><strong>Create database</strong></summary>
+    <form method="get" action="{{ new_database_url }}" style="margin-top:10px">
+      <label for="newDatabaseName">Name</label>
+      <input type="text" id="newDatabaseName" name="new_database" required maxlength="63" autocomplete="off" spellcheck="false">
+      <label for="newDatabaseOwner">Owner</label>
+      <select id="newDatabaseOwner" name="owner"><option value="">the login PgDeck uses</option>{% for r in roles %}<option value="{{ r.name }}">{{ r.name }}{% if r.kind == "group" %} (group){% endif %}</option>{% endfor %}</select>
+      <label for="newDatabaseEncoding">Encoding</label>
+      <select id="newDatabaseEncoding" name="encoding"><option value="">server default</option><option>UTF8</option><option>LATIN1</option><option>WIN1252</option><option>SQL_ASCII</option></select>
+      <p class="muted" style="margin:8px 0">You see exactly what will be created in a popup before anything happens.</p>
+      <button class="btn primary" type="submit">Review CREATE DATABASE</button>
+    </form>
+  </details>
+  {% endif %}
   <div class="scroll"><table>
     <thead><tr><th>NAME</th><th>OWNER</th><th>ENCODING</th><th>SIZE</th></tr></thead>
     <tbody>{% for d in databases %}<tr><td>{{ d.name }}</td><td class="muted">{{ d.owner }}</td><td class="muted">{{ d.encoding }}</td><td class="muted">{{ d.size_text }}</td></tr>

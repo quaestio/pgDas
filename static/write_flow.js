@@ -204,6 +204,8 @@
     });
   });
 
+  if (form.dataset.autorun === "1") { runButton.click(); }     // opened from "Create database": go straight to the review popup
+
   document.getElementById("changeCancel").addEventListener("click", closeModal);
   document.getElementById("changeClose").addEventListener("click", closeModal);
   modal.addEventListener("click", function (event) { if (event.target === modal) closeModal(); });
