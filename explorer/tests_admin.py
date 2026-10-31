@@ -253,6 +253,32 @@ class DatabaseTests(AdminFixture, TestCase):
         self.assertEqual((payload["kind"], payload["object_type"]), ("drop", "DATABASE"))
         self.assertIn("size", payload)
 
+    def test_a_database_with_other_sessions_needs_force_and_says_so(self):
+        with admin_connect("postgres") as conn:
+            conn.execute(f"CREATE DATABASE {DB}")
+        with admin_connect(DB):                                                          # someone else is connected
+            plain = f"DROP DATABASE {DB}"
+            data = self.preview(plain)
+            self.assertTrue(any("connection" in n["text"] and n["bad"] for n in data["notes"]))
+            with self.assertRaisesRegex(pg.PgError, r'being accessed by other users.*Disconnect the other sessions.*WITH \(FORCE\)'):
+                self.execute(plain, data["fingerprint"], "DROP")
+            self.assertTrue(self.exists())
+            self.assertFalse(AuditEntry.objects.get().ok)                                # the attempt is recorded as failed
+            forced = f"DROP DATABASE {DB} WITH (FORCE)"
+            data = self.preview(forced)
+            self.assertEqual((data["confirm_word"], data["button"]), ("DROP", "Drop database"))
+            self.execute(forced, data["fingerprint"], "DROP")
+            self.assertFalse(self.exists())
+
+    def test_the_list_counts_other_sessions(self):
+        with admin_connect("postgres") as conn:
+            conn.execute(f"CREATE DATABASE {DB}")
+        with pg.connect(self.server) as conn:
+            self.assertEqual({d["name"]: d["sessions"] for d in pg.list_databases(conn)}.get(DB), 0)
+        with admin_connect(DB):
+            with pg.connect(self.server) as conn:
+                self.assertEqual({d["name"]: d["sessions"] for d in pg.list_databases(conn)}[DB], 1)
+
     def test_drop_of_a_missing_database(self):
         with self.assertRaisesRegex(pg.PgError, "does not exist"):
             self.preview(f"DROP DATABASE {DB}")
@@ -313,7 +339,7 @@ class DialogTests(AdminFixture, TestCase):
     def test_the_databases_list_has_create_rename_delete_and_details(self):
         page = self.database_list()
         for text in ('data-admin-dialog="create-db"', "+ Create database", 'data-admin-dialog="rename-db"', 'data-admin-dialog="drop-db"',
-                     "data-open-database=", "Details", "Rename", "Delete"):
+                     "data-open-database=", "Details", "Rename", "Delete", 'data-sessions="'):
             self.assertContains(page, text)
         self.assertContains(page, f'data-db="{TARGET["NAME"]}"')
         self.assertNotContains(page, "Review CREATE DATABASE")                       # the old inline form is gone
@@ -340,7 +366,7 @@ class DialogTests(AdminFixture, TestCase):
     def test_the_dialogs_and_the_review_popup_are_on_every_page_for_staff_only(self):
         for name in ("server_list", "audit_list"):
             page = self.client.get(reverse(name))
-            for text in ('id="dlgCreateDb"', 'id="dlgCreateRole"', 'id="dlgRenameDb"', 'id="changeModal"', "admin_dialogs.js", "review.js",
+            for text in ('id="dlgCreateDb"', 'id="dlgCreateRole"', 'id="dlgRenameDb"', 'id="dlgDropDb"', "Disconnect the other sessions first", 'id="changeModal"', "admin_dialogs.js", "review.js",
                          'data-tab="privileges"', 'data-tab="membership"', 'data-tab="sql"', "Can login?", "Superuser?"):
                 self.assertContains(page, text)
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]))

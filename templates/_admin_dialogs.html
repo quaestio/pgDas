@@ -94,4 +94,25 @@
     </div>
   </div>
 </div>
+<div id="dlgDropDb" class="cyber-modal" hidden data-dialog>
+  <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgDropDbTitle">
+    <div class="modal-top"><span id="dlgDropDbTitle">DELETE — DATABASE</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <div class="dlg-tabs" role="tablist">
+      <button type="button" class="dlg-tab active" data-tab="general">General</button>
+      <button type="button" class="dlg-tab" data-tab="sql">SQL</button>
+    </div>
+    <div class="dlg-panel" data-panel="general">
+      <div class="dlg-row"><label for="ddName">Database</label><input type="text" id="ddName" data-field="old" readonly></div>
+      <p class="dlg-hint" data-sessions-note></p>
+      <label class="dlg-check"><input type="checkbox" data-field="force"> Disconnect the other sessions first (WITH (FORCE))</label>
+      <p class="dlg-hint">PostgreSQL will not drop a database while other sessions are connected to it. Ticking this ends those sessions, so work in progress there is lost.</p>
+    </div>
+    <div class="dlg-panel" data-panel="sql" hidden><pre class="sql dlg-sql" data-sql></pre></div>
+    <p class="dlg-problem" data-problem hidden></p>
+    <div class="dlg-foot">
+      <button type="button" class="btn" data-dlg-close>Close</button>
+      <button type="button" class="btn danger" data-dlg-save>Review</button>
+    </div>
+  </div>
+</div>
 <div id="pgToast" class="toast" hidden role="status" aria-live="polite"></div>

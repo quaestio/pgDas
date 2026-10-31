@@ -85,6 +85,18 @@
         return "CREATE ROLE " + ident(v.name.trim()) + " WITH\n    " + flags.join("\n    ");
       },
     },
+    "drop-db": {
+      id: "dlgDropDb", what: "databases", done: "Database dropped.",
+      fill: function (el, ctx) {
+        var n = ctx.sessions || 0;
+        el.querySelector("[data-sessions-note]").textContent = n
+          ? n + " other session" + (n === 1 ? " is" : "s are") + " connected to this database right now."
+          : "No other sessions are connected right now.";
+        el.querySelector("[data-field=force]").checked = false;
+      },
+      problem: function () { return ""; },
+      sql: function (v) { return "DROP DATABASE " + ident(v.old) + (v.force ? " WITH (FORCE)" : ""); },
+    },
     "rename-db": {
       id: "dlgRenameDb", what: "databases", done: "Database renamed.",
       fill: function (el, ctx) { el.querySelector('[data-field="old"]').value = ctx.db; },
@@ -177,14 +189,6 @@
     }).then(function () { if (open === current) button.disabled = !!current.kind.problem(values(current.el)); });
   }
 
-  function dropDatabase(ctx) {
-    window.pgdeckReview.start({
-      server: ctx.server, db: "", sql: "DROP DATABASE " + ident(ctx.db),
-      onError: function (message) { toast(message, true); },
-      onSuccess: function (result) { finished(ctx, "databases", result.message || "Database dropped."); },
-    });
-  }
-
   document.addEventListener("click", function (event) {
     var trigger = event.target.closest("[data-admin-dialog]");
     if (trigger) {
@@ -192,8 +196,8 @@
       if (!holder) return;
       var ctx = JSON.parse(holder.getAttribute("data-admin"));
       ctx.db = trigger.getAttribute("data-db") || "";
-      var name = trigger.getAttribute("data-admin-dialog");
-      if (name === "drop-db") dropDatabase(ctx); else openDialog(name, ctx);
+      ctx.sessions = parseInt(trigger.getAttribute("data-sessions") || "0", 10);
+      openDialog(trigger.getAttribute("data-admin-dialog"), ctx);
       return;
     }
     if (!open) return;

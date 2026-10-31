@@ -144,11 +144,12 @@ def server_summary(conn):
 
 def list_databases(conn):
     rows = conn.execute(
-        """SELECT d.datname, pg_get_userbyid(d.datdba), pg_encoding_to_char(d.encoding), pg_database_size(d.datname)
+        """SELECT d.datname, pg_get_userbyid(d.datdba), pg_encoding_to_char(d.encoding), pg_database_size(d.datname),
+                  (SELECT count(*) FROM pg_stat_activity a WHERE a.datname = d.datname AND a.pid <> pg_backend_pid())
            FROM pg_database d
            WHERE d.datallowconn AND NOT d.datistemplate AND has_database_privilege(d.datname, 'CONNECT')
            ORDER BY d.datname""").fetchall()
-    return [{"name": n, "owner": o, "encoding": e, "size": s, "size_text": size_text(s)} for n, o, e, s in rows]
+    return [{"name": n, "owner": o, "encoding": e, "size": s, "size_text": size_text(s), "sessions": c} for n, o, e, s, c in rows]
 
 
 def size_text(size):

@@ -271,6 +271,8 @@ def _execute_database(server, parsed, fingerprint, confirm, user):
             entry.ok = False
             entry.detail = f"{entry.detail}\n(failed: {str(error)[:200]})"
             entry.save(update_fields=["ok", "detail"])
+            if verb == "DROP" and "being accessed by other users" in str(error):
+                raise PgError(f"{error} Choose Delete again and tick \"Disconnect the other sessions\" to drop it anyway (WITH (FORCE)).")
             raise
     return {"count": 1, "entry_id": entry.pk, "changes": found,
             "message": f"Database {name} {'created' if verb == 'CREATE' else 'dropped'}. Recorded in the audit log as entry #{entry.pk}."}
