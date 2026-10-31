@@ -93,6 +93,7 @@ class RoleTests(AdminFixture, TestCase):
         self.assertEqual((data["kind"], data["title"], data["button"], data["confirm_word"]), ("create", "CREATE ROLE?", "Create role", None))
         self.assertEqual([o["text"] for o in data["objects"]], [f"+ create role {ROLE}"])
         self.assertNotIn("sup3r-secret", json.dumps(data))                       # not in the popup either
+        self.assertEqual(data["warning"], "This adds new role. It cannot be rolled back, but it can be removed again with DROP.")
         self.assertTrue(any("password" in n["text"].lower() for n in data["notes"]))
         self.assertFalse(self.role_exists())
         self.assertFalse(AuditEntry.objects.exists())

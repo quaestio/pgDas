@@ -232,7 +232,7 @@ def preview(server, database, text):
     title = f"{verb} {what.upper()}?" if verb in ("CREATE", "ALTER", "DROP") else f"{verb}?"
     button = {"GRANT": "Grant", "REVOKE": "Revoke"}.get(verb, f"{verb.capitalize()} {what}")
     return _popup(parsed, found, notes, title, what.upper() if what != "privileges" else verb, label, button, parsed["word"],
-                  _WARNINGS.get(verb, "There is no rollback.") if verb != "DROP"
+                  _WARNINGS.get(verb, "There is no rollback.").format(what=what) if verb != "DROP"
                   else "There is no rollback. Objects the role owned must be dealt with first; PostgreSQL refuses otherwise.",
                   {"changes": found})
 
