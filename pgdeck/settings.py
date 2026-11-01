@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "audit",
     "servers",
     "explorer",
+    "backups",
 ]
 
 MIDDLEWARE = [
@@ -119,6 +120,10 @@ if not DEBUG:
 
 # Optional dedicated Fernet key for saved server passwords; otherwise derived from SECRET_KEY.
 ENCRYPTION_KEY = os.getenv("PGDECK_ENCRYPTION_KEY", "")
+
+# Backups: pg_dump files go here; PGDECK_PG_BIN is the folder holding pg_dump and pg_restore (blank = look on PATH).
+BACKUP_DIR = Path(os.getenv("PGDECK_BACKUP_DIR") or BASE_DIR / "data" / "backups")
+PG_BIN = os.getenv("PGDECK_PG_BIN", "")
 
 # SQL runner safety limits.
 STATEMENT_TIMEOUT_MS = int(os.getenv("PGDECK_STATEMENT_TIMEOUT_MS", "30000"))

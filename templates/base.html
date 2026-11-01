@@ -31,6 +31,7 @@
     {% if user.is_staff %}
     <nav id="menu" class="compact below">
       <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
+      <a href="{% url 'backup_list' %}" class="{% if url_name == 'backup_list' %}active{% endif %}"><span class="ico">⇩</span> Backups</a>
     </nav>
     {% endif %}
     <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" tabindex="0"

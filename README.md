@@ -8,7 +8,7 @@ PGDAS itself, which keeps its own data in a single SQLite file.
 
 **Status: in development.** Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
 timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
-popup and recorded in the audit log (see "Changing data"). Scheduled backups and monitoring are planned next (see the
+popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); monitoring is planned next (see the
 roadmap).
 
 The Python package, the `PGDECK_*` environment variables and the `pgdeck.sqlite3` file keep their earlier names, so
@@ -149,11 +149,24 @@ python manage.py test
 ``
 Without a reachable PostgreSQL those tests are skipped and say why.
 
+## Backups
+Staff can open **Backups** in the sidebar to back up a database now (a `pg_dump` custom-format file), download or delete it, and
+restore it. A restore always goes into a **new** database (typed word `RESTORE`), so nothing existing is overwritten; owners and
+privileges are not restored. If a restore fails, the half-made database is dropped again.
+
+Schedules (every N hours, keep the newest M) are carried out by `python manage.py run_backups`, which makes the backups that are
+due. Run it from Task Scheduler or cron every few minutes, or keep it running with `python manage.py run_backups --loop`. Only
+scheduled backups are pruned; manual ones stay until you delete them. Every backup, download, restore and delete is in the audit log.
+
+Settings (`.env`): `PGDECK_PG_BIN` is the folder holding `pg_dump` and `pg_restore` (blank = look on `PATH`; for example
+`C:\Program Files\PostgreSQL\18\bin`), `PGDECK_BACKUP_DIR` is where the files go (default `data/backups`). The saved password is
+handed to the tools through the environment, never on the command line. Copy the backup folder off the machine as well.
+
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
 2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
    and re-insert for deletes and undo for updates are done**; query history is done; next: finer per-user permissions.
-3. Backups: scheduled `pg_dump`, restore, retention, download.
+3. Backups: **`pg_dump` backups, download, restore into a new database, schedules with retention are done.**
 4. Monitoring: sessions, locks, slow queries, size trends, alerts.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
 
