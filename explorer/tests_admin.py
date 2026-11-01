@@ -66,13 +66,13 @@ class AdminFixture(WriteFixture):
         self.addCleanup(self.clean)
 
     def clean(self):
+        with admin_connect("postgres") as conn:
+            conn.execute(f"DROP DATABASE IF EXISTS {DB} WITH (FORCE)")                   # first: a test login may own it
         with admin_connect(TARGET["NAME"]) as conn:
             for role in (ROLE, GROUP, ROLE + "2"):
                 if conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,)).fetchone():
                     conn.execute(f"DROP OWNED BY {role}")
                     conn.execute(f"DROP ROLE {role}")
-        with admin_connect("postgres") as conn:
-            conn.execute(f"DROP DATABASE IF EXISTS {DB}")
 
     def role_exists(self, name=ROLE):
         return bool(self.query("SELECT 1 FROM pg_roles WHERE rolname = %s", name))
@@ -410,6 +410,83 @@ class DialogTests(AdminFixture, TestCase):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]), {"new_database": DB, "db": self.db})
         self.assertEqual(page.context["sql"], "")
         self.assertNotContains(page, "data-autorun")
+
+class LimitedLoginTests(AdminFixture, TestCase):
+    """The saved login is a PostgreSQL role with limited rights: what it may do is allowed, anything else is refused with
+    PostgreSQL's own reason, before any popup asks for a typed word."""
+
+    LIMITED = ROLE + "2"
+
+    def limited_server(self, attributes=""):
+        from servers.models import ServerConnection
+        with admin_connect(self.db) as conn:
+            conn.execute(f"CREATE ROLE {self.LIMITED} LOGIN PASSWORD 'lim-pw-1' {attributes}")
+            conn.execute(f"GRANT USAGE ON SCHEMA pgdeck_w TO {self.LIMITED}")
+            conn.execute(f"GRANT SELECT ON pgdeck_w.logged TO {self.LIMITED}")
+        server = ServerConnection(name="limited", host=TARGET["HOST"], port=int(TARGET["PORT"]), database=TARGET["NAME"],
+                                  username=self.LIMITED, sslmode="prefer")
+        server.set_password("lim-pw-1")
+        server.save()
+        return server
+
+    def preview_as(self, server, sql):
+        return changes.preview(server, self.db, sql)
+
+    def test_create_database_without_createdb_is_refused_up_front(self):
+        server = self.limited_server()
+        with self.assertRaisesRegex(pg.PgError, rf'permission denied to create database.*"{self.LIMITED}".*CREATEDB'):
+            self.preview_as(server, f"CREATE DATABASE {DB}")
+        self.assertFalse(AuditEntry.objects.exists())
+
+    def test_create_database_with_createdb_is_allowed(self):
+        server = self.limited_server("CREATEDB")
+        data = self.preview_as(server, f"CREATE DATABASE {DB}")
+        self.assertEqual(data["button"], "Create database")
+        result = changes.execute(server, self.db, f"CREATE DATABASE {DB}", data["fingerprint"], None, self.staff)
+        self.assertTrue(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB))
+        self.assertEqual(AuditEntry.objects.get(pk=result["entry_id"]).server_id, server.pk)
+
+    def test_dropping_a_database_it_does_not_own_is_refused_up_front(self):
+        server = self.limited_server("CREATEDB")
+        with admin_connect("postgres") as conn:
+            conn.execute(f"CREATE DATABASE {DB}")                                       # owned by the admin login, not the limited one
+        with self.assertRaisesRegex(pg.PgError, rf'must be owner of database {DB}.*"{self.LIMITED}".*not its owner'):
+            self.preview_as(server, f"DROP DATABASE {DB}")
+        self.assertTrue(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB))
+
+    def test_a_role_that_cannot_create_roles_gets_postgresqls_reason(self):
+        server = self.limited_server()
+        with self.assertRaisesRegex(pg.PgError, "permission denied to create role"):
+            self.preview_as(server, "CREATE ROLE pgdeck_t_nobody")
+
+    def test_row_and_table_changes_without_the_right_are_refused_with_the_reason(self):
+        server = self.limited_server()
+        for sql, reason in (("DELETE FROM pgdeck_w.logged WHERE id = 1", "permission denied for table logged"),
+                            ("UPDATE pgdeck_w.logged SET what = 'z'", "permission denied for table logged"),
+                            ("TRUNCATE pgdeck_w.logged", "permission denied for table logged"),
+                            ("DROP TABLE pgdeck_w.logged", "must be owner of table logged"),
+                            ("ALTER TABLE pgdeck_w.logged ADD COLUMN c int", "must be owner of table logged"),
+                            ("DELETE FROM pgdeck_w.ident", "permission denied for table ident")):
+            with self.subTest(sql=sql), self.assertRaisesRegex(pg.PgError, reason):
+                self.preview_as(server, sql)
+        self.assertEqual(self.count("logged"), 2)
+        self.assertFalse(AuditEntry.objects.exists())
+
+    def test_what_the_role_may_do_is_allowed(self):
+        server = self.limited_server()
+        with admin_connect(self.db) as conn:
+            conn.execute(f"GRANT UPDATE ON pgdeck_w.logged TO {self.LIMITED}")
+        data = self.preview_as(server, "UPDATE pgdeck_w.logged SET what = 'z' WHERE id = 1")
+        self.assertEqual((data["count"], data["button"]), (1, "Update 1 record"))
+        changes.execute(server, self.db, "UPDATE pgdeck_w.logged SET what = 'z' WHERE id = 1", data["fingerprint"], None, self.staff)
+        self.assertEqual(self.query("SELECT what FROM pgdeck_w.logged WHERE id = 1")[0][0], "z")
+
+    def test_a_grant_the_role_may_not_make_says_why_it_does_nothing(self):
+        server = self.limited_server()
+        data = self.preview_as(server, f"GRANT SELECT ON pgdeck_w.logged TO {self.LIMITED}")
+        self.assertIsNone(data["button"])
+        self.assertTrue(any("PostgreSQL says: no privileges were granted" in n["text"] and n["bad"] for n in data["notes"]))
+
 
 class RedactionTests(TestCase):
     def test_record_never_keeps_a_password(self):

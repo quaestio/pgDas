@@ -184,10 +184,27 @@ def _database_facts(conn, name):
     return None if row is None else {"size": row[0], "connections": row[1]}
 
 
+def _check_database_rights(conn, verb, name, facts):
+    """CREATE and DROP DATABASE cannot be tried out in a rolled-back transaction, so look at the login's rights up front and
+    refuse here, with the reason, rather than after the popup and the typed word."""
+    login, superuser, createdb = conn.execute(
+        "SELECT rolname, rolsuper, rolcreatedb FROM pg_roles WHERE rolname = current_user").fetchone()
+    if verb == "CREATE" and not (superuser or createdb):
+        raise PgError(f'permission denied to create database: the login "{login}" does not have the CREATEDB attribute. '
+                      f'A role that may manage roles can grant it with ALTER ROLE "{login}" CREATEDB.')
+    if verb == "DROP" and facts:
+        owner = conn.execute("SELECT pg_get_userbyid(datdba), pg_has_role(current_user, datdba, 'MEMBER') OR %s FROM pg_database "
+                             "WHERE datname = %s", (superuser, name)).fetchone()
+        if not owner[1]:
+            raise PgError(f'must be owner of database {name}: the login "{login}" is not its owner (that is {owner[0]}). '
+                          "Only the owner or a superuser can drop it.")
+
+
 def _preview_database(server, parsed):
     name, verb = parsed["name"], parsed["verb"]
     with pg.connect_maintenance(server, avoid=name) as conn:
         facts = _database_facts(conn, name)
+        _check_database_rights(conn, verb, name, facts)
     if verb == "CREATE":
         if facts:
             raise PgError(f'Database "{name}" already exists.')
@@ -215,13 +232,15 @@ def preview(server, database, text):
     parsed = parse(text)
     if not parsed["transactional"]:
         return _preview_database(server, parsed)
+    said = []                       # what PostgreSQL itself says while running it, e.g. WARNING: no privileges were granted
     with pg.connect_rw(server, database or None) as conn:
+        conn.add_notice_handler(lambda diag: said.append((diag.severity, (diag.message_primary or "").strip())))
         before = _snapshot(conn)
         changes._run(conn, parsed["statement"])
         found = _diff(before, _snapshot(conn))
         conn.rollback()
     verb, what = parsed["verb"], (parsed["object_type"] or "privileges").lower()
-    notes = _notes(parsed)
+    notes = _notes(parsed) + [{"text": f"PostgreSQL says: {message}", "bad": severity == "WARNING"} for severity, message in said if message]
     if not found:
         return _popup(parsed, found, notes, f"{verb} — NOTHING TO DO", what.upper(), "Nothing would change.", None, None, "", {"changes": []})
     names = [c["name"] for c in found][:3]
