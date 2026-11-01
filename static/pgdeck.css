@@ -169,3 +169,12 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .brand-icon { display: block; border-radius: 6px; flex: none; }
 .login-logo { display: block; max-width: 100%; height: auto; margin: 0 auto 8px; border-radius: 6px; }
 .sessions-badge { margin-left: 4px; vertical-align: middle; }
+
+/* Backups page: labelled fields in one aligned row; the button sits level with the inputs */
+.bk-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin: 10px 0 14px; }
+.bk-form label { display: flex; flex-direction: column; gap: 5px; font-size: 11px; letter-spacing: .5px; color: var(--muted, #7fa6c4); min-width: 170px; }
+.bk-form label select, .bk-form label input { width: 100%; box-sizing: border-box; height: 38px; padding: 0 12px; font-size: 14px; }
+.bk-form input[type=number] { min-width: 0; }
+.bk-form .btn { height: 38px; padding: 0 20px; }
+.row-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+.row-form input { height: 34px; padding: 0 10px; }
