@@ -1,5 +1,7 @@
 """What a server is doing right now, from PostgreSQL's own statistics views. Read-only; ending a session is in views.py."""
 from explorer import pg
+import psycopg
+from psycopg import sql
 
 QUERY_LIMIT = 400
 
@@ -33,7 +35,7 @@ def _seconds(value):
 def snapshot(server, slow_after=5):
     """Sessions, who is blocking whom, the long-running queries, and (when the extension is there) the costliest statements."""
     with pg.connect(server) as conn:
-        sessions = [{"pid": r[0], "user": r[1], "database": r[2], "application": r[3], "client": r[4], "state": r[5],
+        sessions = [{"pid": r[0], "user": r[1], "database": r[2], "application": r[3], "client": r[4], "state": r[5] or "unknown",
                      "wait": " / ".join(w for w in (r[6], r[7]) if w), "running": _seconds(r[8]), "in_transaction": _seconds(r[9]),
                      "connected": _seconds(r[10]), "query": (r[11] or "").strip()}
                     for r in conn.execute(SESSIONS).fetchall()]
@@ -41,12 +43,15 @@ def snapshot(server, slow_after=5):
                   "blocking_pid": r[5], "blocking_user": r[6], "blocking_query": (r[7] or "").strip(), "blocking_state": r[8]}
                  for r in conn.execute(LOCKS).fetchall()]
         statements, statements_note = None, None
-        if conn.execute("SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements'").fetchone():
+        extension = conn.execute("SELECT n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid=e.extnamespace WHERE e.extname = 'pg_stat_statements'").fetchone()
+        if extension:
             try:
-                statements = [{"query": (r[0] or "").strip(), "calls": r[1], "total": round(r[2] / 1000, 2), "mean": round(r[3], 1),
-                               "max": round(r[4], 1), "rows": r[5]} for r in conn.execute(STATEMENTS).fetchall()]
-            except pg.PgError as error:
-                statements_note = str(error)
+                with conn.transaction():
+                    query = sql.SQL(STATEMENTS.replace("FROM pg_stat_statements", "FROM {}.pg_stat_statements")).format(sql.Identifier(extension[0]))
+                    statements = [{"query": (r[0] or "").strip(), "calls": r[1], "total": round(r[2] / 1000, 2), "mean": round(r[3], 1),
+                                   "max": round(r[4], 1), "rows": r[5]} for r in conn.execute(query).fetchall()]
+            except psycopg.Error as error:
+                statements_note = pg._message(error)
         else:
             statements_note = ("pg_stat_statements is not installed in this database, so there is no history of slow queries. "
                                "CREATE EXTENSION pg_stat_statements (and add it to shared_preload_libraries) to get one.")

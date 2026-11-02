@@ -8,9 +8,34 @@ from explorer import pg
 from explorer.pg import PgError
 from servers.models import ServerConnection
 
-from . import queries
+from . import queries, features
 
 staff_required = user_passes_test(lambda user: user.is_staff)
+
+
+@login_required
+@staff_required
+def monitor_features(request):
+    server = get_object_or_404(ServerConnection, pk=request.GET.get("server") or 0)
+    try:
+        return JsonResponse({"ok": True, **features.status(server)})
+    except PgError as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+
+
+@login_required
+@staff_required
+@require_POST
+def monitor_feature_change(request):
+    server = get_object_or_404(ServerConnection, pk=request.POST.get("server") or 0)
+    if request.POST.get("confirm") != "APPLY" or request.POST.get("enabled") not in ("on", "off"):
+        return JsonResponse({"ok": False, "error": "Confirm the setting change with APPLY."}, status=400)
+    try:
+        message = features.change(server, request.POST.get("name", ""), request.POST["enabled"] == "on", request.user)
+        return JsonResponse({"ok": True, "message": message})
+    except PgError as error:
+        record(request.user, "monitor.setting.failed", server, str(error), ok=False)
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
 
 
 @login_required

@@ -29,6 +29,12 @@
   <p class="muted">Every client session. “Idle in transaction” sessions hold locks and stop clean-up, so watch the ones that stay that way.</p>
   <table><thead><tr><th>PID</th><th>USER</th><th>DATABASE</th><th>APPLICATION</th><th>CLIENT</th><th>STATE</th><th>RUNNING</th><th>QUERY</th><th></th></tr></thead><tbody id="mnSessions"></tbody></table></section>
 
+<section class="panel pad"><h2>Monitoring settings</h2>
+  <p class="muted">Server settings affect every database. Extension access applies only to the database shown below. PostgreSQL permissions are required.</p>
+  <button class="btn" id="mnFeaturesLoad" type="button">Load settings</button>
+  <p id="mnFeaturesInfo" role="status"></p><div id="mnFeatures"></div>
+  <p id="mnFeaturesResult" role="status"></p>
+</section>
 <section class="panel pad scroll"><h2>Costliest statements</h2>
   <p class="muted" id="mnStmtNote"></p>
   <table id="mnStmtTable" hidden><thead><tr><th>CALLS</th><th>TOTAL (s)</th><th>MEAN (ms)</th><th>MAX (ms)</th><th>ROWS</th><th>QUERY</th></tr></thead><tbody id="mnStmts"></tbody></table></section>
@@ -40,6 +46,44 @@
   var server = $("mnServer"); if (!server) return;
   var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value || "{{ csrf_token }}";
   var timer = null;
+  function featureButton(box, name, enabled, label, description) {
+    var button = document.createElement("button"); button.className = "btn"; button.type = "button"; button.textContent = label;
+    button.addEventListener("click", function () {
+      var selected = server.value;
+      if (!confirm(description + " Apply to " + server.options[server.selectedIndex].text + "?")) return;
+      button.disabled = true;
+      fetch("{% url 'monitor_feature_change' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": csrf},
+        body: new URLSearchParams({server: selected, name: name, enabled: enabled ? "on" : "off", confirm: "APPLY"})})
+        .then(function (r) { return r.json(); }).then(function (d) {
+          if (selected !== server.value) return;
+          $("mnFeaturesResult").textContent = d.message || d.error; loadFeatures(); load();
+        }).catch(function () { $("mnFeaturesResult").textContent = "Could not verify the change. Refresh settings before retrying."; })
+        .finally(function () { button.disabled = false; });
+    }); box.appendChild(button);
+  }
+  function loadFeatures() {
+    var selected = server.value;
+    $("mnFeatures").replaceChildren();
+    fetch("{% url 'monitor_features' %}?server=" + encodeURIComponent(selected), {credentials: "same-origin"})
+      .then(function (r) { return r.json(); }).then(function (d) {
+        if (selected !== server.value) return;
+        if (!d.ok) { $("mnFeaturesInfo").textContent = d.error; return; }
+        $("mnFeaturesInfo").textContent = "Database: " + d.database + " · Preload libraries: " + (d.preload || "None") +
+          " · Query IDs: " + d.query_id + (d.restart ? " · Restart required" : "");
+        var box = $("mnFeatures"); box.replaceChildren();
+        var extension = document.createElement("p"); extension.textContent = "Statement history extension: " + (d.extension ? "Installed " : "Not installed "); box.appendChild(extension);
+        if (d.available) featureButton(extension, "extension", !d.extension, d.extension ? "Remove extension" : "Enable extension",
+          "This changes extension views in database " + d.database + ". Removing them does not stop server-wide collection and may fail if other objects depend on them.");
+        featureButton(box, "preload", true, "Prepare statement history (restart needed)", "Add pg_stat_statements to the server preload configuration. Other libraries are preserved. You must restart PostgreSQL on its host afterwards.");
+        featureButton(box, "compute_query_id", true, "Enable query IDs", "Enable query identifiers server-wide, required for statement statistics.");
+        d.flags.forEach(function (f) {
+          var row = document.createElement("p"); row.textContent = f.label + ": " + f.value + " — " + f.description + " "; box.appendChild(row);
+          if (f.available) featureButton(row, f.name, f.value === "off" || f.value === "none", f.value === "off" || f.value === "none" ? "Turn on" : "Turn off", f.description + " This changes the server-wide default.");
+        });
+      }).catch(function () { $("mnFeaturesInfo").textContent = "Could not load monitoring settings."; });
+  }
+  $("mnFeaturesLoad").addEventListener("click", loadFeatures);
+  server.addEventListener("change", function () { $("mnFeatures").replaceChildren(); $("mnFeaturesInfo").textContent = ""; $("mnFeaturesResult").textContent = ""; });
 
   function cell(row, text, cls) { var td = row.insertCell(); td.textContent = text == null ? "" : text; if (cls) td.className = cls; return td; }
   function dur(s) { if (s == null) return ""; if (s < 60) return s.toFixed(1) + " s"; if (s < 3600) return Math.floor(s / 60) + " m " + Math.round(s % 60) + " s"; return Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " m"; }
