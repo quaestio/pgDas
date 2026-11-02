@@ -26,3 +26,10 @@
 @keyframes logo-in { from { opacity: 0; transform: translateX(-18px) scale(.4) rotate(-30deg); } to { opacity: 1; transform: none; } }
 @keyframes logo-glow { 0%, 100% { filter: drop-shadow(0 0 0 transparent); } 50% { filter: drop-shadow(0 0 7px var(--accent)); } }
 @media (prefers-reduced-motion: reduce) { .rail-logo, .rail-logo img { animation: none !important; transition: none; } }
+
+/* The footer: version and copyright. They used to sit at the bottom of the sidebar, which now belongs to the Object Browser alone.
+   The page is a column so the footer stays at the bottom even on a short page. */
+main { display: flex; flex-direction: column; }
+main > .content { flex: 1 0 auto; width: 100%; box-sizing: border-box; margin: 0 auto; }
+.app-footer { padding: 14px 24px; border-top: 1px solid var(--line); gap: 6px 18px; flex-wrap: wrap; }
+.app-footer span { display: inline; }

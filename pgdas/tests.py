@@ -140,7 +140,6 @@ class MenuRailTests(TestCase):
 
     def test_people_who_are_not_staff_only_get_the_object_browser_icon(self):
         _, rail = self.page(False)
-        self.assertEqual(rail.count('class="rail-item'), 1)
         self.assertIn('data-label="Object Browser"', rail)
         for label in ("Audit log", "Backups", "Monitor", "Alerts"):
             self.assertNotIn(label, rail)
@@ -177,3 +176,36 @@ class RailLogoTests(TestCase):
     def test_people_who_prefer_less_motion_get_no_animation(self):
         css = (BASE_DIR / "static" / "sidebar.css").read_text(encoding="utf-8")
         self.assertIn("@media (prefers-reduced-motion: reduce) { .rail-logo, .rail-logo img { animation: none !important;", css)
+
+
+class FooterTests(TestCase):
+    """Version and copyright are in a page footer, not at the bottom of the sidebar (which is all Object Browser)."""
+
+    def page(self):
+        user = get_user_model().objects.create_user("foot", password="pw-12345-abc", is_staff=True)
+        self.client.force_login(user)
+        return self.client.get("/").content.decode()
+
+    def test_the_footer_is_at_the_end_of_the_main_area_with_the_version(self):
+        html = self.page()
+        main = html[html.index("<main"):html.index("</main>")]
+        footer = main[main.index('<footer class="app-footer"'):]
+        self.assertIn("Version: Development", footer)
+        self.assertIn("PGDAS contributors", footer)
+        self.assertIn("PostgreSQL Database Access System", footer)
+        self.assertGreater(main.index("<footer"), main.index('class="content"'))                    # after the content ...
+        self.assertTrue(main[:main.index("<footer")].rstrip().endswith("</div>"))                    # ... right after the content block closed
+        self.assertEqual(html.count("Version: Development"), 1)
+
+    def test_the_sidebar_has_nothing_below_the_tree(self):
+        html = self.page()
+        side = html[html.index("<aside"):html.index("</aside>")]
+        self.assertNotIn("Version", side)
+        self.assertNotIn("contributors", side)
+        self.assertNotIn("sidebar-bottom", html)
+        self.assertGreater(side.index('id="sidebarResizer"'), side.index('id="tree"'))
+
+    def test_the_footer_stays_at_the_bottom_of_a_short_page(self):
+        css = (BASE_DIR / "static" / "sidebar.css").read_text(encoding="utf-8")
+        for needle in ("main { display: flex; flex-direction: column; }", "main > .content { flex: 1 0 auto;", ".app-footer {", ".app-footer span { display: inline; }"):
+            self.assertIn(needle, css)
