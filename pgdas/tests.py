@@ -117,8 +117,8 @@ class MenuRailTests(TestCase):
         html, rail = self.page(True)
         for label in ("Object Browser", "Audit log", "Backups", "Monitor", "Alerts &amp; trends"):
             self.assertIn(f'data-label="{label}" aria-label="{label}"', rail)
-        self.assertEqual(rail.count("<svg"), rail.count("<a "))                           # an icon for every link, no text in the rail itself
-        self.assertGreaterEqual(rail.count("<a "), 5)                                      # (more links may be added to the rail later)
+        self.assertEqual(rail.count("<svg"), rail.count('class="rail-item'))              # an icon for every link, no text in the rail itself
+        self.assertGreaterEqual(rail.count('class="rail-item'), 5)                         # (more links may be added to the rail later)
         self.assertLess(html.index('<nav class="rail"'), html.index("<aside"))
         self.assertIn('<div class="app">\n<nav class="rail"', html)
         side = html[html.index("<aside"):html.index("</aside>")]
@@ -140,7 +140,7 @@ class MenuRailTests(TestCase):
 
     def test_people_who_are_not_staff_only_get_the_object_browser_icon(self):
         _, rail = self.page(False)
-        self.assertEqual(rail.count("<a "), 1)
+        self.assertEqual(rail.count('class="rail-item'), 1)
         self.assertIn('data-label="Object Browser"', rail)
         for label in ("Audit log", "Backups", "Monitor", "Alerts"):
             self.assertNotIn(label, rail)
@@ -153,3 +153,27 @@ class MenuRailTests(TestCase):
         script = (BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertNotIn("adminMenu", script)                                              # the fold-away button of the old group is gone
         self.assertIn('href="/static/sidebar.css"', self.client.get("/login/").content.decode())
+
+
+class RailLogoTests(TestCase):
+    """The logo stays available when the sidebar is collapsed: the rail carries it, with an entrance animation."""
+
+    def test_the_rail_starts_with_the_logo_which_goes_home(self):
+        user = get_user_model().objects.create_user("logo", password="pw-12345-abc", is_staff=True)
+        self.client.force_login(user)
+        html = self.client.get("/").content.decode()
+        rail = html[html.index('<nav class="rail"'):html.index("</nav>", html.index('<nav class="rail"'))]
+        self.assertIn('<a class="rail-logo" href="/" aria-label="PGDAS home"', rail)
+        self.assertIn("img/pgdas-64.png", rail[:rail.index('class="rail-item')])             # the logo comes before the menu icons
+        self.assertIn('class="brand"', html[html.index("<aside"):html.index("</aside>")])     # the sidebar keeps its own wordmark
+
+    def test_it_shows_when_the_sidebar_is_collapsed_and_animates_in(self):
+        css = (BASE_DIR / "static" / "sidebar.css").read_text(encoding="utf-8")
+        for needle in (".rail-logo { display: none;", "html.sidebar-collapsed .rail-logo { display: grid; animation: logo-in",
+                       "@keyframes logo-in", "@keyframes logo-glow", "@media (max-width: 800px) { .rail-logo { display: grid;"):
+            self.assertIn(needle, css)
+        self.assertIn("(min-width: 801px)", css[css.index("html.sidebar-collapsed .rail-logo") - 60:css.index("html.sidebar-collapsed .rail-logo")])
+
+    def test_people_who_prefer_less_motion_get_no_animation(self):
+        css = (BASE_DIR / "static" / "sidebar.css").read_text(encoding="utf-8")
+        self.assertIn("@media (prefers-reduced-motion: reduce) { .rail-logo, .rail-logo img { animation: none !important;", css)

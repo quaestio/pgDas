@@ -13,3 +13,16 @@
 .rail-item:hover::after, .rail-item:focus-visible::after { opacity: 1; }
 .rail-gap { flex: 1; }
 @media (max-width: 800px) { .rail { width: 44px; z-index: 8; } .rail-item { height: 42px; } .rail-item::after { display: none; } }
+
+/* The PGDAS logo at the top of the rail. The sidebar's own logo disappears when the sidebar is collapsed, so the rail takes over:
+   it pops in (and keeps a slow glow) each time the sidebar is collapsed. On a phone, where the sidebar is hidden until the menu
+   button is pressed, it is always there. */
+.rail-logo { display: none; place-items: center; height: 54px; margin-bottom: 6px; border-bottom: 1px solid var(--line); }
+.rail-logo img { display: block; width: 30px; height: 30px; transition: transform .2s; }
+.rail-logo:hover img, .rail-logo:focus-visible img { transform: scale(1.14) rotate(-6deg); }
+.rail-logo:focus-visible { outline: none; }
+@media (min-width: 801px) { html.sidebar-collapsed .rail-logo { display: grid; animation: logo-in .55s cubic-bezier(.2, .9, .3, 1.25) both, logo-glow 3.4s ease-in-out .7s infinite; } }
+@media (max-width: 800px) { .rail-logo { display: grid; animation: logo-in .55s cubic-bezier(.2, .9, .3, 1.25) both, logo-glow 3.4s ease-in-out .7s infinite; } }
+@keyframes logo-in { from { opacity: 0; transform: translateX(-18px) scale(.4) rotate(-30deg); } to { opacity: 1; transform: none; } }
+@keyframes logo-glow { 0%, 100% { filter: drop-shadow(0 0 0 transparent); } 50% { filter: drop-shadow(0 0 7px var(--accent)); } }
+@media (prefers-reduced-motion: reduce) { .rail-logo, .rail-logo img { animation: none !important; transition: none; } }
