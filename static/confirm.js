@@ -2,12 +2,14 @@
 // A form opts in with data attributes:
 //
 //   <form method="post" action="..." data-typed-confirm="the name to type" data-confirm-title="DELETE BACKUP"
-//         data-confirm-button="Delete backup" data-confirm-message="..." data-confirm-detail="..." data-confirm-warning="...">
+//         data-confirm-button="Delete backup" data-confirm-prompt="Type the database name to confirm" data-confirm-message="..."
+//         data-confirm-detail="..." data-confirm-warning="...">
 //     <input type="hidden" name="confirm" value=""> ... <button type="submit">Delete</button></form>
 //
-// Pressing the button opens the popup (with a warning sound; the speaker button in the header mutes it). The red button stays
-// disabled until the typed text is exactly the name, case included; then the form is sent with the typed text as `confirm`, which the
-// server checks again, so skipping this script deletes nothing. Everything is put into the page as text, never as HTML.
+// Pressing the button opens the popup (with a warning sound; the speaker button in the header mutes it). The prompt does not repeat
+// the name: the person has to type it. A line under the box says how they are doing. The red button stays disabled until the typed
+// text is exactly the name, case included; then the form is sent with the typed text as `confirm`, which the server checks again,
+// so skipping this script deletes nothing. Everything is put into the page as text, never as HTML.
 (function () {
   var overlay = null, parts = null, pending = null;
 
@@ -32,21 +34,21 @@
     top.appendChild(title); top.appendChild(close);
 
     var message = make("p", "confirm-message"), detail = make("p", "confirm-detail"), warning = make("div", "warn-box");
-    var label = make("label"), word = make("strong");
+    var label = make("label");
     label.setAttribute("for", "confirmInput");
     var input = make("input", "confirm-name");
     input.type = "text"; input.id = "confirmInput"; input.autocomplete = "off"; input.spellcheck = false; input.setAttribute("autocapitalize", "off");
-    var hint = make("p", "confirm-hint", "Case matters. Nothing is deleted until the name matches.");
+    var status = make("p", "confirm-status idle");
+    status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
 
     var buttons = make("div", "modal-buttons"), cancel = make("button", "btn", "Cancel"), go = make("button", "btn danger", "Delete");
     cancel.type = "button"; go.type = "button"; go.disabled = true;
     buttons.appendChild(cancel); buttons.appendChild(go);
 
-    label.appendChild(document.createTextNode("Type ")); label.appendChild(word); label.appendChild(document.createTextNode(" to confirm"));
-    [top, make("div", "modal-icon", "⚠"), message, detail, warning, label, input, hint, buttons].forEach(function (n) { dialog.appendChild(n); });
+    [top, make("div", "modal-icon", "⚠"), message, detail, warning, label, input, status, buttons].forEach(function (n) { dialog.appendChild(n); });
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
-    parts = {dialog: dialog, title: title, message: message, detail: detail, warning: warning, word: word, input: input, go: go, cancel: cancel, close: close};
+    parts = {dialog: dialog, title: title, message: message, detail: detail, warning: warning, label: label, status: status, input: input, go: go, cancel: cancel, close: close};
 
     parts.input.addEventListener("input", check);
     parts.input.addEventListener("keydown", function (event) { if (event.key === "Enter") { event.preventDefault(); if (!parts.go.disabled) confirmed(); } });
@@ -64,10 +66,20 @@
     });
   }
 
+  // Tells the person where they stand without ever spelling the name out.
   function check() {
-    var ok = !!pending && parts.input.value === pending.word;
+    var typed = parts.input.value, word = pending ? pending.word : "", ok = !!pending && typed === word, text, state;
+    if (!typed) { text = "Type the name to enable \u201c" + parts.go.textContent + "\u201d."; state = "idle"; }
+    else if (ok) { text = "Matches. Press \u201c" + parts.go.textContent + "\u201d to continue."; state = "ok"; }
+    else if (word.indexOf(typed) === 0) { text = "Keep typing\u2026 (" + typed.length + " of " + word.length + " characters)"; state = "partial"; }
+    else if (typed.indexOf(word) === 0) { text = "Remove the extra characters after the name."; state = "wrong"; }
+    else if (typed.toLowerCase() === word.toLowerCase()) { text = "Capital letters matter: the name must match exactly."; state = "wrong"; }
+    else { text = "That does not match. Check the spelling."; state = "wrong"; }
     parts.go.disabled = !ok;
     parts.input.classList.toggle("match", ok);
+    parts.input.classList.toggle("wrong", state === "wrong");
+    parts.status.textContent = text;
+    parts.status.className = "confirm-status " + state;
   }
 
   function openDialog(form, trigger) {
@@ -79,7 +91,7 @@
     parts.detail.textContent = data.confirmDetail || "";
     parts.detail.hidden = !data.confirmDetail;
     parts.warning.textContent = data.confirmWarning || "This cannot be undone.";
-    parts.word.textContent = pending.word;
+    parts.label.textContent = data.confirmPrompt || "Type the name to confirm";
     parts.go.textContent = data.confirmButton || "Delete";
     parts.input.value = "";
     check();

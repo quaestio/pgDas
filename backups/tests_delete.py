@@ -59,6 +59,7 @@ class DeletePopupTests(BackupFixture, TestCase):
         form = form[:form.index("</form>")]
         self.assertIn(f'data-typed-confirm="{self.db}"', form)
         self.assertIn('data-confirm-title="DELETE BACKUP"', form)
+        self.assertIn('data-confirm-prompt="Type the database name to confirm"', form)      # the prompt does not spell the name out
         self.assertIn("permanently deletes the backup file", form)
         self.assertIn('name="confirm" value=""', form)
         self.assertIn("cannot be recovered", form)
@@ -75,13 +76,28 @@ class DeletePopupTests(BackupFixture, TestCase):
 
     def test_the_script_asks_for_the_exact_name_plays_the_warning_and_traps_focus(self):
         script = (BASE_DIR / "static" / "confirm.js").read_text(encoding="utf-8")
-        for needle in ("parts.input.value === pending.word", "parts.go.disabled = !ok", 'play("warning")', '"Escape"', '"Tab"',
+        for needle in ("typed === word", "parts.go.disabled = !ok", 'play("warning")', '"Escape"', '"Tab"',
                        'aria-modal', "HTMLFormElement.prototype.submit.call(form)", "textContent"):
             self.assertIn(needle, script)
         self.assertNotIn("innerHTML", script)                                         # names and messages are put in as text only
+        self.assertIn("data.confirmPrompt", script)
+        self.assertNotIn('make("strong")', script)                                    # the prompt line has no <strong>name</strong> any more
+        self.assertNotIn("parts.word", script)
         css = (BASE_DIR / "static" / "confirm.css").read_text(encoding="utf-8")
-        for needle in (".confirm-dialog", "input.confirm-name", ".match", "prefers-reduced-motion"):
+        for needle in (".confirm-dialog", "input.confirm-name", ".match", ".wrong", ".confirm-status.ok", ".confirm-status.partial",
+                       "prefers-reduced-motion"):
             self.assertIn(needle, css)
+
+    def test_a_live_line_tells_where_you_stand_without_spelling_the_name_out(self):
+        script = (BASE_DIR / "static" / "confirm.js").read_text(encoding="utf-8")
+        for message in ("Type the name to enable", "Keep typing", "Remove the extra characters after the name.",
+                        "Capital letters matter: the name must match exactly.", "That does not match. Check the spelling.", "Matches. Press"):
+            self.assertIn(message, script)
+        self.assertIn('setAttribute("role", "status")', script)                       # read out by screen readers as it changes
+        self.assertIn('setAttribute("aria-live", "polite")', script)
+        for line in script.splitlines():                                              # no message includes the word being typed
+            if "text = " in line:
+                self.assertNotIn("+ word +", line.replace(" word.length", ""))
 
     def test_the_warning_sound_is_two_descending_blips_and_respects_the_mute_button(self):
         sound = (BASE_DIR / "static" / "sound.js").read_text(encoding="utf-8")

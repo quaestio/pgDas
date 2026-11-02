@@ -69,7 +69,7 @@
           </div>
           {% endif %}
           {% if b.status != "running" %}
-          <form method="post" action="{% url 'backup_delete' b.pk %}" data-typed-confirm="{{ b.database }}" data-confirm-title="DELETE BACKUP" data-confirm-button="Delete backup"
+          <form method="post" action="{% url 'backup_delete' b.pk %}" data-typed-confirm="{{ b.database }}" data-confirm-title="DELETE BACKUP" data-confirm-button="Delete backup" data-confirm-prompt="Type the database name to confirm"
                 data-confirm-message="{% if b.available %}This permanently deletes the backup file of {{ b.database }}.{% else %}This removes the record of a failed backup of {{ b.database }}; there is no file.{% endif %}"
                 data-confirm-detail="{{ b.server_name }} · {{ b.created_at|date:'Y-m-d H:i' }} UTC{% if b.available %} · {{ b.size|filesizeformat }}{% endif %}"
                 data-confirm-warning="{% if b.available %}The file is removed from this machine and cannot be recovered. The database itself is not touched.{% else %}Only the entry in this list is removed.{% endif %}">{% csrf_token %}<input type="hidden" name="confirm" value=""><button class="btn" type="submit">Delete</button></form>

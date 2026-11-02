@@ -7,5 +7,11 @@
 .confirm-dialog input.confirm-name { display: block; width: 100%; max-width: none; box-sizing: border-box; height: 46px; margin: 0; text-align: center;
   font-family: ui-monospace, Consolas, monospace; font-size: 18px; letter-spacing: .5px; font-weight: 600; transition: border-color .15s, box-shadow .15s; }
 .confirm-dialog input.confirm-name.match { border-color: #00e99c; box-shadow: 0 0 14px #00e99c55; }
-.confirm-dialog .confirm-hint { color: var(--muted, #7fa6c4); font-size: 12px; margin: 8px 0 0; }
-@media (prefers-reduced-motion: reduce) { .confirm-dialog { animation: none; } .confirm-dialog input.confirm-name { transition: none; } }
+.confirm-dialog input.confirm-name.wrong { border-color: #ff6b81; box-shadow: 0 0 14px #ff6b8144; }
+/* The live line under the box: what to do, keep typing, does not match, matches. It keeps its height so the buttons do not jump. */
+.confirm-dialog .confirm-status { min-height: 20px; margin: 8px 0 0; font-size: 13px; transition: color .15s; }
+.confirm-dialog .confirm-status.idle { color: var(--muted, #7fa6c4); }
+.confirm-dialog .confirm-status.partial { color: #e9b100; }
+.confirm-dialog .confirm-status.wrong { color: #ff8d9b; }
+.confirm-dialog .confirm-status.ok { color: #00e99c; }
+@media (prefers-reduced-motion: reduce) { .confirm-dialog { animation: none; } .confirm-dialog input.confirm-name, .confirm-dialog .confirm-status { transition: none; } }
