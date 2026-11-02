@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Backups · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">CONSOLE / <span>BACKUPS</span></div><h1>Backups</h1>
+  <p class="muted">Each backup is a <code>pg_dump</code> file (custom format) kept on this machine. Restore always goes into a <b>new</b> database, so nothing existing is overwritten.</p></div></div>
+
+<section class="panel pad">
+  <h2>Back up now</h2>
+  {% if servers %}
+  <form method="post" action="{% url 'backup_create' %}" class="bk-form">{% csrf_token %}
+    <label>Server<select name="server" data-db-target="#bkDb1">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Database<select name="database" id="bkDb1" required></select></label>
+    <button class="btn primary" type="submit">Back up</button>
+  </form>
+  {% else %}<p class="muted">Add a server first.</p>{% endif %}
+</section>
+
+<section class="panel pad">
+  <h2>Schedules</h2>
+  <p class="muted">Backups that are due are made when <code>python manage.py run_backups</code> runs (from Task Scheduler or cron, or keep it going with <code>--loop</code>). Only scheduled backups are pruned to the newest few.</p>
+  {% if servers %}
+  <form method="post" action="{% url 'schedule_save' %}" class="bk-form">{% csrf_token %}
+    <label>Server<select name="server" data-db-target="#bkDb2">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Database<select name="database" id="bkDb2" required></select></label>
+    <label>Every (hours)<input type="number" name="every_hours" min="1" value="24"></label>
+    <label>Keep newest<input type="number" name="keep" min="1" value="7"></label>
+    <button class="btn primary" type="submit">Save schedule</button>
+  </form>
+  {% endif %}
+  {% if schedules %}
+  <table>
+    <thead><tr><th>SERVER</th><th>DATABASE</th><th>EVERY</th><th>KEEP</th><th>LAST RUN (UTC)</th><th></th></tr></thead>
+    <tbody>{% for s in schedules %}
+      <tr><td>{{ s.server.name }}</td><td>{{ s.database }}</td><td>{{ s.every_hours }} h</td><td>{{ s.keep }}</td>
+        <td class="muted">{{ s.last_run|date:"Y-m-d H:i"|default:"never" }}</td>
+        <td><form method="post" action="{% url 'schedule_delete' s.pk %}">{% csrf_token %}<button class="btn" type="submit">Remove</button></form></td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section class="panel pad scroll">
+  <h2>Backups</h2>
+  <table>
+    <thead><tr><th>WHEN (UTC)</th><th>SERVER</th><th>DATABASE</th><th>KIND</th><th>SIZE</th><th>RESULT</th><th></th></tr></thead>
+    <tbody>
+    {% for b in backups %}
+      <tr>
+        <td class="muted" style="white-space:nowrap">{{ b.created_at|date:"Y-m-d H:i:s" }}</td>
+        <td>{{ b.server_name }}</td><td>{{ b.database }}</td><td>{{ b.kind }}</td>
+        <td>{% if b.status == "ok" %}{{ b.size|filesizeformat }}{% endif %}</td>
+        <td>{% if b.status == "ok" %}<span class="badge ok">ok</span>{% elif b.status == "failed" %}<span class="badge bad">failed</span><pre class="sql">{{ b.error }}</pre>{% else %}<span class="badge">running</span>{% endif %}</td>
+        <td>
+          {% if b.available %}
+          <div class="record-actions">
+            <a class="btn" href="{% url 'backup_download' b.pk %}">Download</a>
+            <details><summary class="btn">Restore…</summary>
+              <form method="post" action="{% url 'backup_restore' b.pk %}" class="row-form">{% csrf_token %}
+                <input type="text" name="new_name" placeholder="new database name" required aria-label="New database name">
+                <input type="text" name="confirm" placeholder="type {{ restore_word }}" required autocomplete="off" aria-label="Type {{ restore_word }} to confirm">
+                <button class="btn danger" type="submit">Restore</button>
+              </form>
+            </details>
+          </div>
+          {% endif %}
+          {% if b.status != "running" %}
+          <form method="post" action="{% url 'backup_delete' b.pk %}" onsubmit="return confirm('Delete this backup{% if b.available %} and its file{% endif %}?')">{% csrf_token %}<button class="btn" type="submit">Delete</button></form>
+          {% endif %}
+        </td>
+      </tr>
+    {% empty %}<tr><td colspan="7" class="muted">No backups yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+// Each Server dropdown fills the Database dropdown next to it with that server's databases.
+document.querySelectorAll("select[data-db-target]").forEach(function (serverSelect) {
+  var dbSelect = document.querySelector(serverSelect.dataset.dbTarget);
+  function load() {
+    dbSelect.innerHTML = "<option value=''>Loading…</option>";
+    fetch("{% url 'backup_databases' %}?server=" + encodeURIComponent(serverSelect.value), {credentials: "same-origin"})
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        dbSelect.innerHTML = "";
+        if (data.error) { dbSelect.add(new Option(data.error, "")); return; }
+        data.databases.forEach(function (name) { dbSelect.add(new Option(name, name)); });
+      })
+      .catch(function () { dbSelect.innerHTML = ""; dbSelect.add(new Option("Could not load databases", "")); });
+  }
+  serverSelect.addEventListener("change", load);
+  if (serverSelect.value) load();
+});
+</script>
+{% endblock %}
