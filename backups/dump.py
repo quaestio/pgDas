@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.conf import settings
+from psycopg import sql
 from django.utils import timezone
 
 from audit.models import record
@@ -18,6 +19,8 @@ from .models import Backup
 
 DUMP_TIMEOUT = 6 * 3600
 RESTORE_WORD = "RESTORE"
+PATTERN = re.compile(r'[A-Za-z0-9_$.*?"\-]{1,200}')
+MAX_PATTERNS = 50
 
 
 def tool(name):
@@ -43,7 +46,66 @@ def _connection_args(server):
     return ["-h", server.host, "-p", str(server.port), "-U", server.username]
 
 
-def _run(args, server):
+def _patterns(values, label):
+    """Names or patterns (one per line or comma separated): letters, digits and _ $ . * ? " - only, so nothing can pass for an option."""
+    found = []
+    for value in values:
+        for part in re.split(r"[\r\n,]+", value or ""):
+            part = part.strip()
+            if not part:
+                continue
+            if not PATTERN.fullmatch(part):
+                raise PgError(f'"{part[:40]}" is not a valid {label}. Use letters, digits and _ . * ? only, for example public.orders or public.log_*.')
+            if part not in found:
+                found.append(part)
+    if len(found) > MAX_PATTERNS:
+        raise PgError(f"Give at most {MAX_PATTERNS} {label}s.")
+    return found
+
+
+def parse_options(schemas=(), tables="", skip_data="", compression=""):
+    """The options of a backup from what the form sent. Empty means everything, default compression. Raises PgError when invalid."""
+    options = {}
+    for key, values, label in (("schemas", list(schemas), "schema name"), ("tables", [tables], "table name"), ("skip_data", [skip_data], "table name")):
+        found = _patterns(values, label)
+        if found:
+            options[key] = found
+    if str(compression).strip() != "":
+        try:
+            level = int(str(compression).strip())
+        except ValueError:
+            level = -1
+        if not 0 <= level <= 9:
+            raise PgError("Compression must be a number from 0 (none) to 9 (smallest).")
+        options["compression"] = level
+    return options
+
+
+def describe(options):
+    """The options in one line for the Backups page; empty for a plain full backup."""
+    parts = []
+    if options.get("schemas"):
+        parts.append("only schemas: " + ", ".join(options["schemas"]))
+    if options.get("tables"):
+        parts.append("only tables: " + ", ".join(options["tables"]))
+    if options.get("skip_data"):
+        parts.append("without the data of: " + ", ".join(options["skip_data"]))
+    if options.get("compression") is not None:
+        parts.append(f"compression {options['compression']}")
+    return " · ".join(parts)
+
+
+def _option_args(options):
+    """Long options with `=` so a value can never be read as another option."""
+    args = [f"--schema={s}" for s in options.get("schemas", [])]
+    args += [f"--table={t}" for t in options.get("tables", [])]
+    args += [f"--exclude-table-data={d}" for d in options.get("skip_data", [])]
+    if options.get("compression") is not None:
+        args.append(f"--compress={options['compression']}")
+    return args
+
+
+def _run(args, server, tolerate=False, output=False):
     try:
         done = subprocess.run(args, env=_environment(server), capture_output=True, text=True, timeout=DUMP_TIMEOUT,
                               stdin=subprocess.DEVNULL, errors="replace")
@@ -51,9 +113,11 @@ def _run(args, server):
         raise PgError("The operation took too long and was stopped.")
     except OSError as error:
         raise PgError(str(error))
+    if done.returncode == 1 and tolerate and "errors ignored on restore" in (done.stderr or ""):
+        return done.stderr                                          # a partial backup: some objects needed what was left out
     if done.returncode:
         raise PgError((done.stderr or done.stdout or f"exit code {done.returncode}").strip()[-2000:])
-    return done.stderr
+    return done.stdout if output else done.stderr
 
 
 def _file_name(server, database, now, pk):
@@ -61,16 +125,17 @@ def _file_name(server, database, now, pk):
     return f"{slug}_{now:%Y%m%d-%H%M%S}_{pk}.dump"             # the id keeps two backups in the same second apart
 
 
-def make_backup(server, database, user=None, kind="manual"):
-    """Dump one database to a file in the backup folder. Returns the Backup row (status ok or failed)."""
+def make_backup(server, database, user=None, kind="manual", options=None):
+    """Dump one database (or the chosen schemas and tables of it) to a file in the backup folder. Returns the Backup row."""
     now = timezone.now()
-    backup = Backup.objects.create(server=server, server_name=server.name, database=database, kind=kind, created_by=user)
+    options = options or {}
+    backup = Backup.objects.create(server=server, server_name=server.name, database=database, kind=kind, created_by=user, options=options)
     backup.filename = _file_name(server, database, now, backup.pk)
     backup.save(update_fields=["filename"])
     path = backup.path
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        _run([tool("pg_dump"), *_connection_args(server), "-d", database, "-Fc", "--no-password", "-f", str(path)], server)
+        _run([tool("pg_dump"), *_connection_args(server), "-d", database, "-Fc", "--no-password", *_option_args(options), "-f", str(path)], server)
         backup.status, backup.size = "ok", path.stat().st_size
     except PgError as error:
         backup.status, backup.error = "failed", str(error)
@@ -79,9 +144,20 @@ def make_backup(server, database, user=None, kind="manual"):
     backup.finished_at = timezone.now()
     backup.save()
     record(user, "backup.create" if kind == "manual" else "backup.scheduled", server,
-           f"Backup of {database}" + (f" -> {backup.filename} ({backup.size} bytes)" if backup.status == "ok" else f" failed: {backup.error}"),
+           f"Backup of {database}" + (f" ({describe(options)})" if options else "") + (f" -> {backup.filename} ({backup.size} bytes)" if backup.status == "ok" else f" failed: {backup.error}"),
            ok=backup.status == "ok")
     return backup
+
+
+_TABLE_ENTRY = re.compile(r'\bTABLE(?: DATA)? ("(?:[^"]|"")+"|[A-Za-z_][\w$]*) ')
+
+
+def _schemas_of_tables(backup):
+    """`pg_dump --table` saves the tables but not their schemas. The schemas named in the dump's table of contents, so the restore
+    can create them first (public already exists in a new database)."""
+    listing = _run([tool("pg_restore"), "--list", str(backup.path)], backup.server, output=True)
+    found = {m.group(1) for line in listing.splitlines() for m in [_TABLE_ENTRY.search(line)] if m}
+    return sorted(s for s in found if s != "public" and not s.startswith("pg_"))
 
 
 def restore_backup(backup, new_name, user):
@@ -98,8 +174,15 @@ def restore_backup(backup, new_name, user):
             raise PgError(f'The database "{new_name}" already exists. Restore goes into a new database; pick another name.')
         conn.execute(f'CREATE DATABASE "{new_name}"')
     try:
-        warnings = _run([tool("pg_restore"), *_connection_args(server), "-d", new_name, "--no-password",
-                         "--no-owner", "--no-privileges", "--exit-on-error", str(backup.path)], server)
+        if backup.options.get("tables") and not backup.options.get("schemas"):
+            with pg.connect_rw(server, new_name) as conn:
+                for schema in _schemas_of_tables(backup):
+                    conn.execute(sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema.strip('"').replace('""', '"'))))
+                conn.commit()
+        # A full backup must restore without a single error. One that left things out may name what is missing (a foreign key to a
+        # table whose data was skipped, a trigger's function in a schema that was not saved), so there errors are only reported.
+        warnings = _run([tool("pg_restore"), *_connection_args(server), "-d", new_name, "--no-password", "--no-owner", "--no-privileges",
+                         *([] if backup.partial else ["--exit-on-error"]), str(backup.path)], server, tolerate=backup.partial)
     except PgError as error:
         with pg.connect_maintenance(server, avoid=new_name, writable=True) as conn:
             conn.execute(f'DROP DATABASE IF EXISTS "{new_name}" WITH (FORCE)')
@@ -137,7 +220,7 @@ def run_due(now=None):
     for schedule in BackupSchedule.objects.select_related("server"):
         if not due(schedule, now):
             continue
-        backup = make_backup(schedule.server, schedule.database, None, "scheduled")
+        backup = make_backup(schedule.server, schedule.database, None, "scheduled", schedule.options)
         schedule.last_run = timezone.now()
         schedule.save(update_fields=["last_run"])
         if backup.status == "ok":

@@ -1,0 +1,13 @@
+/* Backup options */
+.bk-options { flex-basis: 100%; margin-top: 4px; }
+.bk-options summary { cursor: pointer; color: var(--accent, #00cfff); font-size: 13px; }
+.bk-options-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 10px 0; align-items: start; }
+.bk-options-grid label, .bk-options-grid fieldset { display: flex; flex-direction: column; gap: 5px; font-size: 11px; letter-spacing: .5px; margin: 0; }
+.bk-options-grid fieldset { border: 1px solid #12507a; padding: 8px 10px; min-width: 0; }
+.bk-options-grid legend { padding: 0 6px; color: var(--muted, #7fa6c4); font-size: 11px; }
+.bk-options-grid textarea { width: 100%; box-sizing: border-box; font-size: 13px; }
+.bk-schemas [data-schemas] { max-height: 130px; overflow: auto; display: flex; flex-direction: column; gap: 3px; font-size: 13px; letter-spacing: 0; }
+.bk-options .muted { font-size: 12px; letter-spacing: 0; }
+.bk-options-grid .bk-schemas label { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; letter-spacing: 0; }
+.bk-options-grid input[type=checkbox] { width: auto; height: auto; flex: none; margin: 0; }
+.bk-options-grid textarea { height: 86px; min-height: 0; resize: vertical; }

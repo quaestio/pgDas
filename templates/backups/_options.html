@@ -1,0 +1,17 @@
+{# What to back up, beyond "everything": used inside both the Back up now form and the schedule form. #}
+<details class="bk-options">
+  <summary>Options <span class="muted">(everything, default compression)</span></summary>
+  <div class="bk-options-grid">
+    <fieldset class="bk-schemas"><legend>Only these schemas</legend>
+      <div data-schemas><span class="muted">Choose a database first.</span></div>
+      <p class="muted">None ticked = all schemas.</p></fieldset>
+    <label>Only these tables
+      <textarea name="tables" rows="3" spellcheck="false" placeholder="one per line, for example&#10;public.orders&#10;sales.*"></textarea></label>
+    <label>Leave out the data of these tables
+      <textarea name="skip_data" rows="3" spellcheck="false" placeholder="one per line, for example&#10;public.log_*&#10;public.audit_trail"></textarea>
+      <span class="muted">Their structure is still saved.</span></label>
+    <label>Compression
+      <select name="compression"><option value="">default</option><option value="0">0 · none (fastest)</option>{% for i in "123456789" %}<option value="{{ i }}">{{ i }}{% if i == "9" %} · smallest{% endif %}</option>{% endfor %}</select></label>
+  </div>
+  <p class="muted">Names may use <code>*</code> and <code>?</code>. A backup of only some schemas or tables restores with warnings wherever something needs what was left out.</p>
+</details>

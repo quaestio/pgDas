@@ -157,6 +157,8 @@ Staff can open **Backups** in the sidebar to back up a database now (a `pg_dump`
 restore it. A restore always goes into a **new** database (typed word `RESTORE`), so nothing existing is overwritten; owners and
 privileges are not restored. If a restore fails, the half-made database is dropped again.
 
+**Options** (a collapsible section on the Back up now form and on each schedule): back up only some **schemas** (ticked from the chosen database), only some **tables**, leave out the **data of some tables** (their structure is still saved; useful for big log tables), and pick a **compression** level 0 to 9. Table names may use `*` and `?` (`public.log_*`), one per line. Only letters, digits and `_ $ . * ? - "` are accepted, so a name can never act as a command option. A backup that leaves something out is marked *partial* and its options are shown in the list. Restoring one creates the schemas of the saved tables first and reports PostgreSQL's warnings instead of failing, because something may need what was left out (a foreign key to a table whose data was skipped, a trigger's function in a schema that was not saved). A full backup is still restored strictly.
+
 Schedules (every N hours, keep the newest M) are carried out by `python manage.py run_backups`, which makes the backups that are
 due. Run it from Task Scheduler or cron every few minutes, or keep it running with `python manage.py run_backups --loop`. Only
 scheduled backups are pruned; manual ones stay until you delete them. Every backup, download, restore and delete is in the audit log.

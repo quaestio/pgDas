@@ -5,6 +5,7 @@ from . import views
 urlpatterns = [
     path("", views.backup_list, name="backup_list"),
     path("databases/", views.database_choices, name="backup_databases"),
+    path("schemas/", views.schema_choices, name="backup_schemas"),
     path("create/", views.backup_create, name="backup_create"),
     path("<int:pk>/download/", views.backup_download, name="backup_download"),
     path("<int:pk>/delete/", views.backup_delete, name="backup_delete"),

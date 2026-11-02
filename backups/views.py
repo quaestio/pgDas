@@ -19,6 +19,11 @@ def _back():
     return redirect("backup_list")
 
 
+def _options(request):
+    return dump.parse_options(request.POST.getlist("schemas"), request.POST.get("tables", ""), request.POST.get("skip_data", ""),
+                              request.POST.get("compression", ""))
+
+
 @login_required
 @staff_required
 def backup_list(request):
@@ -45,6 +50,23 @@ def database_choices(request):
 
 @login_required
 @staff_required
+def schema_choices(request):
+    """The schemas of one database (not the system ones), for the checkboxes under Options."""
+    server = get_object_or_404(ServerConnection, pk=request.GET.get("server") or 0)
+    database = request.GET.get("database", "").strip()
+    if not database:
+        return JsonResponse({"schemas": []})
+    try:
+        with pg.connect(server, database) as conn:
+            names = [r[0] for r in conn.execute("SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg\\_%' "
+                                                "AND nspname <> 'information_schema' ORDER BY 1").fetchall()]
+    except PgError as error:
+        return JsonResponse({"error": str(error)}, status=502)
+    return JsonResponse({"schemas": names})
+
+
+@login_required
+@staff_required
 @require_POST
 def backup_create(request):
     server = get_object_or_404(ServerConnection, pk=request.POST.get("server") or 0)
@@ -52,9 +74,14 @@ def backup_create(request):
     if not database:
         messages.error(request, "Give the database to back up.")
         return _back()
-    backup = dump.make_backup(server, database, request.user)
+    try:
+        options = _options(request)
+    except PgError as error:
+        messages.error(request, str(error))
+        return _back()
+    backup = dump.make_backup(server, database, request.user, options=options)
     if backup.status == "ok":
-        messages.success(request, f"Backed up {database} ({backup.size:,} bytes).")
+        messages.success(request, f"Backed up {database} ({backup.size:,} bytes)" + (f", {backup.options_text}." if backup.options else "."))
     else:
         messages.error(request, f"Backup of {database} failed: {backup.error}")
     return _back()
@@ -94,7 +121,9 @@ def backup_restore(request, pk):
     except PgError as error:
         messages.error(request, f"Could not restore: {error}")
     else:
-        messages.success(request, f"Restored into the new database {name}." + (f" PostgreSQL said: {warnings}" if warnings else ""))
+        note = (" This backup left something out, so anything that needed it may be missing; PostgreSQL's warnings follow."
+                if backup.partial else "")
+        messages.success(request, f"Restored into the new database {name}.{note}" + (f" PostgreSQL said: {warnings[-600:]}" if warnings else ""))
     return _back()
 
 
@@ -111,8 +140,13 @@ def schedule_save(request):
     if not database or every < 1 or keep < 1:
         messages.error(request, "Give a database, a number of hours of at least 1, and how many backups to keep (at least 1).")
         return _back()
+    try:
+        options = _options(request)
+    except PgError as error:
+        messages.error(request, str(error))
+        return _back()
     BackupSchedule.objects.update_or_create(server=server, database=database,
-                                            defaults={"every_hours": every, "keep": keep, "enabled": True})
+                                            defaults={"every_hours": every, "keep": keep, "enabled": True, "options": options})
     record(request.user, "backup.schedule", server, f"Scheduled backup of {database} every {every} h, keeping {keep}")
     messages.success(request, f"{database} will be backed up every {every} hour{'s' if every != 1 else ''}, keeping the newest {keep}. "
                               "Run `manage.py run_backups` regularly (or with --loop) to make it happen.")

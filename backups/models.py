@@ -19,6 +19,7 @@ class Backup(models.Model):
     filename = models.CharField(max_length=300, blank=True)
     size = models.BigIntegerField(default=0)
     error = models.TextField(blank=True)
+    options = models.JSONField(default=dict, blank=True)              # schemas, tables, skip_data, compression (see dump.parse_options)
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -34,6 +35,16 @@ class Backup(models.Model):
     def available(self):
         return self.status == "ok" and bool(self.path) and self.path.is_file()
 
+    @property
+    def partial(self):
+        """True when the backup leaves something out (schemas, tables or the data of some tables)."""
+        return bool(self.options.get("schemas") or self.options.get("tables") or self.options.get("skip_data"))
+
+    @property
+    def options_text(self):
+        from .dump import describe
+        return describe(self.options)
+
 
 class BackupSchedule(models.Model):
     """Back up one database every `every_hours` hours (run `manage.py run_backups` regularly), keeping the newest `keep`."""
@@ -42,9 +53,15 @@ class BackupSchedule(models.Model):
     database = models.CharField(max_length=200)
     every_hours = models.PositiveIntegerField(default=24)
     keep = models.PositiveIntegerField(default=7)
+    options = models.JSONField(default=dict, blank=True)
     enabled = models.BooleanField(default=True)
     last_run = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def options_text(self):
+        from .dump import describe
+        return describe(self.options)
 
     class Meta:
         ordering = ["server__name", "database"]

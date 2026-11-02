@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Backups · PGDAS{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="{% static 'backups.css' %}">
 <div class="title-row"><div><div class="eyebrow">CONSOLE / <span>BACKUPS</span></div><h1>Backups</h1>
   <p class="muted">Each backup is a <code>pg_dump</code> file (custom format) kept on this machine. Restore always goes into a <b>new</b> database, so nothing existing is overwritten.</p></div></div>
 
@@ -11,6 +13,7 @@
     <label>Server<select name="server" data-db-target="#bkDb1">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
     <label>Database<select name="database" id="bkDb1" required></select></label>
     <button class="btn primary" type="submit">Back up</button>
+    {% include "backups/_options.html" %}
   </form>
   {% else %}<p class="muted">Add a server first.</p>{% endif %}
 </section>
@@ -25,13 +28,14 @@
     <label>Every (hours)<input type="number" name="every_hours" min="1" value="24"></label>
     <label>Keep newest<input type="number" name="keep" min="1" value="7"></label>
     <button class="btn primary" type="submit">Save schedule</button>
+    {% include "backups/_options.html" %}
   </form>
   {% endif %}
   {% if schedules %}
   <table>
     <thead><tr><th>SERVER</th><th>DATABASE</th><th>EVERY</th><th>KEEP</th><th>LAST RUN (UTC)</th><th></th></tr></thead>
     <tbody>{% for s in schedules %}
-      <tr><td>{{ s.server.name }}</td><td>{{ s.database }}</td><td>{{ s.every_hours }} h</td><td>{{ s.keep }}</td>
+      <tr><td>{{ s.server.name }}</td><td>{{ s.database }}{% if s.options_text %}<div class="muted">{{ s.options_text }}</div>{% endif %}</td><td>{{ s.every_hours }} h</td><td>{{ s.keep }}</td>
         <td class="muted">{{ s.last_run|date:"Y-m-d H:i"|default:"never" }}</td>
         <td><form method="post" action="{% url 'schedule_delete' s.pk %}">{% csrf_token %}<button class="btn" type="submit">Remove</button></form></td></tr>
     {% endfor %}</tbody>
@@ -47,7 +51,7 @@
     {% for b in backups %}
       <tr>
         <td class="muted" style="white-space:nowrap">{{ b.created_at|date:"Y-m-d H:i:s" }}</td>
-        <td>{{ b.server_name }}</td><td>{{ b.database }}</td><td>{{ b.kind }}</td>
+        <td>{{ b.server_name }}</td><td>{{ b.database }}{% if b.partial %} <span class="badge">partial</span>{% endif %}{% if b.options_text %}<div class="muted">{{ b.options_text }}</div>{% endif %}</td><td>{{ b.kind }}</td>
         <td>{% if b.status == "ok" %}{{ b.size|filesizeformat }}{% endif %}</td>
         <td>{% if b.status == "ok" %}<span class="badge ok">ok</span>{% elif b.status == "failed" %}<span class="badge bad">failed</span><pre class="sql">{{ b.error }}</pre>{% else %}<span class="badge">running</span>{% endif %}</td>
         <td>
@@ -75,9 +79,32 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// Each Server dropdown fills the Database dropdown next to it with that server's databases.
+// Each Server dropdown fills the Database dropdown next to it with that server's databases, and the chosen database fills the
+// schema checkboxes under Options.
 document.querySelectorAll("select[data-db-target]").forEach(function (serverSelect) {
-  var dbSelect = document.querySelector(serverSelect.dataset.dbTarget);
+  var dbSelect = document.querySelector(serverSelect.dataset.dbTarget), form = serverSelect.closest("form");
+  var schemaBox = form.querySelector("[data-schemas]"), schemaToken = 0;
+  function loadSchemas() {
+    var token = ++schemaToken;
+    schemaBox.replaceChildren();
+    if (!dbSelect.value) { schemaBox.textContent = "Choose a database first."; return; }
+    schemaBox.textContent = "Loading…";
+    fetch("{% url 'backup_schemas' %}?server=" + encodeURIComponent(serverSelect.value) + "&database=" + encodeURIComponent(dbSelect.value), {credentials: "same-origin"})
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (token !== schemaToken) return;                      // the choice changed while this was loading
+        schemaBox.replaceChildren();
+        if (data.error) { schemaBox.textContent = data.error; return; }
+        data.schemas.forEach(function (name) {
+          var label = document.createElement("label"), box = document.createElement("input");
+          label.className = "dlg-check"; box.type = "checkbox"; box.name = "schemas"; box.value = name;
+          label.appendChild(box); label.appendChild(document.createTextNode(" " + name)); schemaBox.appendChild(label);
+        });
+        if (!data.schemas.length) schemaBox.textContent = "No schemas found.";
+      })
+      .catch(function () { if (token === schemaToken) schemaBox.textContent = "Could not load the schemas."; });
+  }
+  dbSelect.addEventListener("change", loadSchemas);
   function load() {
     dbSelect.innerHTML = "<option value=''>Loading…</option>";
     fetch("{% url 'backup_databases' %}?server=" + encodeURIComponent(serverSelect.value), {credentials: "same-origin"})
@@ -86,8 +113,9 @@ document.querySelectorAll("select[data-db-target]").forEach(function (serverSele
         dbSelect.innerHTML = "";
         if (data.error) { dbSelect.add(new Option(data.error, "")); return; }
         data.databases.forEach(function (name) { dbSelect.add(new Option(name, name)); });
+        loadSchemas();
       })
-      .catch(function () { dbSelect.innerHTML = ""; dbSelect.add(new Option("Could not load databases", "")); });
+      .catch(function () { dbSelect.innerHTML = ""; dbSelect.add(new Option("Could not load databases", "")); loadSchemas(); });
   }
   serverSelect.addEventListener("change", load);
   if (serverSelect.value) load();
