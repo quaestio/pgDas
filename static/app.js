@@ -46,6 +46,18 @@
     syncToggle();
   });
 
+  // The Administration group can be folded away to leave the whole column to the Object Browser; the choice is remembered
+  // (base.html restores it before first paint through the admin-menu-closed class).
+  var groupButton = document.getElementById("adminMenuToggle");
+  if (groupButton) {
+    groupButton.setAttribute("aria-expanded", String(!root.classList.contains("admin-menu-closed")));
+    groupButton.addEventListener("click", function () {
+      var closed = root.classList.toggle("admin-menu-closed");
+      groupButton.setAttribute("aria-expanded", String(!closed));
+      store("pgdas.adminMenu", closed ? "0" : "1");
+    });
+  }
+
   var aside = document.getElementById("sidebar");
   var resizer = document.getElementById("sidebarResizer");
   if (aside && resizer) {

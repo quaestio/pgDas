@@ -11,8 +11,9 @@
   <meta name="theme-color" content="#011638">
   <link rel="stylesheet" href="{% static 'adminweb-theme.css' %}">
   <link rel="stylesheet" href="{% static 'pgdas.css' %}">
+  <link rel="stylesheet" href="{% static 'sidebar.css' %}">
   {# Restore the sidebar width / collapsed state before the page paints, so it does not jump. #}
-  <script>try{var w=parseInt(localStorage.getItem("pgdas.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdas.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed")}catch(e){}</script>
+  <script>try{var w=parseInt(localStorage.getItem("pgdas.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdas.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed");if(localStorage.getItem("pgdas.adminMenu")==="0")document.documentElement.classList.add("admin-menu-closed")}catch(e){}</script>
 </head>
 <body class="{% if user.is_authenticated %}has-tree{% endif %}">
 <div class="scanlines"></div>
@@ -30,12 +31,15 @@
           data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-home-url="{% url 'server_list' %}"></ul>
     </div>
     {% if user.is_staff %}
-    <nav id="menu" class="compact below">
-      <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
-      <a href="{% url 'backup_list' %}" class="{% if url_name == 'backup_list' %}active{% endif %}"><span class="ico">⇩</span> Backups</a>
-      <a href="{% url 'monitor' %}" class="{% if url_name == 'monitor' %}active{% endif %}"><span class="ico">◔</span> Monitor</a>
-      <a href="{% url 'watch' %}" class="{% if url_name == 'watch' %}active{% endif %}"><span class="ico">▲</span> Alerts &amp; trends</a>
-    </nav>
+    <div class="menu-group" id="adminMenu">
+      <button class="nav-label menu-head" id="adminMenuToggle" type="button" aria-expanded="true" aria-controls="menu"><span>ADMINISTRATION</span><span class="menu-chevron" aria-hidden="true">▾</span></button>
+      <nav id="menu" class="compact" aria-label="Administration">
+        <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
+        <a href="{% url 'backup_list' %}" class="{% if url_name == 'backup_list' %}active{% endif %}"><span class="ico">⇩</span> Backups</a>
+        <a href="{% url 'monitor' %}" class="{% if url_name == 'monitor' %}active{% endif %}"><span class="ico">◔</span> Monitor</a>
+        <a href="{% url 'watch' %}" class="{% if url_name == 'watch' %}active{% endif %}"><span class="ico">▲</span> Alerts &amp; trends</a>
+      </nav>
+    </div>
     {% endif %}
     <div class="sidebar-bottom" aria-label="Application information">
       <small>Version: Development</small>

@@ -1,0 +1,12 @@
+﻿/* Sidebar: the Administration links are their own compact group, in two columns, that can be folded away,
+   so the Object Browser (flex: 1 in pgdas.css) keeps as much of the column as possible. */
+.menu-group { flex: none; border-top: 1px solid var(--line); }
+.menu-head { display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; padding: 10px 18px 8px;
+  background: none; border: 0; font: inherit; color: var(--muted); letter-spacing: 2px; font-size: 10px; cursor: pointer; text-align: left; }
+.menu-head:hover, .menu-head:focus-visible { color: var(--accent); outline: none; }
+.menu-chevron { font-size: 12px; transition: transform .15s; }
+html.admin-menu-closed .menu-chevron { transform: rotate(-90deg); }
+html.admin-menu-closed .menu-group > nav { display: none; }
+.menu-group > nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 2px 6px; padding: 0 10px 8px; margin: 0; border: 0; }
+.menu-group nav a { margin: 0; padding: 6px 10px; gap: 8px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-group nav a .ico { width: 16px; font-size: 13px; text-align: center; flex: none; }

@@ -103,3 +103,49 @@ class BrandingTests(TestCase):
     def test_no_visible_template_text_still_says_the_old_name(self):
         for path in (BASE_DIR / "templates").rglob("*.html"):
             self.assertNotIn("PgDeck", path.read_text(encoding="utf-8"), path.name)
+
+class SidebarGroupTests(TestCase):
+    """The Administration links are a separate compact group below the Object Browser, which keeps the room."""
+
+    def sidebar(self, staff):
+        user = get_user_model().objects.create_user("staff" if staff else "viewer", password="pw-12345-abc", is_staff=staff)
+        self.client.force_login(user)
+        html = self.client.get("/").content.decode()
+        return html, html[html.index("<aside"):html.index("</aside>")]
+
+    def test_staff_get_a_separate_group_after_the_tree_with_all_their_links(self):
+        html, side = self.sidebar(True)
+        self.assertIn('class="menu-group" id="adminMenu"', side)
+        group = side[side.index('class="menu-group"'):side.index("</nav>", side.index('class="menu-group"'))]
+        self.assertIn("ADMINISTRATION", group)
+        for link in ("Audit log", "Backups", "Monitor", "Alerts &amp; trends"):
+            self.assertIn(link, group)
+        self.assertGreater(side.index('class="menu-group"'), side.index('id="tree"'))                 # below the tree ...
+        self.assertLess(side.index('class="menu-group"'), side.index('class="sidebar-bottom"'))        # ... above the footer
+        self.assertNotIn('id="menu" class="compact below"', side)                                      # no longer a loose list of links
+
+    def test_the_group_folds_away_and_the_choice_is_restored_before_first_paint(self):
+        html, side = self.sidebar(True)
+        self.assertIn('id="adminMenuToggle"', side)
+        self.assertIn('aria-expanded="true"', side[side.index("adminMenuToggle"):])
+        self.assertIn('aria-controls="menu"', side)
+        head = html[:html.index("</head>")]
+        self.assertIn("pgdas.adminMenu", head)
+        self.assertIn("admin-menu-closed", head)
+        self.assertIn('href="/static/sidebar.css"', head)
+        script = (BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        for needle in ("adminMenuToggle", "admin-menu-closed", "pgdas.adminMenu", "aria-expanded"):
+            self.assertIn(needle, script)
+
+    def test_the_stylesheet_makes_it_compact_and_leaves_the_tree_the_rest(self):
+        css = (BASE_DIR / "static" / "sidebar.css").read_text(encoding="utf-8")
+        for needle in (".menu-group", "grid-template-columns", "html.admin-menu-closed .menu-group > nav { display: none; }"):
+            self.assertIn(needle, css)
+        main = (BASE_DIR / "static" / "pgdas.css").read_text(encoding="utf-8")
+        self.assertIn(".sidebar-tree { flex: 1; min-height: 0;", main)                                # the tree takes what is left
+
+    def test_people_who_are_not_staff_have_no_administration_group(self):
+        _, side = self.sidebar(False)
+        self.assertNotIn("menu-group", side)
+        self.assertNotIn("ADMINISTRATION", side)
+        self.assertIn('id="tree"', side)
