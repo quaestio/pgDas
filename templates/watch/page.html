@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Alerts & trends · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">CONSOLE / <span>ALERTS &amp; TRENDS</span></div><h1>Alerts &amp; trends</h1>
+  <p class="muted">What needs attention on a server, and how its databases grow. Alerts are worked out each time this page is opened; size history needs <code>python manage.py run_watch</code> to run regularly.</p></div></div>
+
+<section class="panel pad">
+  {% if servers %}
+  <div class="bk-form">
+    <label>Server<select id="wServer">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Period<select id="wDays">{% for d in periods %}<option value="{{ d }}"{% if d == 7 %} selected{% endif %}>{% if d == 1 %}Last 24 hours{% else %}Last {{ d }} days{% endif %}</option>{% endfor %}</select></label>
+    <button class="btn primary" type="button" id="wSample" title="Take a size sample of this server now">Sample now</button>
+    <span class="muted" id="wStatus"></span>
+  </div>
+  {% else %}<p class="muted">Add a server first.</p>{% endif %}
+</section>
+
+<section class="panel pad"><h2>Alerts <span class="badge" id="wAlertCount">0</span></h2>
+  <p class="muted">Blocked or long-running sessions, too many connections, fast growth, and failed or overdue backups.</p>
+  <ul class="alerts" id="wAlerts"></ul></section>
+
+<section class="panel pad scroll"><h2>Database sizes</h2>
+  <p class="muted" id="wNote"></p>
+  <table><thead><tr><th>DATABASE</th><th>SIZE</th><th>CHANGE</th><th>TREND</th><th>SAMPLES</th></tr></thead><tbody id="wRows"></tbody></table></section>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var server = $("wServer"); if (!server) return;
+  var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value || "{{ csrf_token }}";
+  var NS = "http://www.w3.org/2000/svg";
+
+  function spark(points) {
+    var svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 160 36"); svg.setAttribute("width", "160"); svg.setAttribute("height", "36");
+    svg.setAttribute("role", "img"); svg.setAttribute("aria-label", "Size over the period");
+    var times = points.map(function (p) { return Date.parse(p[0]); }), sizes = points.map(function (p) { return p[1]; });
+    var t0 = Math.min.apply(null, times), t1 = Math.max.apply(null, times), lo = Math.min.apply(null, sizes), hi = Math.max.apply(null, sizes);
+    var xs = function (t) { return t1 === t0 ? 80 : 4 + (t - t0) / (t1 - t0) * 152; };
+    var ys = function (v) { return hi === lo ? 18 : 32 - (v - lo) / (hi - lo) * 28; };
+    var line = document.createElementNS(NS, "polyline");
+    line.setAttribute("points", points.map(function (p) { return xs(Date.parse(p[0])).toFixed(1) + "," + ys(p[1]).toFixed(1); }).join(" "));
+    line.setAttribute("fill", "none"); line.setAttribute("stroke", "currentColor"); line.setAttribute("stroke-width", "1.8"); line.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(line);
+    var last = points[points.length - 1], dot = document.createElementNS(NS, "circle");
+    dot.setAttribute("cx", xs(Date.parse(last[0])).toFixed(1)); dot.setAttribute("cy", ys(last[1]).toFixed(1)); dot.setAttribute("r", "2.6"); dot.setAttribute("fill", "currentColor");
+    svg.appendChild(dot);
+    return svg;
+  }
+
+  function show(d) {
+    var list = $("wAlerts"); list.replaceChildren();
+    $("wAlertCount").textContent = d.alerts.length;
+    $("wAlertCount").className = "badge" + (d.alerts.length ? " bad" : " ok");
+    if (!d.alerts.length) { var ok = document.createElement("li"); ok.className = "muted"; ok.textContent = "Nothing needs attention."; list.appendChild(ok); }
+    d.alerts.forEach(function (a) {
+      var li = document.createElement("li"), tag = document.createElement("span"), title = document.createElement("strong"), more = document.createElement("div");
+      li.className = "alert " + a.level; tag.className = "badge " + (a.level === "critical" ? "bad" : ""); tag.textContent = a.level.toUpperCase();
+      title.textContent = " " + a.title; more.className = "muted"; more.textContent = a.detail;
+      li.appendChild(tag); li.appendChild(title); li.appendChild(more); list.appendChild(li);
+    });
+    var rows = $("wRows"); rows.replaceChildren();
+    $("wNote").textContent = d.series.length ? "" : "No size history for this period yet. Press “Sample now”, and run `manage.py run_watch` regularly to build one.";
+    d.series.forEach(function (s) {
+      var tr = rows.insertRow(), c;
+      tr.insertCell().textContent = s.database; tr.insertCell().textContent = s.size_text;
+      c = tr.insertCell(); c.textContent = s.samples < 2 ? "—" : s.change_text + (s.percent === null ? "" : " (" + (s.percent >= 0 ? "+" : "") + s.percent + "%)");
+      if (s.samples >= 2 && s.percent !== null && s.percent >= 20) c.className = "bad-text";
+      tr.insertCell().appendChild(s.samples < 2 ? document.createTextNode("") : spark(s.points));
+      tr.insertCell().textContent = s.samples;
+    });
+  }
+
+  function load() {
+    $("wStatus").textContent = "Loading…";
+    fetch("{% url 'watch_data' %}?server=" + encodeURIComponent(server.value) + "&days=" + encodeURIComponent($("wDays").value), {credentials: "same-origin"})
+      .then(function (r) { return r.json(); }).then(function (d) { show(d); $("wStatus").textContent = "Updated " + new Date().toLocaleTimeString(); })
+      .catch(function () { $("wStatus").textContent = "Could not load."; });
+  }
+
+  $("wSample").addEventListener("click", function () {
+    fetch("{% url 'watch_sample' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": csrf}, body: new URLSearchParams({server: server.value})})
+      .then(function (r) { return r.json(); }).then(function (d) { load(); $("wStatus").textContent = d.message || d.error; });
+  });
+  server.addEventListener("change", load); $("wDays").addEventListener("change", load);
+  load();
+})();
+</script>
+{% endblock %}

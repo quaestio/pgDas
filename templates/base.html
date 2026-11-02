@@ -34,6 +34,7 @@
       <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
       <a href="{% url 'backup_list' %}" class="{% if url_name == 'backup_list' %}active{% endif %}"><span class="ico">⇩</span> Backups</a>
       <a href="{% url 'monitor' %}" class="{% if url_name == 'monitor' %}active{% endif %}"><span class="ico">◔</span> Monitor</a>
+      <a href="{% url 'watch' %}" class="{% if url_name == 'watch' %}active{% endif %}"><span class="ico">▲</span> Alerts &amp; trends</a>
     </nav>
     {% endif %}
     <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" tabindex="0"

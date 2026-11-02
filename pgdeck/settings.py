@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "explorer",
     "backups",
     "monitor",
+    "watch",
 ]
 
 MIDDLEWARE = [
@@ -125,6 +126,15 @@ ENCRYPTION_KEY = os.getenv("PGDECK_ENCRYPTION_KEY", "")
 # Backups: pg_dump files go here; PGDECK_PG_BIN is the folder holding pg_dump and pg_restore (blank = look on PATH).
 BACKUP_DIR = Path(os.getenv("PGDECK_BACKUP_DIR") or BASE_DIR / "data" / "backups")
 PG_BIN = os.getenv("PGDECK_PG_BIN", "")
+
+# Size trends and alerts (the Watch page). Samples are kept this many days; the thresholds decide when an alert shows.
+WATCH_KEEP_DAYS = int(os.getenv("PGDECK_WATCH_KEEP_DAYS", "90"))
+WATCH_BLOCKED_SECONDS = int(os.getenv("PGDECK_WATCH_BLOCKED_SECONDS", "30"))          # a session waiting on a lock this long
+WATCH_IDLE_TX_SECONDS = int(os.getenv("PGDECK_WATCH_IDLE_TX_SECONDS", "300"))         # idle in a transaction this long
+WATCH_SLOW_SECONDS = int(os.getenv("PGDECK_WATCH_SLOW_SECONDS", "300"))               # a query running this long
+WATCH_CONNECTIONS_PERCENT = int(os.getenv("PGDECK_WATCH_CONNECTIONS_PERCENT", "80"))  # share of max_connections in use
+WATCH_GROWTH_PERCENT = int(os.getenv("PGDECK_WATCH_GROWTH_PERCENT", "20"))            # growth over 7 days ...
+WATCH_GROWTH_MIN_BYTES = int(os.getenv("PGDECK_WATCH_GROWTH_MIN_BYTES", str(100 * 1024 * 1024)))   # ... and at least this much
 
 # SQL runner safety limits.
 STATEMENT_TIMEOUT_MS = int(os.getenv("PGDECK_STATEMENT_TIMEOUT_MS", "30000"))

@@ -8,7 +8,7 @@ PGDAS itself, which keeps its own data in a single SQLite file.
 
 **Status: in development.** Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
 timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
-popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); live monitoring is done (see "Monitor"); size trends and alerts are next (see the
+popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); monitoring, size trends and alerts are done (see "Monitor" and "Alerts & trends") (see the
 roadmap).
 
 The Python package, the `PGDECK_*` environment variables and the `pgdeck.sqlite3` file keep their earlier names, so
@@ -172,12 +172,23 @@ recorded in the audit log. As everywhere in PGDAS, PostgreSQL decides what the l
 session, `pg_signal_backend` or superuser) its own "permission denied" is shown. A login with limited rights also sees blank
 details for other users' sessions, as PostgreSQL itself hides them.
 
+## Alerts & trends
+**Alerts & trends** (staff) lists what needs attention on a server, worked out each time the page is opened (nothing is stored or
+sent): sessions blocked by locks, sessions idle in a transaction too long, queries running too long, connections near
+`max_connections`, a database that grew fast over 7 days, a server that cannot be reached, and scheduled backups that failed or are
+overdue. Below it, a table of database sizes with the change over 24 hours, 7, 30 or 90 days and a small trend line.
+
+Size history is built by `python manage.py run_watch`, which takes one sample of every database of every saved server (every 5
+minutes with `--loop`, or from Task Scheduler or cron); **Sample now** on the page takes one by hand. Samples are kept for 90 days.
+The thresholds are settings in `.env` (`PGDECK_WATCH_*`, see `.env.example`). Alerts show on the page only: no email or chat message
+is sent.
+
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
 2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
    and re-insert for deletes and undo for updates are done**; query history is done; next: finer per-user permissions.
 3. Backups: **`pg_dump` backups, download, restore into a new database, schedules with retention are done.**
-4. Monitoring: **sessions, locks, slow queries and cancel/end are done**; next: size trends and alerts.
+4. Monitoring: **sessions, locks, slow queries, cancel/end, size trends and alerts are done**; next: sending alerts (email or webhook).
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
 
 ## License

@@ -194,3 +194,10 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .bad-text { color: #ff7b8d; }
 .row-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .row-form input { height: 34px; padding: 0 10px; }
+
+.alerts { list-style: none; margin: 8px 0 0; padding: 0; }
+.alerts li { padding: 9px 0; border-top: 1px solid #12507a; }
+.alerts li.critical { border-left: 3px solid #ff7b8d; padding-left: 10px; }
+.alerts li.warning { border-left: 3px solid #e9b100; padding-left: 10px; }
+.alerts .muted { margin-top: 3px; font-size: 12px; }
+#wRows svg { color: #00cfff; vertical-align: middle; }

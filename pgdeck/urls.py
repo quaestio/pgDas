@@ -7,6 +7,7 @@ urlpatterns = [
     path("audit/", include("audit.urls")),
     path("backups/", include("backups.urls")),
     path("monitor/", include("monitor.urls")),
+    path("watch/", include("watch.urls")),
     path("", include("explorer.urls")),
     path("", include("servers.urls")),
 ]
