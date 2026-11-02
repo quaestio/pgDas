@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "backups",
     "monitor",
     "watch",
+    "dashboard",
 ]
 
 MIDDLEWARE = [
@@ -94,7 +95,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "server_list"
+LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
 LANGUAGE_CODE = "en-us"

@@ -22,6 +22,7 @@
   <aside id="sidebar">
     <button class="icon-btn sidebar-close" id="sidebarClose" type="button" aria-label="Close navigation" title="Close navigation">×</button>
     <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><img class="brand-icon" src="{% static 'img/pgdas-64.png' %}" width="30" height="30" alt=""> PG<span>DAS</span></a>
+    <nav class="compact above" aria-label="Dashboard"><a href="{% url 'dashboard' %}" class="{% if url_name == 'dashboard' %}active{% endif %}"><span class="ico">▦</span> Dashboard</a></nav>
     {# The object tree is in the sidebar on every page; explorer.js fills it in. #}
     <div class="sidebar-tree">
       <div class="nav-label tree-head"><span>OBJECT BROWSER</span>

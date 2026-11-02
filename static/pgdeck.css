@@ -201,3 +201,19 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .alerts li.warning { border-left: 3px solid #e9b100; padding-left: 10px; }
 .alerts .muted { margin-top: 3px; font-size: 12px; }
 #wRows svg { color: #00cfff; vertical-align: middle; }
+
+/* Dashboard */
+.dash-wide { grid-column: 1 / -1; }
+@media (min-width: 1100px) { .dash-wide { grid-column: auto; } .dashboard-grid > .dash-wide:first-child, .dashboard-grid > .dash-wide:nth-of-type(3) { grid-column: 1; } }
+.dash-gauges { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-around; padding: 6px 0; }
+.dash-gauge { text-align: center; min-width: 120px; font-size: 12px; }
+.dash-gauge-label { letter-spacing: 1px; color: var(--accent, #00cfff); margin-top: 4px; }
+.dash-bar { height: 6px; background: #12507a; border-radius: 3px; margin-top: 5px; overflow: hidden; }
+.dash-bar span { display: block; height: 100%; background: #00cfff; }
+.dash-row { margin-bottom: 11px; }
+.dash-row-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.dash-chart { min-height: 60px; }
+.dash-svg { width: 100%; height: 170px; display: block; }
+.dashboard-grid h2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.dashboard-grid h2 select { width: auto; padding: 4px 8px; font-size: 12px; }
+nav.compact.above { padding-bottom: 4px; }

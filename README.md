@@ -172,6 +172,15 @@ recorded in the audit log. As everywhere in PGDAS, PostgreSQL decides what the l
 session, `pg_signal_backend` or superuser) its own "permission denied" is shown. A login with limited rights also sees blank
 details for other users' sessions, as PostgreSQL itself hides them.
 
+## Dashboard
+Signing in lands on the **Dashboard** (also first in the sidebar), for every user. It reads each saved server live: tiles for
+servers (online / offline), databases (and their total size), PGDAS users and alerts; a **server status** table (version, sessions
+against `max_connections`, databases, size, online or not, with the reason when a server does not answer); **health** gauges for
+connections in use, cache hit ratio and busy sessions; the **total size** of all servers over 24 hours, 7 or 30 days (from the
+size samples, see below); the **largest databases**; and, for staff, the **recent activity** from the audit log and a **needs
+attention** list (the alerts below plus failed changes of the last 7 days). It refreshes every 30 seconds. PostgreSQL cannot report
+the CPU, memory, disk or network use of the machine it runs on, so those are not shown.
+
 ## Alerts & trends
 **Alerts & trends** (staff) lists what needs attention on a server, worked out each time the page is opened (nothing is stored or
 sent): sessions blocked by locks, sessions idle in a transaction too long, queries running too long, connections near

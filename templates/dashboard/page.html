@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">OPERATIONS / <span>DASHBOARD</span></div><h1>Command Overview</h1>
+  <p class="muted">Your PostgreSQL servers at a glance, read live from the servers themselves. Refreshes every 30 seconds.</p></div>
+  <span class="live"><span class="dot"></span> <span id="dStatus">LOADING…</span></span></div>
+
+<div class="metrics">
+  <div class="panel metric"><i style="font-style:normal">▥</i><div><small>SERVERS</small><strong id="mServers">–</strong><span id="mServersNote" class="muted"></span></div></div>
+  <div class="panel metric"><i style="font-style:normal">◉</i><div><small>DATABASES</small><strong id="mDatabases">–</strong><span id="mDatabasesNote" class="muted"></span></div></div>
+  <div class="panel metric"><i style="font-style:normal">☺</i><div><small>USERS</small><strong id="mUsers">–</strong><span id="mUsersNote" class="muted"></span></div></div>
+  <div class="panel metric"><i style="font-style:normal">⚠</i><div><small>ALERTS</small><strong id="mAlerts">–</strong><span id="mAlertsNote" class="muted"></span></div></div>
+</div>
+
+<div class="dashboard-grid">
+  <section class="panel dash-wide"><h2>SERVER STATUS</h2>
+    <div class="scroll"><table><thead><tr><th>SERVER</th><th>VERSION</th><th>SESSIONS</th><th>DATABASES</th><th>SIZE</th><th>STATUS</th></tr></thead><tbody id="dServers"></tbody></table></div></section>
+
+  <section class="panel"><h2>HEALTH <span class="muted">across your servers</span></h2>
+    <div class="dash-gauges" id="dGauges"></div></section>
+
+  <section class="panel dash-wide"><h2>TOTAL SIZE
+    <select id="dDays" aria-label="Chart range"><option value="1">Last 24 hours</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select></h2>
+    <div id="dTrend" class="dash-chart"></div>
+    <p class="muted" id="dTrendNote"></p></section>
+
+  <section class="panel"><h2>LARGEST DATABASES</h2><div id="dStorage"></div></section>
+
+  <section class="panel dash-wide dash-staff" id="pActivity"><h2>RECENT ACTIVITY <a class="btn" href="{% url 'audit_list' %}">View all</a></h2>
+    <div class="scroll"><table><thead><tr><th>TIME (UTC)</th><th>USER</th><th>ACTION</th><th>DETAILS</th></tr></thead><tbody id="dActivity"></tbody></table></div></section>
+
+  <section class="panel dash-staff" id="pAttention"><h2>NEEDS ATTENTION <a class="btn" href="{% url 'watch' %}">Details</a></h2><ul class="alerts" id="dAttention"></ul></section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var NS = "http://www.w3.org/2000/svg", timer = null;
+  function el(tag, attrs, text) { var e = document.createElement(tag); Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); }); if (text != null) e.textContent = text; return e; }
+  function svg(tag, attrs) { var e = document.createElementNS(NS, tag); Object.keys(attrs || {}).forEach(function (k) { e.setAttribute(k, attrs[k]); }); return e; }
+  function size(n) { var u = ["B", "kB", "MB", "GB", "TB"], i = 0; n = +n || 0; while (n >= 1024 && i < 4) { n /= 1024; i++; } return (i ? n.toFixed(1) : n.toFixed(0)) + " " + u[i]; }
+  function tone(percent, high) { return percent >= (high || 90) ? "#ff7b8d" : percent >= 70 ? "#e9b100" : "#00e99c"; }
+
+  function metrics(d) {
+    var t = d.totals;
+    $("mServers").textContent = t.servers; $("mServersNote").textContent = t.online + " online" + (t.offline ? " · " + t.offline + " offline" : "");
+    $("mServersNote").className = t.offline ? "bad-text" : "";
+    $("mDatabases").textContent = t.databases; $("mDatabasesNote").textContent = t.size_text + " in total";
+    $("mUsers").textContent = t.users; $("mUsersNote").textContent = t.staff + " staff";
+    $("mAlerts").textContent = d.is_staff ? t.alerts : "–";
+    $("mAlertsNote").textContent = !d.is_staff ? "staff only" : t.alerts ? t.critical + " critical" : "nothing needs attention";
+    $("mAlertsNote").className = d.is_staff && t.alerts ? "bad-text" : "";
+    $("dStatus").textContent = t.offline ? "A SERVER IS DOWN" : t.servers ? "ALL SERVERS REACHABLE" : "NO SERVERS YET";
+  }
+
+  function servers(d) {
+    var body = $("dServers"); body.replaceChildren();
+    if (!d.servers.length) { var c = body.insertRow().insertCell(); c.colSpan = 6; c.className = "muted"; c.textContent = "No servers yet. Add one from the Object Browser."; return; }
+    d.servers.forEach(function (s) {
+      var tr = body.insertRow(), name = tr.insertCell(), strong = el("strong", {}, s.name);
+      name.appendChild(strong); name.appendChild(el("div", {class: "muted"}, s.host));
+      tr.insertCell().textContent = s.ok ? s.version : "";
+      var sess = tr.insertCell();
+      if (s.ok) { sess.textContent = s.sessions + " / " + s.max + (s.active ? " (" + s.active + " active)" : "");
+        var pct = s.max ? s.sessions * 100 / s.max : 0, bar = el("div", {class: "dash-bar"}), fill = el("span", {});
+        fill.style.width = Math.min(100, pct) + "%"; fill.style.background = tone(pct); bar.appendChild(fill); sess.appendChild(bar); }
+      tr.insertCell().textContent = s.ok ? s.databases : ""; tr.insertCell().textContent = s.ok ? s.size_text : "";
+      var st = tr.insertCell(), badge = el("span", {class: "badge " + (s.ok ? "ok" : "bad")}, s.ok ? "online" : "offline");
+      st.appendChild(badge); if (!s.ok) st.appendChild(el("div", {class: "muted"}, s.error));
+    });
+  }
+
+  function ring(label, g, sub) {
+    var wrap = el("div", {class: "dash-gauge"}), s = svg("svg", {viewBox: "0 0 100 100", width: "104", height: "104", role: "img", "aria-label": label + (g ? " " + g.percent + "%" : " not available")});
+    s.appendChild(svg("circle", {cx: 50, cy: 50, r: 42, fill: "none", stroke: "#12507a", "stroke-width": 9}));
+    if (g) { var len = 2 * Math.PI * 42, arc = svg("circle", {cx: 50, cy: 50, r: 42, fill: "none", stroke: label === "CACHE HIT" ? (g.percent >= 95 ? "#00e99c" : g.percent >= 85 ? "#e9b100" : "#ff7b8d") : tone(g.percent), "stroke-width": 9, "stroke-linecap": "round",
+        "stroke-dasharray": (len * g.percent / 100) + " " + len, transform: "rotate(-90 50 50)"}); s.appendChild(arc); }
+    var text = svg("text", {x: 50, y: 56, "text-anchor": "middle", fill: "#fff", "font-size": 20, "font-weight": 700}); text.textContent = g ? g.percent + "%" : "–"; s.appendChild(text);
+    wrap.appendChild(s); wrap.appendChild(el("div", {class: "dash-gauge-label"}, label)); wrap.appendChild(el("div", {class: "muted"}, g ? g.label : sub));
+    return wrap;
+  }
+  function gauges(d) {
+    var box = $("dGauges"); box.replaceChildren();
+    box.appendChild(ring("CONNECTIONS", d.gauges.connections, "no server answered"));
+    box.appendChild(ring("CACHE HIT", d.gauges.cache_hit, "no reads yet"));
+    box.appendChild(ring("BUSY", d.gauges.busy, "no sessions open"));
+  }
+
+  function trend(d) {
+    var box = $("dTrend"); box.replaceChildren();
+    $("dTrendNote").textContent = d.trend.length < 2 ? "No size history for this period yet. Run `manage.py run_watch` regularly (or press “Sample now” on Alerts & trends) to build one." : "";
+    if (d.trend.length < 2) return;
+    var W = 640, H = 170, L = 8, R = 8, T = 10, B = 22, pts = d.trend.map(function (p) { return [Date.parse(p.t), p.size]; });
+    var t0 = pts[0][0], t1 = pts[pts.length - 1][0], lo = Math.min.apply(null, pts.map(function (p) { return p[1]; })), hi = Math.max.apply(null, pts.map(function (p) { return p[1]; }));
+    if (hi === lo) { hi += 1; lo -= 1; }
+    var x = function (t) { return L + (t - t0) / (t1 - t0 || 1) * (W - L - R); }, y = function (v) { return H - B - (v - lo) / (hi - lo) * (H - B - T); };
+    var s = svg("svg", {viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", class: "dash-svg", role: "img", "aria-label": "Total size over time"});
+    var line = pts.map(function (p) { return x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1); }).join(" ");
+    s.appendChild(svg("polygon", {points: L + "," + (H - B) + " " + line + " " + (W - R) + "," + (H - B), fill: "#00bfff", opacity: 0.16}));
+    s.appendChild(svg("polyline", {points: line, fill: "none", stroke: "#00cfff", "stroke-width": 2.2, "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke"}));
+    [["start", t0, lo], ["end", t1, hi]].forEach(function (a) { var tx = svg("text", {x: a[0] === "start" ? L : W - R, y: H - 6, "text-anchor": a[0], fill: "#7fa6c4", "font-size": 11});
+      tx.textContent = new Date(a[1]).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}); s.appendChild(tx); });
+    box.appendChild(s);
+    var first = pts[0][1], last = pts[pts.length - 1][1];
+    box.appendChild(el("div", {class: "muted"}, size(first) + " → " + size(last) + " (" + (last >= first ? "+" : "−") + size(Math.abs(last - first)) + ")"));
+  }
+
+  function storage(d) {
+    var box = $("dStorage"); box.replaceChildren();
+    if (!d.storage.length) { box.appendChild(el("p", {class: "muted"}, "No databases to show.")); return; }
+    var max = d.storage[0].size || 1;
+    d.storage.forEach(function (s) {
+      var row = el("div", {class: "dash-row"}), head = el("div", {class: "dash-row-head"}), bar = el("div", {class: "dash-bar"}), fill = el("span", {});
+      head.appendChild(el("span", {}, s.database)); head.appendChild(el("span", {class: "muted"}, s.size_text));
+      fill.style.width = Math.max(2, s.size * 100 / max) + "%"; bar.appendChild(fill); row.appendChild(head); row.appendChild(bar); box.appendChild(row);
+    });
+  }
+
+  function staff(d) {
+    document.querySelectorAll(".dash-staff").forEach(function (p) { p.hidden = !d.is_staff; });
+    if (!d.is_staff) return;
+    var body = $("dActivity"); body.replaceChildren();
+    d.activity.forEach(function (a) {
+      var tr = body.insertRow(); tr.insertCell().textContent = a.when.slice(0, 19).replace("T", " "); tr.insertCell().textContent = a.user;
+      var act = tr.insertCell(); act.textContent = a.action; if (!a.ok) { act.className = "bad-text"; act.textContent += " (failed)"; }
+      tr.insertCell().textContent = (a.server ? a.server + " · " : "") + a.detail;
+    });
+    if (!d.activity.length) { var c = body.insertRow().insertCell(); c.colSpan = 4; c.className = "muted"; c.textContent = "Nothing recorded yet."; }
+    var list = $("dAttention"); list.replaceChildren();
+    if (!d.attention.length) list.appendChild(el("li", {class: "muted"}, "Nothing needs attention."));
+    d.attention.forEach(function (a) {
+      var li = el("li", {class: "alert " + a.level}); li.appendChild(el("strong", {}, a.title)); if (a.detail) li.appendChild(el("div", {class: "muted"}, a.detail)); list.appendChild(li);
+    });
+  }
+
+  function load() {
+    fetch("{% url 'dashboard_data' %}?days=" + encodeURIComponent($("dDays").value), {credentials: "same-origin"})
+      .then(function (r) { return r.json(); })
+      .then(function (d) { metrics(d); servers(d); gauges(d); trend(d); storage(d); staff(d); })
+      .catch(function () { $("dStatus").textContent = "COULD NOT LOAD"; });
+  }
+  $("dDays").addEventListener("change", load);
+  load(); clearInterval(timer); timer = setInterval(function () { if (!document.hidden) load(); }, 30000);
+})();
+</script>
+{% endblock %}

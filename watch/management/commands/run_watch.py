@@ -1,4 +1,4 @@
-﻿import time
+import time
 
 from django.core.management.base import BaseCommand
 
