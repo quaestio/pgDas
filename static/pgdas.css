@@ -205,9 +205,12 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 /* Dashboard */
 .dash-wide { grid-column: 1 / -1; }
 @media (min-width: 1100px) { .dash-wide { grid-column: auto; } .dashboard-grid > .dash-wide:first-child, .dashboard-grid > .dash-wide:nth-of-type(3) { grid-column: 1; } }
-.dash-gauges { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-around; padding: 6px 0; }
-.dash-gauge { text-align: center; min-width: 120px; font-size: 12px; }
-.dash-gauge-label { letter-spacing: 1px; color: var(--accent, #00cfff); margin-top: 4px; }
+.dash-gauges { flex-wrap: wrap; align-items: flex-start; gap: 18px 12px; }
+.dash-col { display: flex; flex-direction: column; align-items: center; gap: 10px; min-width: 110px; text-align: center; }
+.dash-col-label { color: var(--muted); font-size: 10px; letter-spacing: 1px; }
+.dash-col-detail { color: #84bbd9; font-size: 11px; max-width: 150px; margin-top: -6px; }
+.dash-pulse { display: block; color: var(--accent); font-style: normal; line-height: 0; }
+@media (max-width: 640px) { .dash-gauges .gauge { height: 90px; width: 90px; } .dash-gauges .gauge > div { height: 68px; width: 68px; } .dash-gauges .gauge strong { font-size: 19px; } }
 .dash-bar { height: 6px; background: #12507a; border-radius: 3px; margin-top: 5px; overflow: hidden; }
 .dash-bar span { display: block; height: 100%; background: #00cfff; }
 .dash-row { margin-bottom: 11px; }

@@ -88,7 +88,7 @@ def build(user, days=7):
                        "percent": round(min(s["cache_hit"] for s in online if s["cache_hit"] is not None)), "label": "reads served from memory"},
                    "busy": None if not online or not sum(s["sessions"] for s in online) else {
                        "percent": round(sum(s["active"] for s in online) * 100 / sum(s["sessions"] for s in online)),
-                       "label": f"{sum(s['active'] for s in online)} of {sum(s['sessions'] for s in online)} sessions running a query"}},
+                       "label": f"{sum(s['active'] for s in online)} of {sum(s['sessions'] for s in online)} running a query"}},
         "storage": [{"server": name, "database": d["name"], "size": d["size"], "size_text": d["size_text"]}
                     for name, d in sorted(databases, key=lambda x: -x[1]["size"])[:8]],
         "trend": _trend(days if days in TREND_DAYS else 7), "days": days if days in TREND_DAYS else 7,
