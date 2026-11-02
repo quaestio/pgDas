@@ -95,7 +95,7 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 LOGIN_URL = "login"
-LOGIN_REDIRECT_URL = "dashboard"
+LOGIN_REDIRECT_URL = "/?type=servers&system=1"      # the home page: the dashboard of the Servers node
 LOGOUT_REDIRECT_URL = "login"
 
 LANGUAGE_CODE = "en-us"

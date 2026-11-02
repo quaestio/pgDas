@@ -1,20 +1,39 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}Object Browser · PGDAS{% endblock %}
 {% block content %}
-{# Shown only while the top "Servers" node is selected; explorer.js hides it for every other node. #}
-<div id="servers-overview"{% if deep_link %} hidden{% endif %}>
+<link rel="stylesheet" href="{% static 'dashboard.css' %}">
+{# The home page. Shown only while the top "Servers" node is selected; explorer.js hides it for every other node and static/dashboard.js fills it. #}
+<div id="servers-overview"{% if deep_link %} hidden{% endif %} data-url="{% url 'dashboard_data' %}" data-add-url="{% url 'server_add' %}">
+  <form id="dCsrf" hidden>{% csrf_token %}</form>
   <div class="title-row">
-    <div><div class="eyebrow">CONSOLE / <span>OBJECT BROWSER</span></div><h1>Object Browser</h1>
-      <p class="muted">Pick an object in the sidebar to see its details here. Queries run read-only; changes are made from the SQL runner.</p></div>
-    {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}
+    <div><div class="eyebrow">OPERATIONS / <span>DASHBOARD</span></div><h1>Command Overview</h1>
+      <p class="muted">Your PostgreSQL servers at a glance, read live from the servers themselves. Pick an object in the sidebar to browse it. Refreshes every 30 seconds.</p></div>
+    <div class="title-actions"><span class="live"><span class="dot"></span> <span id="dStatus">LOADING…</span></span>
+      {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}</div>
   </div>
-  <div class="metrics three">
-    <div class="panel metric"><div><small>SERVERS</small><strong>{{ server_count }}</strong><span class="green">saved connections</span></div></div>
-    <div class="panel metric"><div><small>USERS</small><strong>{{ user_count }}</strong><span class="green">can sign in</span></div></div>
-    <div class="panel metric"><div><small>SQL RUNS</small><strong>{{ sql_runs }}</strong><span class="green">recorded in the audit log</span></div></div>
+
+  <div class="metrics">
+    <div class="panel metric"><i style="font-style:normal">▥</i><div><small>SERVERS</small><strong id="mServers">–</strong><span id="mServersNote" class="muted"></span></div></div>
+    <div class="panel metric"><i style="font-style:normal">◉</i><div><small>DATABASES</small><strong id="mDatabases">–</strong><span id="mDatabasesNote" class="muted"></span></div></div>
+    <div class="panel metric"><i style="font-style:normal">☺</i><div><small>USERS</small><strong id="mUsers">–</strong><span id="mUsersNote" class="muted"></span></div></div>
+    <div class="panel metric"><i style="font-style:normal">⚠</i><div><small>ALERTS</small><strong id="mAlerts">–</strong><span id="mAlertsNote" class="muted"></span></div></div>
+  </div>
+
+  <section class="panel dash-full"><h2>SERVER STATUS</h2>
+    <div class="scroll"><table><thead><tr><th>SERVER</th><th>VERSION</th><th>SESSIONS</th><th>DATABASES</th><th>SIZE</th><th>STATUS</th><th></th></tr></thead><tbody id="dServers"></tbody></table></div></section>
+
+  <div class="dashboard-grid">
+    <section class="panel"><h2>RESOURCE USAGE <span>LIVE METRICS</span></h2>
+      <div class="gauges dash-gauges" id="dGauges"></div></section>
+    <section class="panel"><h2>LARGEST DATABASES</h2><div id="dStorage"></div></section>
+    <section class="panel dash-staff" id="pActivity" hidden><h2>RECENT ACTIVITY <a class="btn" href="{% url 'audit_list' %}">View all</a></h2>
+      <div class="scroll"><table><thead><tr><th>TIME (UTC)</th><th>USER</th><th>ACTION</th><th>DETAILS</th></tr></thead><tbody id="dActivity"></tbody></table></div></section>
+    <section class="panel dash-staff" id="pAttention" hidden><h2>NEEDS ATTENTION <a class="btn" href="{% url 'watch' %}">Details</a></h2><ul class="alerts" id="dAttention"></ul></section>
   </div>
 </div>
 <div id="explorer" data-preselect="{{ preselect }}">
-  <section class="panel detail-panel" id="detail" aria-live="polite"><p class="muted">Loading…</p></section>
+  <section class="panel detail-panel" id="detail" aria-live="polite"{% if not deep_link %} hidden{% endif %}><p class="muted">Loading…</p></section>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{% static 'dashboard.js' %}"></script>{% endblock %}

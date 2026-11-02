@@ -1,19 +1,15 @@
 """What the dashboard shows, from the saved servers themselves (one short look at each), the audit log and the size samples."""
-from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.db.models import Sum
+from django.urls import reverse
 from django.utils import timezone
 
 from audit.models import AuditEntry
 from explorer import pg
 from servers.models import ServerConnection
 from watch import alerts
-from watch.models import SizeSample
-
-TREND_DAYS = (1, 7, 30)
 
 
 def _look(server, with_alerts):
@@ -37,30 +33,13 @@ def _look(server, with_alerts):
     return info
 
 
-def _trend(days):
-    """Total size of all servers over time: for each 10 minutes (24 hours), hour (7 days) or day (30 days) the latest known size of
-    every server, added up."""
-    since = timezone.now() - timedelta(days=days)
-    minutes = 10 if days <= 1 else 60 if days <= 7 else 24 * 60
-    latest = defaultdict(dict)                      # bucket -> server -> (when, total)
-    for row in (SizeSample.objects.filter(taken_at__gte=since).order_by().values("server", "taken_at").annotate(total=Sum("size"))):
-        taken = row["taken_at"]
-        day_start = taken.replace(hour=0, minute=0, second=0, microsecond=0)
-        key = day_start + timedelta(minutes=(taken - day_start).total_seconds() // 60 // minutes * minutes)
-        held = latest[key].get(row["server"])
-        if held is None or row["taken_at"] > held[0]:
-            latest[key][row["server"]] = (row["taken_at"], row["total"])
-    known, points = {}, []
-    everyone = {s for per in latest.values() for s in per}
-    for key in sorted(latest):
-        for server, (_, total) in latest[key].items():
-            known[server] = total
-        if set(known) == everyone:                  # start once every server has a size, so the line does not climb as servers appear
-            points.append({"t": key.isoformat(), "size": sum(known.values())})
-    return points
+def _urls(pk):
+    """Where the buttons of a server row go (the page builds the rows, so it needs the addresses)."""
+    return {"sql": reverse("sql_runner", args=[pk]), "test": reverse("server_test", args=[pk]),
+            "edit": reverse("server_edit", args=[pk]), "remove": reverse("server_delete", args=[pk])}
 
 
-def build(user, days=7):
+def build(user):
     staff = user.is_staff
     servers = list(ServerConnection.objects.all())
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(servers)))) as pool:
@@ -76,11 +55,12 @@ def build(user, days=7):
     users = get_user_model().objects.filter(is_active=True)
     busiest = max(online, key=lambda s: s["sessions"] / s["max"] if s["max"] else 0, default=None)
     data = {
-        "is_staff": staff,
+        "is_staff": staff, "can_manage": staff,                # Edit and Remove on the server rows
         "totals": {"servers": len(looks), "online": len(online), "offline": len(looks) - len(online), "users": users.count(),
                    "staff": users.filter(is_staff=True).count(), "databases": len(databases), "size": total, "size_text": pg.size_text(total),
                    "alerts": len(attention), "critical": sum(1 for a in attention if a["level"] == "critical")},
-        "servers": [{k: v for k, v in s.items() if k not in ("databases", "alerts")} | {"databases": len(s["databases"]), "size_text": pg.size_text(s["size"])}
+        "servers": [{k: v for k, v in s.items() if k not in ("databases", "alerts")} | {"databases": len(s["databases"]), "size_text": pg.size_text(s["size"]),
+                                                                       "urls": _urls(s["id"])}
                     for s in looks],
         "gauges": {"connections": None if not busiest or not busiest["max"] else {
                        "percent": round(busiest["sessions"] * 100 / busiest["max"]), "label": f"{busiest['sessions']} of {busiest['max']}", "server": busiest["name"]},
@@ -91,7 +71,6 @@ def build(user, days=7):
                        "label": f"{sum(s['active'] for s in online)} of {sum(s['sessions'] for s in online)} running a query"}},
         "storage": [{"server": name, "database": d["name"], "size": d["size"], "size_text": d["size_text"]}
                     for name, d in sorted(databases, key=lambda x: -x[1]["size"])[:8]],
-        "trend": _trend(days if days in TREND_DAYS else 7), "days": days if days in TREND_DAYS else 7,
         "activity": [], "attention": [],
     }
     if staff:

@@ -599,7 +599,9 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertContains(response, 'id="tree"')
         self.assertContains(response, reverse("tree"))
         self.assertContains(response, reverse("detail"))
-        self.assertNotContains(response, "<table")  # the server list is loaded into the detail pane, not a separate page
+        # The servers are rows that dashboard.js fills in (the tables arrive empty); no server is written into the page itself.
+        self.assertNotContains(response, "data-open-server")
+        self.assertContains(response, '<tbody id="dServers"></tbody>')
 
     def test_the_tree_lives_in_the_sidebar_and_details_in_the_main_area(self):
         self.user.is_staff = True
@@ -621,7 +623,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.user.save()
         plain = self.client.get(reverse("server_list")).content.decode()
         block = plain[plain.index('id="servers-overview"'):plain.index('id="explorer"')]
-        for text in ("Object Browser</h1>", "Add server", "saved connections", "recorded in the audit log"):
+        for text in ("Command Overview</h1>", "Add server", "SERVER STATUS", "RESOURCE USAGE"):
             self.assertIn(text, block)
             self.assertNotIn(text, plain[plain.index('id="explorer"'):])  # nothing of it outside that block
         self.assertNotIn('id="servers-overview" hidden', plain)

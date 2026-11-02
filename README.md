@@ -177,13 +177,14 @@ session, `pg_signal_backend` or superuser) its own "permission denied" is shown.
 details for other users' sessions, as PostgreSQL itself hides them.
 
 ## Dashboard
-Signing in lands on the **Dashboard** (also first in the sidebar), for every user. It reads each saved server live: tiles for
-servers (online / offline), databases (and their total size), PGDAS users and alerts; a **server status** table (version, sessions
-against `max_connections`, databases, size, online or not, with the reason when a server does not answer); **health** gauges for
-connections in use, cache hit ratio and busy sessions; the **total size** of all servers over 24 hours, 7 or 30 days (from the
-size samples, see below); the **largest databases**; and, for staff, the **recent activity** from the audit log and a **needs
-attention** list (the alerts below plus failed changes of the last 7 days). It refreshes every 30 seconds. PostgreSQL cannot report
-the CPU, memory, disk or network use of the machine it runs on, so those are not shown.
+There is no separate dashboard page: signing in lands on the **Servers** page (`/?type=servers&system=1`), the top node of the Object
+Browser, and that page is the dashboard. It reads each saved server live: tiles for servers (online / offline), databases (and their
+total size), PGDAS users and alerts; a full-width **server status** table (version, sessions against `max_connections`,
+databases, size, online or not with the reason when a server does not answer) whose rows carry the server's buttons: **Open** (in the
+tree), **SQL**, **Test** and, for staff, **Edit** and **Remove**; **resource usage** gauges for connections in use, cache hit ratio and
+busy sessions; the **largest databases**; and, for staff, the **recent activity** from the audit log and a **needs attention** list (the
+alerts below plus failed changes of the last 7 days). It refreshes every 30 seconds. PostgreSQL cannot report the CPU, memory, disk or
+network use of the machine it runs on, so those are not shown. The size history is on **Alerts & trends**.
 
 ## Alerts & trends
 **Alerts & trends** (staff) lists what needs attention on a server, worked out each time the page is opened (nothing is stored or

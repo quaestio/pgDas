@@ -59,6 +59,10 @@
 
   function showDetail(qs) {
     if (showSystem && qs.indexOf("system=") < 0) qs += "&system=1";
+    // The top Servers node is the dashboard above this pane (templates/explorer/explorer.html): nothing to load here.
+    var top = /(^|&)type=servers(&|$)/.test(qs);
+    detailEl.hidden = top;
+    if (top) { detailEl.innerHTML = ""; return; }
     detailEl.innerHTML = '<p class="muted">Loading…</p>';
     get(detailUrl + "?" + qs)
       .then(function (r) { return r.text(); })
@@ -251,6 +255,14 @@
       if (!link) return;
       event.preventDefault();
       showDetail(link.dataset.detail);
+    });
+  }
+
+  // The dashboard's server rows (the Servers node) open a server in the tree the same way.
+  if (overview) {
+    overview.addEventListener("click", function (event) {
+      var open = event.target.closest("[data-open-server]");
+      if (open) { event.preventDefault(); openPath({type: "server", server: open.dataset.openServer}); }
     });
   }
 
