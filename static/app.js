@@ -15,13 +15,35 @@
   }
 
   var toggle = document.getElementById("toggle");
+  var mobile = window.matchMedia("(max-width: 800px)");
+  function syncToggle() {
+    if (toggle) toggle.setAttribute("aria-expanded", String(mobile.matches ?
+      document.body.classList.contains("menu-open") : !root.classList.contains("sidebar-collapsed")));
+  }
+  function closeMenu() {
+    document.body.classList.remove("menu-open");
+    syncToggle();
+    if (toggle) toggle.focus();
+  }
+  var close = document.getElementById("sidebarClose");
+  if (close) close.addEventListener("click", closeMenu);
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && mobile.matches && document.body.classList.contains("menu-open")) closeMenu();
+  });
+  mobile.addEventListener("change", function () {
+    document.body.classList.remove("menu-open");
+    syncToggle();
+  });
+  syncToggle();
   if (toggle) toggle.addEventListener("click", function () {
     if (window.matchMedia("(max-width: 800px)").matches) {
       document.body.classList.toggle("menu-open");          // phones: the sidebar slides over the page
+      if (document.body.classList.contains("menu-open") && close) close.focus();
     } else {
       var collapsed = root.classList.toggle("sidebar-collapsed");
       store(KEY_COLLAPSED, collapsed ? "1" : "0");
     }
+    syncToggle();
   });
 
   var aside = document.getElementById("sidebar");

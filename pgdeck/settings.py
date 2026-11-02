@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "servers",
     "explorer",
     "backups",
+    "monitor",
 ]
 
 MIDDLEWARE = [

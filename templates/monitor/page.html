@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Monitor · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">CONSOLE / <span>MONITOR</span></div><h1>Monitor</h1>
+  <p class="muted">What a server is doing right now: sessions, who is blocking whom, and long-running queries. Read from PostgreSQL's own views; the page refreshes by itself.</p></div></div>
+
+<section class="panel pad">
+  {% if servers %}
+  <div class="bk-form">
+    <label>Server<select id="mnServer">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Slow after (seconds)<input type="number" id="mnSlow" min="1" value="5"></label>
+    <label>Refresh<select id="mnEvery"><option value="0">Off</option><option value="3000">3 s</option><option value="5000" selected>5 s</option><option value="15000">15 s</option><option value="60000">1 min</option></select></label>
+    <button class="btn primary" type="button" id="mnNow">Refresh now</button>
+    <span class="muted" id="mnStatus"></span>
+  </div>
+  {% else %}<p class="muted">Add a server first.</p>{% endif %}
+  <p class="bad-text" id="mnError" hidden></p>
+</section>
+
+<section class="panel pad scroll"><h2>Blocked sessions <span class="badge" id="mnLocksCount">0</span></h2>
+  <p class="muted">A session waiting for a lock that another session holds. Ending the blocking session lets the waiting one go on.</p>
+  <table><thead><tr><th>WAITING</th><th>WAITING FOR</th><th>BLOCKED BY</th><th></th></tr></thead><tbody id="mnLocks"></tbody></table></section>
+
+<section class="panel pad scroll"><h2>Slow queries <span class="badge" id="mnSlowCount">0</span></h2>
+  <p class="muted">Queries running for longer than the limit above.</p>
+  <table><thead><tr><th>PID</th><th>USER</th><th>DATABASE</th><th>RUNNING</th><th>QUERY</th><th></th></tr></thead><tbody id="mnSlowRows"></tbody></table></section>
+
+<section class="panel pad scroll"><h2>Sessions <span class="badge" id="mnSessCount">0</span></h2>
+  <p class="muted">Every client session. “Idle in transaction” sessions hold locks and stop clean-up, so watch the ones that stay that way.</p>
+  <table><thead><tr><th>PID</th><th>USER</th><th>DATABASE</th><th>APPLICATION</th><th>CLIENT</th><th>STATE</th><th>RUNNING</th><th>QUERY</th><th></th></tr></thead><tbody id="mnSessions"></tbody></table></section>
+
+<section class="panel pad scroll"><h2>Costliest statements</h2>
+  <p class="muted" id="mnStmtNote"></p>
+  <table id="mnStmtTable" hidden><thead><tr><th>CALLS</th><th>TOTAL (s)</th><th>MEAN (ms)</th><th>MAX (ms)</th><th>ROWS</th><th>QUERY</th></tr></thead><tbody id="mnStmts"></tbody></table></section>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var server = $("mnServer"); if (!server) return;
+  var csrf = (document.querySelector("[name=csrfmiddlewaretoken]") || {}).value || "{{ csrf_token }}";
+  var timer = null;
+
+  function cell(row, text, cls) { var td = row.insertCell(); td.textContent = text == null ? "" : text; if (cls) td.className = cls; return td; }
+  function dur(s) { if (s == null) return ""; if (s < 60) return s.toFixed(1) + " s"; if (s < 3600) return Math.floor(s / 60) + " m " + Math.round(s % 60) + " s"; return Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " m"; }
+  function sql(text) { var pre = document.createElement("pre"); pre.className = "sql"; pre.textContent = text || ""; return pre; }
+  function who(user, pid) { return (user || "?") + " · " + pid; }
+
+  function stopButtons(td, pid, canCancel) {
+    var box = document.createElement("div"); box.className = "record-actions";
+    [["cancel", "Cancel query", "btn"], ["end", "End session", "btn danger"]].forEach(function (b) {
+      if (b[0] === "cancel" && !canCancel) return;
+      var btn = document.createElement("button"); btn.type = "button"; btn.className = b[2]; btn.textContent = b[1];
+      btn.addEventListener("click", function () {
+        var ask = b[0] === "end" ? "End session " + pid + "? Its connection is closed and any open transaction is rolled back." : "Cancel the query running in session " + pid + "?";
+        if (confirm(ask)) stop(pid, b[0]);
+      });
+      box.appendChild(btn);
+    });
+    td.appendChild(box);
+  }
+
+  function stop(pid, how) {
+    var body = new URLSearchParams({server: server.value, pid: pid, how: how});
+    fetch("{% url 'monitor_stop' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": csrf}, body: body})
+      .then(function (r) { return r.json(); })
+      .then(function (d) { $("mnStatus").textContent = d.ok ? d.message : (d.error || "Failed."); $("mnStatus").className = d.ok ? "muted" : "bad-text"; load(); });
+  }
+
+  function fill(id, rows, build) { var tb = $(id); tb.innerHTML = ""; rows.forEach(function (r) { build(tb.insertRow(), r); }); if (!rows.length) { var c = tb.insertRow().insertCell(); c.colSpan = 9; c.className = "muted"; c.textContent = "None."; } }
+
+  function show(d) {
+    $("mnError").hidden = true;
+    $("mnLocksCount").textContent = d.locks.length; $("mnSlowCount").textContent = d.slow.length; $("mnSessCount").textContent = d.sessions.length;
+    fill("mnLocks", d.locks, function (tr, l) {
+      cell(tr, who(l.blocked_user, l.blocked_pid) + " · " + dur(l.waiting)).appendChild(sql(l.blocked_query));
+      cell(tr, "locks held by session " + l.blocking_pid);
+      var b = cell(tr, who(l.blocking_user, l.blocking_pid) + " · " + l.blocking_state); b.appendChild(sql(l.blocking_query));
+      stopButtons(tr.insertCell(), l.blocking_pid, true);
+    });
+    fill("mnSlowRows", d.slow, function (tr, s) {
+      cell(tr, s.pid); cell(tr, s.user); cell(tr, s.database); cell(tr, dur(s.running), "bad-text"); cell(tr, "").appendChild(sql(s.query));
+      stopButtons(tr.insertCell(), s.pid, true);
+    });
+    fill("mnSessions", d.sessions, function (tr, s) {
+      cell(tr, s.pid); cell(tr, s.user); cell(tr, s.database); cell(tr, s.application); cell(tr, s.client);
+      cell(tr, s.state + (s.wait ? " (" + s.wait + ")" : ""), s.state.indexOf("idle in transaction") === 0 ? "bad-text" : "");
+      cell(tr, s.state === "active" ? dur(s.running) : (s.in_transaction != null ? "txn " + dur(s.in_transaction) : "")); cell(tr, "").appendChild(sql(s.query));
+      stopButtons(tr.insertCell(), s.pid, s.state === "active");
+    });
+    var table = $("mnStmtTable"); table.hidden = !d.statements; $("mnStmtNote").textContent = d.statements ? "The most expensive statements since the statistics were last reset, from pg_stat_statements." : (d.statements_note || "");
+    if (d.statements) fill("mnStmts", d.statements, function (tr, s) { cell(tr, s.calls); cell(tr, s.total); cell(tr, s.mean); cell(tr, s.max); cell(tr, s.rows); cell(tr, "").appendChild(sql(s.query)); });
+    $("mnStatus").className = "muted"; $("mnStatus").textContent = "Updated " + new Date().toLocaleTimeString();
+  }
+
+  function load() {
+    var url = "{% url 'monitor_data' %}?server=" + encodeURIComponent(server.value) + "&slow_after=" + encodeURIComponent($("mnSlow").value || 5);
+    fetch(url, {credentials: "same-origin"}).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { $("mnError").textContent = d.error; $("mnError").hidden = false; return; }
+      show(d);
+    }).catch(function () { $("mnError").textContent = "Could not reach PGDAS."; $("mnError").hidden = false; });
+  }
+
+  function schedule() { clearInterval(timer); var ms = parseInt($("mnEvery").value, 10); if (ms) timer = setInterval(function () { if (!document.hidden) load(); }, ms); }
+  server.addEventListener("change", load); $("mnSlow").addEventListener("change", load); $("mnNow").addEventListener("click", load);
+  $("mnEvery").addEventListener("change", schedule);
+  load(); schedule();
+})();
+</script>
+{% endblock %}

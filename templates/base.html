@@ -20,6 +20,7 @@
 {% with url_name=request.resolver_match.url_name %}
 <div class="app">
   <aside id="sidebar">
+    <button class="icon-btn sidebar-close" id="sidebarClose" type="button" aria-label="Close navigation" title="Close navigation">×</button>
     <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><img class="brand-icon" src="{% static 'img/pgdas-64.png' %}" width="30" height="30" alt=""> PG<span>DAS</span></a>
     {# The object tree is in the sidebar on every page; explorer.js fills it in. #}
     <div class="sidebar-tree">
@@ -32,6 +33,7 @@
     <nav id="menu" class="compact below">
       <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
       <a href="{% url 'backup_list' %}" class="{% if url_name == 'backup_list' %}active{% endif %}"><span class="ico">⇩</span> Backups</a>
+      <a href="{% url 'monitor' %}" class="{% if url_name == 'monitor' %}active{% endif %}"><span class="ico">◔</span> Monitor</a>
     </nav>
     {% endif %}
     <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" tabindex="0"
@@ -39,7 +41,7 @@
   </aside>
   <main>
     <header>
-      <button class="icon-btn" id="toggle" type="button" aria-label="Show or hide the sidebar" title="Show or hide the sidebar">☰</button>
+      <button class="icon-btn" id="toggle" type="button" aria-controls="sidebar" aria-label="Show or hide the sidebar" title="Show or hide the sidebar">☰</button>
       <div class="head-right">
         <button class="icon-btn" id="soundToggle" type="button" title="Mute sounds" aria-label="Mute sounds" aria-pressed="false">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

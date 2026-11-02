@@ -8,7 +8,7 @@ PGDAS itself, which keeps its own data in a single SQLite file.
 
 **Status: in development.** Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
 timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
-popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); monitoring is planned next (see the
+popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); live monitoring is done (see "Monitor"); size trends and alerts are next (see the
 roadmap).
 
 The Python package, the `PGDECK_*` environment variables and the `pgdeck.sqlite3` file keep their earlier names, so
@@ -162,12 +162,21 @@ Settings (`.env`): `PGDECK_PG_BIN` is the folder holding `pg_dump` and `pg_resto
 `C:\Program Files\PostgreSQL\18\bin`), `PGDECK_BACKUP_DIR` is where the files go (default `data/backups`). The saved password is
 handed to the tools through the environment, never on the command line. Copy the backup folder off the machine as well.
 
+## Monitor
+Staff can open **Monitor** in the sidebar to see what a server is doing right now, refreshed every few seconds: all client sessions
+(user, database, application, client address, state, how long the query has run, the query), **blocked sessions** with the session
+that blocks each one, **slow queries** (active longer than a limit you set), and, when `pg_stat_statements` is installed, the
+costliest statements. **Cancel query** (`pg_cancel_backend`) and **End session** (`pg_terminate_backend`) are on each row and are
+recorded in the audit log. As everywhere in PGDAS, PostgreSQL decides what the login may do: without the right (for another user's
+session, `pg_signal_backend` or superuser) its own "permission denied" is shown. A login with limited rights also sees blank
+details for other users' sessions, as PostgreSQL itself hides them.
+
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
 2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
    and re-insert for deletes and undo for updates are done**; query history is done; next: finer per-user permissions.
 3. Backups: **`pg_dump` backups, download, restore into a new database, schedules with retention are done.**
-4. Monitoring: sessions, locks, slow queries, size trends, alerts.
+4. Monitoring: **sessions, locks, slow queries and cancel/end are done**; next: size trends and alerts.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
 
 ## License
