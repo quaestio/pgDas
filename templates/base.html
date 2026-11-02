@@ -13,13 +13,22 @@
   <link rel="stylesheet" href="{% static 'pgdas.css' %}">
   <link rel="stylesheet" href="{% static 'sidebar.css' %}">
   {# Restore the sidebar width / collapsed state before the page paints, so it does not jump. #}
-  <script>try{var w=parseInt(localStorage.getItem("pgdas.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdas.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed");if(localStorage.getItem("pgdas.adminMenu")==="0")document.documentElement.classList.add("admin-menu-closed")}catch(e){}</script>
+  <script>try{var w=parseInt(localStorage.getItem("pgdas.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdas.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed")}catch(e){}</script>
 </head>
 <body class="{% if user.is_authenticated %}has-tree{% endif %}">
 <div class="scanlines"></div>
 {% if user.is_authenticated %}
 {% with url_name=request.resolver_match.url_name %}
 <div class="app">
+<nav class="rail" aria-label="Main menu">
+  <a class="rail-item{% if url_name == 'server_list' %} active{% endif %}" href="{% url 'server_list' %}" data-label="Object Browser" aria-label="Object Browser"{% if url_name == 'server_list' %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3.5" width="7" height="5.5" rx="1.2"/><rect x="14" y="9.5" width="7" height="5.5" rx="1.2"/><rect x="14" y="16" width="7" height="5" rx="1.2"/><path d="M6.5 9v9.5H14M6.5 12.2H14"/></svg></a>
+{% if user.is_staff %}
+  <a class="rail-item{% if url_name == 'audit_list' %} active{% endif %}" href="{% url 'audit_list' %}" data-label="Audit log" aria-label="Audit log"{% if url_name == 'audit_list' %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4.5" width="14" height="17" rx="2"/><path d="M9 3h6v3H9z"/><path d="M8.5 11h7M8.5 14.5h7M8.5 18h4"/></svg></a>
+  <a class="rail-item{% if url_name == 'backup_list' %} active{% endif %}" href="{% url 'backup_list' %}" data-label="Backups" aria-label="Backups"{% if url_name == 'backup_list' %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v5.5c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M12 15.5V22M9.2 19.4 12 22.2l2.8-2.8"/></svg></a>
+  <a class="rail-item{% if url_name == 'monitor' %} active{% endif %}" href="{% url 'monitor' %}" data-label="Monitor" aria-label="Monitor"{% if url_name == 'monitor' %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M6 11h3l1.8-3.5 2.4 6 1.8-2.5H18"/><path d="M9 21h6"/></svg></a>
+  <a class="rail-item{% if url_name == 'watch' %} active{% endif %}" href="{% url 'watch' %}" data-label="Alerts &amp; trends" aria-label="Alerts &amp; trends"{% if url_name == 'watch' %} aria-current="page"{% endif %}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 17.5l5.5-5.5 4 4 7.5-8.5"/><path d="M15 7.5h5.5V13"/></svg></a>
+{% endif %}
+</nav>
   <aside id="sidebar">
     <button class="icon-btn sidebar-close" id="sidebarClose" type="button" aria-label="Close navigation" title="Close navigation">×</button>
     <a class="brand" href="{% url 'server_list' %}" title="Object Browser"><img class="brand-icon" src="{% static 'img/pgdas-64.png' %}" width="30" height="30" alt=""> PG<span>DAS</span></a>
@@ -30,17 +39,6 @@
       <ul class="tree" id="tree" role="tree" aria-label="Servers and their objects"
           data-tree-url="{% url 'tree' %}" data-detail-url="{% url 'detail' %}" data-home-url="{% url 'server_list' %}"></ul>
     </div>
-    {% if user.is_staff %}
-    <div class="menu-group" id="adminMenu">
-      <button class="nav-label menu-head" id="adminMenuToggle" type="button" aria-expanded="true" aria-controls="menu"><span>ADMINISTRATION</span><span class="menu-chevron" aria-hidden="true">▾</span></button>
-      <nav id="menu" class="compact" aria-label="Administration">
-        <a href="{% url 'audit_list' %}" class="{% if url_name == 'audit_list' %}active{% endif %}"><span class="ico">▤</span> Audit log</a>
-        <a href="{% url 'backup_list' %}" class="{% if url_name == 'backup_list' %}active{% endif %}"><span class="ico">⇩</span> Backups</a>
-        <a href="{% url 'monitor' %}" class="{% if url_name == 'monitor' %}active{% endif %}"><span class="ico">◔</span> Monitor</a>
-        <a href="{% url 'watch' %}" class="{% if url_name == 'watch' %}active{% endif %}"><span class="ico">▲</span> Alerts &amp; trends</a>
-      </nav>
-    </div>
-    {% endif %}
     <div class="sidebar-bottom" aria-label="Application information">
       <small>Version: Development</small>
       <small>© {% now "Y" %} PGDAS contributors</small>

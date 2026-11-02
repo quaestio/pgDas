@@ -613,9 +613,10 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertNotIn('id="tree"', main)
         self.assertIn('id="detail"', main)
         self.assertIn("has-tree", html[:html.index("<aside")])
-        # No separate "Object Browser" menu item; the Audit log link comes after (below) the tree.
+        # The menu is the icon rail in front of the sidebar (the Audit log icon is there), so the sidebar is all Object Browser.
         self.assertNotIn('<span class="ico">▦</span> Object Browser', sidebar)
-        self.assertGreater(sidebar.index("Audit log"), sidebar.index('id="tree"'))
+        self.assertNotIn("Audit log", sidebar)
+        self.assertLess(html.index('data-label="Audit log"'), html.index("<aside"))
 
     def test_overview_header_belongs_to_the_servers_node_only(self):
         # The title, Add server button and tiles sit in one block that explorer.js shows only for the top node.

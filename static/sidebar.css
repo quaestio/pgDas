@@ -1,12 +1,15 @@
-﻿/* Sidebar: the Administration links are their own compact group, in two columns, that can be folded away,
-   so the Object Browser (flex: 1 in pgdas.css) keeps as much of the column as possible. */
-.menu-group { flex: none; border-top: 1px solid var(--line); }
-.menu-head { display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; padding: 10px 18px 8px;
-  background: none; border: 0; font: inherit; color: var(--muted); letter-spacing: 2px; font-size: 10px; cursor: pointer; text-align: left; }
-.menu-head:hover, .menu-head:focus-visible { color: var(--accent); outline: none; }
-.menu-chevron { font-size: 12px; transition: transform .15s; }
-html.admin-menu-closed .menu-chevron { transform: rotate(-90deg); }
-html.admin-menu-closed .menu-group > nav { display: none; }
-.menu-group > nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 2px 6px; padding: 0 10px 8px; margin: 0; border: 0; }
-.menu-group nav a { margin: 0; padding: 6px 10px; gap: 8px; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.menu-group nav a .ico { width: 16px; font-size: 13px; text-align: center; flex: none; }
+﻿/* The icon rail: a slim column of icons down the left edge (like pgAdmin's), in front of the sidebar. The active page has a bar
+   on its left; the name shows on hover or focus. It takes no height from the Object Browser. */
+.rail { flex: none; position: sticky; top: 0; height: 100vh; width: 52px; box-sizing: border-box; display: flex; flex-direction: column;
+  align-items: stretch; gap: 2px; padding: 10px 0; background: #031225; border-right: 1px solid var(--line); z-index: 10; }
+.rail-item { position: relative; display: grid; place-items: center; height: 46px; color: #7fb4d8; text-decoration: none; border: 0;
+  background: none; cursor: pointer; transition: color .15s, background .15s; }
+.rail-item svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.rail-item:hover, .rail-item:focus-visible { color: #fff; background: #03264a; outline: none; }
+.rail-item.active { color: var(--accent); background: #03335d; box-shadow: inset 3px 0 0 var(--accent); }
+.rail-item::after { content: attr(data-label); position: absolute; left: calc(100% + 6px); top: 50%; transform: translateY(-50%); padding: 5px 11px;
+  background: #03264a; border: 1px solid #12507a; color: #fff; font-size: 12px; letter-spacing: .3px; white-space: nowrap; pointer-events: none;
+  opacity: 0; transition: opacity .12s; z-index: 20; }
+.rail-item:hover::after, .rail-item:focus-visible::after { opacity: 1; }
+.rail-gap { flex: 1; }
+@media (max-width: 800px) { .rail { width: 44px; z-index: 8; } .rail-item { height: 42px; } .rail-item::after { display: none; } }

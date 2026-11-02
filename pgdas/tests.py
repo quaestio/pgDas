@@ -104,48 +104,52 @@ class BrandingTests(TestCase):
         for path in (BASE_DIR / "templates").rglob("*.html"):
             self.assertNotIn("PgDeck", path.read_text(encoding="utf-8"), path.name)
 
-class SidebarGroupTests(TestCase):
-    """The Administration links are a separate compact group below the Object Browser, which keeps the room."""
+class MenuRailTests(TestCase):
+    """The menu is a slim icon rail down the left edge, in front of the sidebar, so the Object Browser keeps the whole sidebar."""
 
-    def sidebar(self, staff):
+    def page(self, staff, path="/"):
         user = get_user_model().objects.create_user("staff" if staff else "viewer", password="pw-12345-abc", is_staff=staff)
         self.client.force_login(user)
-        html = self.client.get("/").content.decode()
-        return html, html[html.index("<aside"):html.index("</aside>")]
+        html = self.client.get(path).content.decode()
+        return html, html[html.index('<nav class="rail"'):html.index("</nav>", html.index('<nav class="rail"'))]
 
-    def test_staff_get_a_separate_group_after_the_tree_with_all_their_links(self):
-        html, side = self.sidebar(True)
-        self.assertIn('class="menu-group" id="adminMenu"', side)
-        group = side[side.index('class="menu-group"'):side.index("</nav>", side.index('class="menu-group"'))]
-        self.assertIn("ADMINISTRATION", group)
-        for link in ("Audit log", "Backups", "Monitor", "Alerts &amp; trends"):
-            self.assertIn(link, group)
-        self.assertGreater(side.index('class="menu-group"'), side.index('id="tree"'))                 # below the tree ...
-        self.assertLess(side.index('class="menu-group"'), side.index('class="sidebar-bottom"'))        # ... above the footer
-        self.assertNotIn('id="menu" class="compact below"', side)                                      # no longer a loose list of links
+    def test_staff_rail_has_an_icon_for_every_page_and_comes_before_the_sidebar(self):
+        html, rail = self.page(True)
+        for label in ("Object Browser", "Audit log", "Backups", "Monitor", "Alerts &amp; trends"):
+            self.assertIn(f'data-label="{label}" aria-label="{label}"', rail)
+        self.assertEqual(rail.count("<svg"), rail.count("<a "))                           # an icon for every link, no text in the rail itself
+        self.assertGreaterEqual(rail.count("<a "), 5)                                      # (more links may be added to the rail later)
+        self.assertLess(html.index('<nav class="rail"'), html.index("<aside"))
+        self.assertIn('<div class="app">\n<nav class="rail"', html)
+        side = html[html.index("<aside"):html.index("</aside>")]
+        self.assertNotIn("menu-group", side)                                               # nothing of the old group is left in the sidebar
+        self.assertNotIn("ADMINISTRATION", html)
+        self.assertGreater(side.index('id="tree"'), side.index("OBJECT BROWSER"))
 
-    def test_the_group_folds_away_and_the_choice_is_restored_before_first_paint(self):
-        html, side = self.sidebar(True)
-        self.assertIn('id="adminMenuToggle"', side)
-        self.assertIn('aria-expanded="true"', side[side.index("adminMenuToggle"):])
-        self.assertIn('aria-controls="menu"', side)
-        head = html[:html.index("</head>")]
-        self.assertIn("pgdas.adminMenu", head)
-        self.assertIn("admin-menu-closed", head)
-        self.assertIn('href="/static/sidebar.css"', head)
-        script = (BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
-        for needle in ("adminMenuToggle", "admin-menu-closed", "pgdas.adminMenu", "aria-expanded"):
-            self.assertIn(needle, script)
+    def test_the_page_you_are_on_is_marked(self):
+        _, rail = self.page(True, "/")
+        self.assertEqual(rail.count(" active"), 1)
+        self.assertIn('class="rail-item active" href="/" data-label="Object Browser"', rail)
+        self.assertIn('aria-current="page"', rail)
+        for path, label in (("/audit/", "Audit log"), ("/backups/", "Backups"), ("/monitor/", "Monitor"), ("/watch/", "Alerts &amp; trends")):
+            with self.subTest(path=path):
+                html = self.client.get(path).content.decode()
+                rail = html[html.index('<nav class="rail"'):html.index("</nav>", html.index('<nav class="rail"'))]
+                self.assertEqual(rail.count(" active"), 1)
+                self.assertRegex(rail, rf'class="rail-item active" href="{path}" data-label="{label}"')
 
-    def test_the_stylesheet_makes_it_compact_and_leaves_the_tree_the_rest(self):
+    def test_people_who_are_not_staff_only_get_the_object_browser_icon(self):
+        _, rail = self.page(False)
+        self.assertEqual(rail.count("<a "), 1)
+        self.assertIn('data-label="Object Browser"', rail)
+        for label in ("Audit log", "Backups", "Monitor", "Alerts"):
+            self.assertNotIn(label, rail)
+
+    def test_the_stylesheet_makes_a_narrow_sticky_column_with_a_bar_on_the_active_icon(self):
         css = (BASE_DIR / "static" / "sidebar.css").read_text(encoding="utf-8")
-        for needle in (".menu-group", "grid-template-columns", "html.admin-menu-closed .menu-group > nav { display: none; }"):
+        for needle in (".rail {", "position: sticky", "width: 52px", ".rail-item.active", "inset 3px 0 0 var(--accent)",
+                       "content: attr(data-label)", ".rail-item:focus-visible::after"):
             self.assertIn(needle, css)
-        main = (BASE_DIR / "static" / "pgdas.css").read_text(encoding="utf-8")
-        self.assertIn(".sidebar-tree { flex: 1; min-height: 0;", main)                                # the tree takes what is left
-
-    def test_people_who_are_not_staff_have_no_administration_group(self):
-        _, side = self.sidebar(False)
-        self.assertNotIn("menu-group", side)
-        self.assertNotIn("ADMINISTRATION", side)
-        self.assertIn('id="tree"', side)
+        script = (BASE_DIR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertNotIn("adminMenu", script)                                              # the fold-away button of the old group is gone
+        self.assertIn('href="/static/sidebar.css"', self.client.get("/login/").content.decode())
