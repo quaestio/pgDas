@@ -6,6 +6,7 @@
     <div class="dlg-tabs" role="tablist">
       <button type="button" class="dlg-tab active" data-tab="general">General</button>
       <button type="button" class="dlg-tab" data-tab="definition">Definition</button>
+      <button type="button" class="dlg-tab" data-tab="security">Security</button>
       <button type="button" class="dlg-tab" data-tab="sql">SQL</button>
     </div>
     <div class="dlg-panel" data-panel="general">
@@ -19,6 +20,12 @@
       <div class="dlg-row"><label for="cdCollate">Collation</label><input type="text" id="cdCollate" data-field="collate" autocomplete="off" spellcheck="false" placeholder="e.g. en_US.UTF-8 (optional)"></div>
       <div class="dlg-row"><label for="cdCtype">Character type</label><input type="text" id="cdCtype" data-field="ctype" autocomplete="off" spellcheck="false" placeholder="e.g. en_US.UTF-8 (optional)"></div>
       <div class="dlg-row"><label for="cdLimit">Connection limit</label><input type="number" id="cdLimit" data-field="limit" min="-1" placeholder="-1 = no limit"></div>
+    </div>
+    <div class="dlg-panel" data-panel="security" hidden>
+      <div class="dlg-grants-head"><strong>Privileges</strong>
+        <button type="button" class="btn" data-grant-add title="Add a grantee">＋ Add</button></div>
+      <p class="muted dlg-hint">Who may do what on this database. Leave it empty to keep PostgreSQL's defaults (everyone may connect). Each row becomes a GRANT run right after the database is created.</p>
+      <div data-grants></div>
     </div>
     <div class="dlg-panel" data-panel="sql" hidden><pre class="sql dlg-sql" data-sql></pre></div>
     <p class="dlg-problem" data-problem hidden></p>

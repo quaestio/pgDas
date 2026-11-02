@@ -24,6 +24,66 @@
     select.appendChild(o);
   }
 
+  // ---- the Security tab of Create database: rows of grantee + privileges (+ WITH GRANT OPTION), one GRANT each -----------
+  var PRIVILEGES = ["CREATE", "TEMPORARY", "CONNECT"];
+
+  function addGrantRow(el, grantees) {
+    var row = document.createElement("div"), select = document.createElement("select");
+    row.className = "dlg-grant"; row.setAttribute("data-grant-row", "");
+    select.setAttribute("data-grantee", "");
+    option(select, "", "choose a role…");
+    option(select, "PUBLIC", "PUBLIC (everyone)");
+    grantees.forEach(function (r) { option(select, r, r); });
+    row.appendChild(select);
+    var boxes = document.createElement("div"); boxes.className = "dlg-grant-boxes";
+    ["ALL"].concat(PRIVILEGES).forEach(function (priv) {
+      var line = document.createElement("div"), label = document.createElement("label"), box = document.createElement("input");
+      var optLabel = document.createElement("label"), opt = document.createElement("input");
+      line.className = "dlg-grant-line";
+      box.type = "checkbox"; box.setAttribute("data-priv", priv);
+      label.appendChild(box); label.appendChild(document.createTextNode(" " + priv));
+      opt.type = "checkbox"; opt.setAttribute("data-opt", priv); opt.disabled = true;
+      optLabel.className = "muted"; optLabel.appendChild(opt); optLabel.appendChild(document.createTextNode(" WITH GRANT OPTION"));
+      line.appendChild(label); line.appendChild(optLabel);
+      boxes.appendChild(line);
+    });
+    row.appendChild(boxes);
+    var remove = document.createElement("button");
+    remove.type = "button"; remove.className = "btn"; remove.setAttribute("data-grant-remove", ""); remove.title = "Remove this row"; remove.textContent = "✕";
+    row.appendChild(remove);
+    el.querySelector("[data-grants]").appendChild(row);
+  }
+
+  function syncGrantRow(row, changed) {          // ALL ticks or clears the others; an option box works only with its privilege
+    var priv = function (name) { return row.querySelector('[data-priv="' + name + '"]'); };
+    var opt = function (name) { return row.querySelector('[data-opt="' + name + '"]'); };
+    if (changed && changed.getAttribute("data-priv") === "ALL") PRIVILEGES.forEach(function (n) { priv(n).checked = changed.checked; });
+    else if (changed && changed.getAttribute("data-opt") === "ALL") PRIVILEGES.forEach(function (n) { opt(n).checked = changed.checked; });
+    else if (changed && changed.hasAttribute("data-priv")) priv("ALL").checked = PRIVILEGES.every(function (n) { return priv(n).checked; });
+    ["ALL"].concat(PRIVILEGES).forEach(function (n) { opt(n).disabled = !priv(n).checked; if (!priv(n).checked) opt(n).checked = false; });
+  }
+
+  function grantRows(el) {
+    return Array.prototype.map.call(el.querySelectorAll("[data-grant-row]"), function (row) {
+      var on = function (attr, name) { return row.querySelector("[" + attr + '="' + name + '"]').checked; };
+      return {to: row.querySelector("[data-grantee]").value, all: on("data-priv", "ALL"), allOption: on("data-opt", "ALL"),
+              privs: PRIVILEGES.filter(function (n) { return on("data-priv", n); }),
+              options: PRIVILEGES.filter(function (n) { return on("data-opt", n); })};
+    });
+  }
+
+  function grantSql(db, g) {                     // plain privileges in one GRANT, the WITH GRANT OPTION ones in another
+    var to = g.to === "PUBLIC" ? "PUBLIC" : ident(g.to), lines = [];
+    if (g.all) {
+      lines.push("GRANT ALL PRIVILEGES ON DATABASE " + ident(db) + " TO " + to + (g.allOption ? " WITH GRANT OPTION" : ""));
+      return lines;
+    }
+    var plain = g.privs.filter(function (n) { return g.options.indexOf(n) < 0; });
+    if (plain.length) lines.push("GRANT " + plain.join(", ") + " ON DATABASE " + ident(db) + " TO " + to);
+    if (g.options.length) lines.push("GRANT " + g.options.join(", ") + " ON DATABASE " + ident(db) + " TO " + to + " WITH GRANT OPTION");
+    return lines;
+  }
+
   // ---- what each dialog asks for, what it checks and the SQL it makes ------------------------------------------
   var KINDS = {
     "create-db": {
@@ -36,10 +96,12 @@
         option(template, "", "template1 (default)");
         option(template, "template0", "template0");
         ctx.databases.forEach(function (d) { option(template, d, d); });
+        el.querySelector("[data-grants]").innerHTML = "";
       },
       problem: function (v) {
         if (!v.name.trim()) return "'Database' cannot be empty.";
         if (v.limit !== "" && !/^-?\d+$/.test(v.limit)) return "'Connection limit' must be a whole number.";
+        if (v.grants.some(function (g) { return !g.to && g.privs.length; })) return "Security: choose a role for every row that has privileges.";
         return "";
       },
       sql: function (v) {
@@ -52,7 +114,11 @@
         if (v.collate.trim()) opts.push("LC_COLLATE = " + literal(v.collate.trim()));
         if (v.ctype.trim()) opts.push("LC_CTYPE = " + literal(v.ctype.trim()));
         if (v.limit !== "") opts.push("CONNECTION LIMIT = " + parseInt(v.limit, 10));
-        return "CREATE DATABASE " + ident(v.name.trim()) + (opts.length ? "\n    WITH " + opts.join("\n         ") : "");
+        var statements = ["CREATE DATABASE " + ident(v.name.trim()) + (opts.length ? "\n    WITH " + opts.join("\n         ") : "")];
+        v.grants.filter(function (g) { return g.to && g.privs.length; }).forEach(function (g) {
+          statements = statements.concat(grantSql(v.name.trim(), g));
+        });
+        return statements.join(";\n");
       },
     },
     "create-role": {
@@ -112,7 +178,7 @@
   var open = null;       // {kind, el, ctx, fields, defaults}
 
   function values(el) {
-    var v = {members: []};
+    var v = {members: [], grants: grantRows(el)};
     el.querySelectorAll("[data-field]").forEach(function (f) {
       v[f.getAttribute("data-field")] = f.type === "checkbox" ? f.checked : f.value;
     });
@@ -151,6 +217,7 @@
       if (f.type === "checkbox") f.checked = !!d; else f.value = d === undefined ? "" : d;
     });
     open.el.querySelectorAll("[data-member]").forEach(function (m) { m.checked = false; });
+    open.el.querySelectorAll("[data-grant-row]").forEach(function (r) { r.remove(); });
     showTab(open.el, "general");
     refresh();
   }
@@ -206,10 +273,18 @@
     if (event.target.closest("[data-dlg-close]") && open.el.contains(event.target)) { close(); return; }
     if (event.target.closest("[data-dlg-reset]") && open.el.contains(event.target)) { reset(); return; }
     if (event.target.closest("[data-dlg-save]") && open.el.contains(event.target)) { save(); return; }
+    if (event.target.closest("[data-grant-add]") && open.el.contains(event.target)) { addGrantRow(open.el, open.ctx.roles || []); refresh(); return; }
+    var removeRow = event.target.closest("[data-grant-remove]");
+    if (removeRow && open.el.contains(removeRow)) { removeRow.closest("[data-grant-row]").remove(); refresh(); return; }
     if (event.target === open.el) close();
   });
   document.addEventListener("input", function (event) { if (open && open.el.contains(event.target)) refresh(); });
-  document.addEventListener("change", function (event) { if (open && open.el.contains(event.target)) refresh(); });
+  document.addEventListener("change", function (event) {
+    if (!open || !open.el.contains(event.target)) return;
+    var row = event.target.closest("[data-grant-row]");
+    if (row) syncGrantRow(row, event.target);
+    refresh();
+  });
   document.addEventListener("keydown", function (event) {
     var review = document.getElementById("changeModal");
     if (event.key === "Escape" && open && (!review || review.hidden)) close();

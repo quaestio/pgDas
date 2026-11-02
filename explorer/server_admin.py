@@ -47,7 +47,52 @@ def _unquote(name):
     return name[1:-1].replace('""', '"') if name.startswith('"') else name.lower()
 
 
+_GRANT_ON_DATABASE = re.compile(rf"^(?:GRANT|REVOKE)\b.+?\bON\s+DATABASE\s+(?P<name>{_NAME})\s+(?:TO|FROM)\s+(?P<who>.+?)(?:\s+WITH\s+GRANT\s+OPTION)?$",
+                                re.I | re.S)
+_PSEUDO_ROLES = {"public", "current_user", "current_role", "session_user"}
+
+
+def _statements(text):
+    return [s for s in sqlparse.split(text or "") if s.strip(" \t\r\n;")]
+
+
+def _grant_after_create(name, text):
+    """One GRANT/REVOKE that follows CREATE DATABASE in the same script: it must be on that new database."""
+    first = _bare(text).split(None, 1)[0].upper() if _bare(text) else ""
+    if first not in ("GRANT", "REVOKE"):
+        raise PgError("After CREATE DATABASE only GRANT or REVOKE on that same database can follow; run anything else on its own.")
+    cleaned, _ = prepare_statement(text, first)
+    match = _GRANT_ON_DATABASE.match(cleaned)
+    if not match or _unquote(match["name"]) != name:
+        raise PgError(f"After CREATE DATABASE, a {first} must be written as {first} ... ON DATABASE {name} ...")
+    return cleaned
+
+
+def _grantees(statement):
+    who = _GRANT_ON_DATABASE.match(statement)["who"]
+    names = []
+    for part in who.split(","):
+        part = re.sub(r"^\s*(?:GROUP|ROLE)\s+", "", part, flags=re.I).strip()
+        if re.fullmatch(_NAME, part) and _unquote(part).lower() not in _PSEUDO_ROLES:
+            names.append(_unquote(part))
+    return names
+
+
 def parse(text):
+    """One statement; or CREATE DATABASE followed by GRANT / REVOKE statements on that database (the dialog's Security tab).
+    The result's `statement` is the first one, `grants` the others and `shown` all of them (passwords hidden)."""
+    statements = _statements(text)
+    if len(statements) > 1 and re.match(r"^CREATE\s+DATABASE\b", _bare(statements[0]), re.I):
+        parsed = _parse_one(statements[0])
+        parsed["grants"] = [_grant_after_create(parsed["name"], s) for s in statements[1:]]
+        parsed["shown"] = ";\n".join([parsed["shown"]] + parsed["grants"])
+        return parsed
+    parsed = _parse_one(text)
+    parsed["grants"] = []
+    return parsed
+
+
+def _parse_one(text):
     match = _START.match(_bare(text))
     if not match:
         raise PgError("This is not a database, user or grant statement.")
@@ -200,19 +245,35 @@ def _check_database_rights(conn, verb, name, facts):
                           "Only the owner or a superuser can drop it.")
 
 
+def _check_grantees(conn, parsed):
+    """A GRANT to a role that does not exist would fail after the database was already created: refuse it up front."""
+    wanted = sorted({who for statement in parsed["grants"] for who in _grantees(statement)})
+    if wanted:
+        known = {r[0] for r in conn.execute("SELECT rolname FROM pg_roles WHERE rolname = ANY(%s)", (wanted,)).fetchall()}
+        missing = [w for w in wanted if w not in known]
+        if missing:
+            raise PgError("These roles do not exist: " + ", ".join(missing) + ". Create them first, or leave them out of the Security tab.")
+
+
 def _preview_database(server, parsed):
     name, verb = parsed["name"], parsed["verb"]
     with pg.connect_maintenance(server, avoid=name) as conn:
         facts = _database_facts(conn, name)
         _check_database_rights(conn, verb, name, facts)
+        if verb == "CREATE" and not facts:
+            _check_grantees(conn, parsed)
     if verb == "CREATE":
         if facts:
             raise PgError(f'Database "{name}" already exists.')
         found = [{"action": "create", "kind": "database", "name": name, "detail": ""}]
         notes = _notes(parsed) + [{"text": "PostgreSQL cannot create a database inside a transaction, so this one cannot be tried out "
                                            "first: the owner, template and settings are checked when it runs.", "bad": False}]
+        objects = _lines(found) + [{"name": name, "text": "~ grant " + g, "rows": None, "cascade": False} for g in parsed["grants"]]
+        if parsed["grants"]:
+            notes.append({"text": f"After the database is created, {len(parsed['grants'])} privilege statement"
+                                  f"{'s' if len(parsed['grants']) != 1 else ''} run on it. If one is refused, the database stays and you are told.", "bad": False})
         return _popup(parsed, found, notes, "CREATE DATABASE?", "DATABASE", f"{name} will be created.", "Create database", None,
-                      _WARNINGS["CREATE"].format(what="database"), {"exists": False})
+                      _WARNINGS["CREATE"].format(what="database"), {"exists": False}, objects=objects)
     if not facts:
         if not parsed["if_exists"]:
             raise PgError(f'Database "{name}" does not exist.')
@@ -278,6 +339,8 @@ def _execute_database(server, parsed, fingerprint, confirm, user):
         _check_word(parsed, confirm)
         found = [{"action": "create" if verb == "CREATE" else "drop", "kind": "database", "name": name, "detail": ""}]
         payload = _payload(None, parsed, found)
+        if parsed["grants"]:
+            payload["grants"] = parsed["grants"]
         if verb == "DROP":
             payload["size"], payload["connections"] = facts["size"], facts["connections"]
         try:    # these cannot be rolled back, so the record comes first and is corrected if the statement fails
@@ -293,8 +356,17 @@ def _execute_database(server, parsed, fingerprint, confirm, user):
             if verb == "DROP" and "being accessed by other users" in str(error):
                 raise PgError(f"{error} Choose Delete again and tick \"Disconnect the other sessions\" to drop it anyway (WITH (FORCE)).")
             raise
+        for done, grant in enumerate(parsed["grants"]):          # the database exists now; each privilege statement runs on its own
+            try:
+                changes._run(conn, grant)
+            except PgError as error:
+                entry.detail = f"{entry.detail}\n(created, but this privilege statement failed: {str(error)[:200]})"
+                entry.save(update_fields=["detail"])
+                raise PgError(f"Database {name} was created, but the privilege statement {done + 1} failed: {error} "
+                              "Fix it and run that GRANT on its own; the database is there.")
+    extra = f" and {len(parsed['grants'])} privilege statement{'s' if len(parsed['grants']) != 1 else ''} run" if parsed["grants"] else ""
     return {"count": 1, "entry_id": entry.pk, "changes": found,
-            "message": f"Database {name} {'created' if verb == 'CREATE' else 'dropped'}. Recorded in the audit log as entry #{entry.pk}."}
+            "message": f"Database {name} {'created' if verb == 'CREATE' else 'dropped'}{extra}. Recorded in the audit log as entry #{entry.pk}."}
 
 
 def execute(server, database, text, fingerprint, confirm, user):

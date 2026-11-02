@@ -183,6 +183,14 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .bk-form label select, .bk-form label input { width: 100%; box-sizing: border-box; height: 38px; padding: 0 12px; font-size: 14px; }
 .bk-form input[type=number] { min-width: 0; }
 .bk-form .btn { height: 38px; padding: 0 20px; }
+.dlg-grants-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.dlg-hint { margin: 0 0 10px; font-size: 12px; }
+.dlg-grant { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(240px, 2fr) auto; gap: 12px; align-items: start; padding: 10px 0; border-top: 1px solid #12507a; }
+.dlg-grant select { width: 100%; }
+.dlg-grant-line { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; padding: 2px 0; }
+.dlg-grant-line label { display: inline-flex; align-items: center; gap: 4px; }
+.dlg-grant .btn { padding: 6px 10px; }
+@media (max-width: 640px) { .dlg-grant { grid-template-columns: 1fr; } }
 .bad-text { color: #ff7b8d; }
 .row-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .row-form input { height: 34px; padding: 0 10px; }

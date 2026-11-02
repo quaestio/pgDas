@@ -53,7 +53,7 @@ class ParseTests(SimpleTestCase):
         self.assertEqual(redact_secrets("SELECT 'password'"), "SELECT 'password'")             # only a password being set
 
     def test_refused(self):
-        for text, message in (("CREATE DATABASE a; CREATE DATABASE b", "one CREATE statement"),
+        for text, message in (("CREATE DATABASE a; CREATE DATABASE b", "only GRANT or REVOKE"),
                               ("ALTER DATABASE a SET TABLESPACE t", "tablespace"), ("CREATE DATABASE", "Write it as")):
             with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, message):
                 server_admin.parse(text)
@@ -486,6 +486,72 @@ class LimitedLoginTests(AdminFixture, TestCase):
         data = self.preview_as(server, f"GRANT SELECT ON pgdeck_w.logged TO {self.LIMITED}")
         self.assertIsNone(data["button"])
         self.assertTrue(any("PostgreSQL says: no privileges were granted" in n["text"] and n["bad"] for n in data["notes"]))
+
+
+class DatabaseSecurityTests(AdminFixture, TestCase):
+    """CREATE DATABASE followed by GRANT statements on it: what the dialog's Security tab sends."""
+
+    def make_role(self):
+        with admin_connect("postgres") as conn:
+            conn.execute(f"CREATE ROLE {ROLE}")
+
+    def can(self, privilege):
+        return self.query("SELECT has_database_privilege(%s, %s, %s)", ROLE, DB, privilege)[0][0]
+
+    def script(self, *grants):
+        return ";\n".join([f"CREATE DATABASE {DB}", *grants])
+
+    def test_parse_splits_the_create_from_its_grants(self):
+        parsed = server_admin.parse(self.script(f"GRANT CREATE ON DATABASE {DB} TO {ROLE}", f"GRANT CONNECT ON DATABASE {DB} TO PUBLIC WITH GRANT OPTION;"))
+        self.assertEqual((parsed["verb"], parsed["name"], parsed["transactional"]), ("CREATE", DB, False))
+        self.assertEqual(parsed["statement"], f"CREATE DATABASE {DB}")
+        self.assertEqual(len(parsed["grants"]), 2)
+        self.assertEqual(sum(line.startswith("GRANT") for line in parsed["shown"].splitlines()), 2)
+        self.assertEqual(server_admin._grantees(parsed["grants"][0]), [ROLE])
+        self.assertEqual(server_admin._grantees(parsed["grants"][1]), [])                  # PUBLIC is not a role to look up
+
+    def test_only_grants_on_that_database_may_follow(self):
+        for text, message in ((self.script("DROP DATABASE postgres"), "only GRANT or REVOKE"),
+                              (self.script("SELECT 1"), "only GRANT or REVOKE"),
+                              (self.script("GRANT CREATE ON DATABASE postgres TO PUBLIC"), "ON DATABASE " + DB),
+                              (self.script("GRANT SELECT ON ALL TABLES IN SCHEMA public TO PUBLIC"), "ON DATABASE " + DB)):
+            with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, message):
+                server_admin.parse(text)
+
+    def test_preview_lists_the_grants_and_create_runs_them_with_the_database(self):
+        self.make_role()
+        sql = self.script(f"GRANT CREATE, TEMPORARY ON DATABASE {DB} TO {ROLE}", f"GRANT CONNECT ON DATABASE {DB} TO {ROLE} WITH GRANT OPTION")
+        data = self.preview(sql)
+        self.assertEqual(data["button"], "Create database")
+        self.assertEqual(len(data["objects"]), 3)
+        self.assertTrue(any("2 privilege statements" in n["text"] for n in data["notes"]))
+        self.assertEqual(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB), [])
+        result = self.execute(sql, data["fingerprint"])
+        self.assertIn("and 2 privilege statements run", result["message"])
+        self.assertTrue(self.can("CREATE"))
+        self.assertTrue(self.can("CONNECT WITH GRANT OPTION"))
+        self.assertFalse(self.can("CREATE WITH GRANT OPTION"))
+        entry = AuditEntry.objects.get(pk=result["entry_id"])
+        self.assertEqual(len(entry.payload["grants"]), 2)
+        self.assertIn(f"GRANT CREATE, TEMPORARY ON DATABASE {DB}", entry.detail)
+
+    def test_a_missing_role_is_refused_before_anything_is_created(self):
+        with self.assertRaisesRegex(pg.PgError, "do not exist: pgdeck_t_no_such_role"):
+            self.preview(self.script(f"GRANT CREATE ON DATABASE {DB} TO pgdeck_t_no_such_role"))
+        self.assertEqual(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB), [])
+        self.assertFalse(AuditEntry.objects.exists())
+
+    def test_a_grant_refused_after_the_create_leaves_the_database_and_says_so(self):
+        self.make_role()
+        sql = self.script(f"GRANT CREATE ON DATABASE {DB} TO {ROLE}", f"GRANT NOPE ON DATABASE {DB} TO {ROLE}")
+        data = self.preview(sql)
+        with self.assertRaisesRegex(pg.PgError, "was created, but the privilege statement 2 failed"):
+            self.execute(sql, data["fingerprint"])
+        self.assertEqual(len(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB)), 1)
+        self.assertTrue(self.can("CREATE"))
+        entry = AuditEntry.objects.get()
+        self.assertTrue(entry.ok)
+        self.assertIn("created, but this privilege statement failed", entry.detail)
 
 
 class RedactionTests(TestCase):
