@@ -15,6 +15,11 @@
   {% else %}<p class="muted">Add a server first.</p>{% endif %}
 </section>
 
+<section class="panel pad"><h2>Notifications</h2>
+  <p class="muted" id="wChannels"></p>
+  <p class="muted">When <code>manage.py run_watch</code> runs, a message is sent when an alert starts, every few hours while a critical one lasts, and when it is over. Set the channels in <code>.env</code> (see <code>.env.example</code>).</p>
+  <button class="btn" type="button" id="wTest">Send a test notification</button> <span class="muted" id="wTestResult"></span></section>
+
 <section class="panel pad"><h2>Alerts <span class="badge" id="wAlertCount">0</span></h2>
   <p class="muted">Blocked or long-running sessions, too many connections, fast growth, and failed or overdue backups.</p>
   <ul class="alerts" id="wAlerts"></ul></section>
@@ -48,7 +53,15 @@
     return svg;
   }
 
+  function channels(c) {
+    var parts = [];
+    if (c.webhook) parts.push("webhook to " + c.webhook);
+    if (c.email.length) parts.push("email to " + c.email.join(", "));
+    $("wChannels").textContent = parts.length ? "Sending alerts by " + parts.join(" and ") + "." : "No channel is set up, so nothing is sent: alerts show on this page only.";
+  }
+
   function show(d) {
+    channels(d.channels);
     var list = $("wAlerts"); list.replaceChildren();
     $("wAlertCount").textContent = d.alerts.length;
     $("wAlertCount").className = "badge" + (d.alerts.length ? " bad" : " ok");
@@ -81,6 +94,12 @@
   $("wSample").addEventListener("click", function () {
     fetch("{% url 'watch_sample' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": csrf}, body: new URLSearchParams({server: server.value})})
       .then(function (r) { return r.json(); }).then(function (d) { load(); $("wStatus").textContent = d.message || d.error; });
+  });
+  $("wTest").addEventListener("click", function () {
+    $("wTestResult").textContent = "Sending?";
+    fetch("{% url 'watch_test_notify' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": csrf}})
+      .then(function (r) { return r.json(); }).then(function (d) { $("wTestResult").textContent = d.message || d.error; })
+      .catch(function () { $("wTestResult").textContent = "Could not reach PGDAS."; });
   });
   server.addEventListener("change", load); $("wDays").addEventListener("change", load);
   load();

@@ -137,6 +137,19 @@ WATCH_CONNECTIONS_PERCENT = int(os.getenv("PGDAS_WATCH_CONNECTIONS_PERCENT", "80
 WATCH_GROWTH_PERCENT = int(os.getenv("PGDAS_WATCH_GROWTH_PERCENT", "20"))            # growth over 7 days ...
 WATCH_GROWTH_MIN_BYTES = int(os.getenv("PGDAS_WATCH_GROWTH_MIN_BYTES", str(100 * 1024 * 1024)))   # ... and at least this much
 
+# Sending alerts (run_watch): a webhook (Slack, Teams, Discord, ...) and/or email. Both are off until set.
+ALERT_WEBHOOK_URL = os.getenv("PGDAS_ALERT_WEBHOOK_URL", "")
+ALERT_EMAIL_TO = env_list("PGDAS_ALERT_EMAIL_TO")
+ALERT_EMAIL_FROM = os.getenv("PGDAS_ALERT_EMAIL_FROM", "PGDAS <pgdas@localhost>")
+ALERT_REPEAT_HOURS = int(os.getenv("PGDAS_ALERT_REPEAT_HOURS", "12"))              # remind about a critical alert this often; 0 = never
+EMAIL_HOST = os.getenv("PGDAS_EMAIL_HOST", "")
+EMAIL_PORT = int(os.getenv("PGDAS_EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("PGDAS_EMAIL_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("PGDAS_EMAIL_PASSWORD", "")
+EMAIL_USE_SSL = os.getenv("PGDAS_EMAIL_SSL", "0") == "1"                           # port 465 style
+EMAIL_USE_TLS = os.getenv("PGDAS_EMAIL_TLS", "1") == "1" and not EMAIL_USE_SSL     # STARTTLS, port 587 style
+EMAIL_TIMEOUT = 15
+
 # SQL runner safety limits.
 STATEMENT_TIMEOUT_MS = int(os.getenv("PGDAS_STATEMENT_TIMEOUT_MS", "30000"))
 MAX_ROWS = int(os.getenv("PGDAS_MAX_ROWS", "1000"))

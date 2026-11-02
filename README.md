@@ -191,15 +191,27 @@ overdue. Below it, a table of database sizes with the change over 24 hours, 7, 3
 
 Size history is built by `python manage.py run_watch`, which takes one sample of every database of every saved server (every 5
 minutes with `--loop`, or from Task Scheduler or cron); **Sample now** on the page takes one by hand. Samples are kept for 90 days.
-The thresholds are settings in `.env` (`PGDAS_WATCH_*`, see `.env.example`). Alerts show on the page only: no email or chat message
-is sent.
+The thresholds are settings in `.env` (`PGDAS_WATCH_*`, see `.env.example`). Alerts show on the page, and can also be sent (see "Sending alerts").
+
+## Sending alerts
+Set a **webhook** and/or **email** in `.env` (see `.env.example`) and `python manage.py run_watch` (the same job that takes the size
+samples) sends the alerts, so you hear about a problem without watching the page:
+- a message when an alert **starts**, one when it is **over**, and a reminder every `PGDAS_ALERT_REPEAT_HOURS` (12 by default, 0 =
+  never) while a **critical** one lasts. A problem whose numbers change ("3 sessions blocked" then "5") is still the same alert;
+- the webhook takes a JSON POST (`text` and `content`), so a Slack, Teams or Discord incoming-webhook address works. Treat the
+  address as a secret: PGDAS shows only its host, never writes it to the audit log, and takes it only from `.env`;
+- email uses SMTP (`PGDAS_EMAIL_HOST`, `_PORT`, `_USER`, `_PASSWORD`, and `PGDAS_EMAIL_TLS=1` for port 587 or `PGDAS_EMAIL_SSL=1` for 465)
+  and goes to `PGDAS_ALERT_EMAIL_TO`;
+- if a send fails the reason is recorded in the audit log and it is tried again at the next run;
+- nothing is sent, and nothing remembered, until a channel is set. **Send a test notification** on the Alerts & trends page checks
+  the settings. `run_watch --no-notify` takes samples only.
 
 ## Roadmap
 1. MVP: login, servers, object browser, read-only SQL, audit log.
 2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
    and re-insert for deletes and undo for updates are done**; query history is done; next: finer per-user permissions.
 3. Backups: **`pg_dump` backups, download, restore into a new database, schedules with retention are done.**
-4. Monitoring: **sessions, locks, slow queries, cancel/end, size trends and alerts are done**; next: sending alerts (email or webhook).
+4. Monitoring: **sessions, locks, slow queries, cancel/end, size trends and alerts are done**; alerts can be sent by webhook or email.
 5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
 
 ## License
