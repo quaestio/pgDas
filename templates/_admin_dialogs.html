@@ -1,5 +1,5 @@
-{# Create database / Create role / Rename database, as tabbed dialogs like pgAdmin's. static/admin_dialogs.js drives them: it builds the SQL
-   on the SQL tab, and Save opens the review popup (_review_modal.html) before anything is changed. Staff only. #}
+{% comment %}Create database / Create role / Rename database, as tabbed dialogs like pgAdmin's. static/admin_dialogs.js drives them: it builds the SQL
+   on the SQL tab, and Save opens the review popup (_review_modal.html) before anything is changed. Staff only.{% endcomment %}
 <div id="dlgCreateDb" class="cyber-modal" hidden data-dialog>
   <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgCreateDbTitle">
     <div class="modal-top"><span id="dlgCreateDbTitle">CREATE — DATABASE</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>

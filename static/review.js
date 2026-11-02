@@ -1,5 +1,5 @@
 // The review popup for a changing statement, shared by the SQL runner and the Create / Rename / Delete dialogs.
-//   pgdeckReview.start({server, db, sql, onError(message), onSuccess(result)})
+//   pgdasReview.start({server, db, sql, onError(message), onSuccess(result)})
 // asks PGDAS what the statement would do (nothing changes: the server rolls the check back), shows the popup with
 // the facts and the warning, and runs it for real only when the person confirms (typing the word when one is needed).
 // Values from the database are inserted as text, never as HTML.
@@ -13,7 +13,7 @@
   var csrf = (modal.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
   var checked = null;        // what the person is being asked to confirm: {request, fingerprint, word, button}
 
-  function tone(type) { if (window.pgdeckSound) window.pgdeckSound.play(type); }
+  function tone(type) { if (window.pgdasSound) window.pgdasSound.play(type); }
 
   function post(url, body) {
     return fetch(url, {
@@ -147,7 +147,7 @@
   modal.addEventListener("click", function (event) { if (event.target === modal) closeModal(); });
   document.addEventListener("keydown", function (event) { if (event.key === "Escape" && !modal.hidden) { event.stopPropagation(); closeModal(); } }, true);
 
-  window.pgdeckReview = {
+  window.pgdasReview = {
     urls: urls,
     post: post,
     start: function (options) {

@@ -99,8 +99,8 @@ def _resolve_table(conn, table_ref):
 
 def _delete_and_capture(conn, parsed):
     """Run the DELETE and return every deleted row as a JSON object. The caller decides whether to commit."""
-    wrapped = (f"WITH pgdeck_deleted AS ({parsed['statement']} RETURNING {parsed['target']}.*) "
-               "SELECT to_jsonb(pgdeck_deleted) FROM pgdeck_deleted")
+    wrapped = (f"WITH pgdas_deleted AS ({parsed['statement']} RETURNING {parsed['target']}.*) "
+               "SELECT to_jsonb(pgdas_deleted) FROM pgdas_deleted")
     limit = int(settings.MAX_DELETE_ROWS)
     rows = [row[0] for row in conn.execute(wrapped).fetchmany(limit + 1)]
     if len(rows) > limit:

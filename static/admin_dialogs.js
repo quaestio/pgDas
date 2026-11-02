@@ -3,7 +3,7 @@
 // (static/review.js) with exactly what would happen, and the change is made only after that is confirmed.
 // All values are put into the page as text or as properly quoted SQL, never as HTML.
 (function () {
-  if (!window.pgdeckReview) return;
+  if (!window.pgdasReview) return;
   var toastEl = document.getElementById("pgToast"), toastTimer = null;
 
   function toast(message, isError) {
@@ -240,7 +240,7 @@
 
   function finished(ctx, what, message) {
     toast(message);
-    document.dispatchEvent(new CustomEvent("pgdeck:changed", {detail: {server: ctx.server, what: what}}));
+    document.dispatchEvent(new CustomEvent("pgdas:changed", {detail: {server: ctx.server, what: what}}));
   }
 
   function save() {
@@ -249,7 +249,7 @@
     if (current.kind.problem(v)) return;
     var button = current.el.querySelector("[data-dlg-save]"), line = current.el.querySelector("[data-problem]");
     button.disabled = true;
-    window.pgdeckReview.start({
+    window.pgdasReview.start({
       server: current.ctx.server, db: "", sql: current.kind.sql(v, false),
       onError: function (message) { line.textContent = message; line.hidden = false; },
       onSuccess: function (result) { close(); finished(current.ctx, current.kind.what, result.message || current.kind.done); },

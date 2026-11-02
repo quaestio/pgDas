@@ -21,16 +21,16 @@ RESTORE_WORD = "RESTORE"
 
 
 def tool(name):
-    """Full path of a PostgreSQL client tool: PGDECK_PG_BIN first, then PATH."""
+    """Full path of a PostgreSQL client tool: PGDAS_PG_BIN first, then PATH."""
     exe = name + (".exe" if os.name == "nt" else "")
     if settings.PG_BIN:
         candidate = Path(settings.PG_BIN) / exe
         if candidate.is_file():
             return str(candidate)
-        raise PgError(f"{exe} was not found in PGDECK_PG_BIN ({settings.PG_BIN}).")
+        raise PgError(f"{exe} was not found in PGDAS_PG_BIN ({settings.PG_BIN}).")
     found = shutil.which(name)
     if not found:
-        raise PgError(f"{exe} was not found. Install the PostgreSQL client tools or set PGDECK_PG_BIN to their bin folder.")
+        raise PgError(f"{exe} was not found. Install the PostgreSQL client tools or set PGDAS_PG_BIN to their bin folder.")
     return found
 
 

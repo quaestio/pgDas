@@ -13,7 +13,7 @@ from explorer.tests_writes import WriteFixture
 
 from . import queries
 
-APP = "pgdeck_t_monitor"
+APP = "pgdas_t_monitor"
 
 
 def other_session(autocommit=False):
@@ -73,10 +73,10 @@ class MonitorFixture(WriteFixture):
 class SnapshotTests(MonitorFixture, TestCase):
     def test_an_idle_in_transaction_session_is_listed_with_its_state_and_last_query(self):
         conn = self.session()
-        conn.execute("UPDATE pgdeck_w.logged SET what = 'held' WHERE id = 1")
+        conn.execute("UPDATE pgdas_w.logged SET what = 'held' WHERE id = 1")
         found = self.wait_for(self.mine)
         self.assertEqual(found[0]["state"], "idle in transaction")
-        self.assertIn("UPDATE pgdeck_w.logged", found[0]["query"])
+        self.assertIn("UPDATE pgdas_w.logged", found[0]["query"])
         self.assertEqual(found[0]["user"], TARGET["USER"])
         self.assertIn(found[0]["pid"], [s["pid"] for s in queries.snapshot(self.server)["idle_in_transaction"]])
 
@@ -86,9 +86,9 @@ class SnapshotTests(MonitorFixture, TestCase):
 
     def test_a_blocked_session_shows_who_blocks_it(self):
         holder = self.session()
-        holder.execute("UPDATE pgdeck_w.logged SET what = 'held' WHERE id = 1")
+        holder.execute("UPDATE pgdas_w.logged SET what = 'held' WHERE id = 1")
         waiter = self.session(autocommit=True)
-        self.run_in_thread(waiter, "UPDATE pgdeck_w.logged SET what = 'wait' WHERE id = 1")
+        self.run_in_thread(waiter, "UPDATE pgdas_w.logged SET what = 'wait' WHERE id = 1")
         locks = self.wait_for(lambda: queries.snapshot(self.server)["locks"])
         self.assertEqual(len(locks), 1)
         self.assertEqual(locks[0]["blocking_pid"], holder.info.backend_pid)
@@ -137,12 +137,12 @@ class StopTests(MonitorFixture, TestCase):
 
     def test_end_closes_the_session_and_rolls_back_its_transaction(self):
         conn = self.session()
-        conn.execute("UPDATE pgdeck_w.logged SET what = 'held' WHERE id = 1")
+        conn.execute("UPDATE pgdas_w.logged SET what = 'held' WHERE id = 1")
         pid = conn.info.backend_pid
         self.wait_for(self.mine)
         self.assertTrue(self.stop(pid, "end").json()["ok"])
         self.wait_for(lambda: pid not in [s["pid"] for s in queries.snapshot(self.server)["sessions"]])
-        self.assertEqual(self.query("SELECT what FROM pgdeck_w.logged WHERE id = 1")[0][0], "a")
+        self.assertEqual(self.query("SELECT what FROM pgdas_w.logged WHERE id = 1")[0][0], "a")
         self.assertTrue(AuditEntry.objects.filter(action="session.end", ok=True).exists())
 
     def test_a_session_that_is_gone_or_a_bad_pid_is_refused_plainly(self):
@@ -152,11 +152,11 @@ class StopTests(MonitorFixture, TestCase):
     def test_a_login_without_the_right_gets_postgresqls_reason(self):
         from servers.models import ServerConnection
         with admin_connect(TARGET["NAME"]) as conn:
-            conn.execute("DROP ROLE IF EXISTS pgdeck_t_mon")
-            conn.execute("CREATE ROLE pgdeck_t_mon LOGIN PASSWORD 'mon-pw-1'")
-        self.addCleanup(lambda: admin_connect(TARGET["NAME"]).execute("DROP ROLE IF EXISTS pgdeck_t_mon"))
+            conn.execute("DROP ROLE IF EXISTS pgdas_t_mon")
+            conn.execute("CREATE ROLE pgdas_t_mon LOGIN PASSWORD 'mon-pw-1'")
+        self.addCleanup(lambda: admin_connect(TARGET["NAME"]).execute("DROP ROLE IF EXISTS pgdas_t_mon"))
         limited = ServerConnection(name="limited", host=TARGET["HOST"], port=int(TARGET["PORT"]), database=TARGET["NAME"],
-                                   username="pgdeck_t_mon", sslmode="prefer")
+                                   username="pgdas_t_mon", sslmode="prefer")
         limited.set_password("mon-pw-1")
         limited.save()
         conn = self.session()

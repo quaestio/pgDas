@@ -28,7 +28,7 @@ class OwnStorageIsSqliteTests(SimpleTestCase):
     def test_the_fast_password_hasher_is_only_used_while_testing(self):
         self.assertEqual(settings.PASSWORD_HASHERS, ["django.contrib.auth.hashers.MD5PasswordHasher"])   # this test run
         # Any other command (runserver, createsuperuser, shell, ...) must keep Django's strong default hashing.
-        env = dict(os.environ, PGDECK_DEBUG="1")
+        env = dict(os.environ, PGDAS_DEBUG="1")
         result = subprocess.run([sys.executable, str(BASE_DIR / "manage.py"), "shell", "-c",
                                  "from django.conf import settings; print(settings.PASSWORD_HASHERS[0])"],
                                 cwd=BASE_DIR, env=env, capture_output=True, text=True, timeout=120)
@@ -44,8 +44,8 @@ class OwnStorageIsSqliteTests(SimpleTestCase):
     def test_install_files_describe_sqlite_not_a_database_server(self):
         compose = (BASE_DIR / "docker-compose.yml").read_text(encoding="utf-8")
         self.assertNotIn("postgres:", compose)                  # no database container to run
-        self.assertIn("pgdeck-data:/app/data", compose)         # the SQLite file is kept in a volume
-        self.assertIn("PGDECK_SQLITE_PATH", compose)
+        self.assertIn("pgdas-data:/app/data", compose)         # the SQLite file is kept in a volume
+        self.assertIn("PGDAS_SQLITE_PATH", compose)
         dockerfile = (BASE_DIR / "Dockerfile").read_text(encoding="utf-8")
         self.assertIn("VOLUME", dockerfile)
         # The image must never contain the local .env, the SQLite data or the virtualenv.
@@ -53,18 +53,18 @@ class OwnStorageIsSqliteTests(SimpleTestCase):
         for entry in (".env", "data", ".venv"):
             self.assertIn(entry, ignore)
         example = (BASE_DIR / ".env.example").read_text(encoding="utf-8")
-        self.assertNotIn("PGDECK_DB_PASSWORD", example.replace("PGDECK_TEST_PG_PASSWORD", ""))
-        self.assertIn("PGDECK_SQLITE_PATH", example)
+        self.assertNotIn("PGDAS_DB_PASSWORD", example.replace("PGDAS_TEST_PG_PASSWORD", ""))
+        self.assertIn("PGDAS_SQLITE_PATH", example)
         readme = (BASE_DIR / "README.md").read_text(encoding="utf-8")
         self.assertIn("no database server of its own", readme)
         self.assertNotIn("Create the settings database first", readme)
 
     def test_a_fresh_install_needs_no_database_server_settings(self):
-        """Run migrate in a clean process with no PGDECK_DB_* settings and a temporary SQLite path."""
+        """Run migrate in a clean process with no PGDAS_DB_* settings and a temporary SQLite path."""
         with tempfile.TemporaryDirectory() as folder:
-            target = Path(folder) / "nested" / "pgdeck.sqlite3"
-            env = {key: value for key, value in os.environ.items() if not key.startswith(("PGDECK_DB_", "PGDECK_TEST_"))}
-            env.update({"PGDECK_DEBUG": "1", "PGDECK_SQLITE_PATH": str(target)})
+            target = Path(folder) / "nested" / "pgdas.sqlite3"
+            env = {key: value for key, value in os.environ.items() if not key.startswith(("PGDAS_DB_", "PGDAS_TEST_"))}
+            env.update({"PGDAS_DEBUG": "1", "PGDAS_SQLITE_PATH": str(target)})
             result = subprocess.run([sys.executable, str(BASE_DIR / "manage.py"), "migrate", "--noinput"],
                                     cwd=BASE_DIR, env=env, capture_output=True, text=True, timeout=120)
             self.assertEqual(result.returncode, 0, result.stderr[-800:])
@@ -77,7 +77,7 @@ class OwnStorageIsSqliteTests(SimpleTestCase):
 
 
 class BrandingTests(TestCase):
-    """The product is called PGDAS (PG Database Access System) and uses its logo and icons."""
+    """The product is called PGDAS (PostgreSQL Database Access System) and uses its logo and icons."""
 
     def test_icons_and_logos_are_shipped(self):
         for name in ("favicon.ico", "pgdas-32.png", "pgdas-64.png", "pgdas-180.png", "pgdas-192.png", "pgdas-400.png", "pgdas-800.png"):
@@ -85,7 +85,7 @@ class BrandingTests(TestCase):
 
     def test_the_sign_in_page_shows_the_logo_and_the_icons_are_linked(self):
         page = self.client.get("/login/")
-        for text in ("img/pgdas-400.png", "img/pgdas-800.png", "PGDAS — PG Database Access System", "img/favicon.ico", "apple-touch-icon",
+        for text in ("img/pgdas-400.png", "img/pgdas-800.png", "PGDAS — PostgreSQL Database Access System", "img/favicon.ico", "apple-touch-icon",
                      "<title>Sign in · PGDAS</title>"):
             self.assertContains(page, text)
         self.assertNotContains(page, "PgDeck")

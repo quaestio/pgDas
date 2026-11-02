@@ -88,7 +88,7 @@ body.resizing { user-select: none; cursor: col-resize; }
 .sys-toggle input { accent-color: var(--accent); margin: 0; }
 .sys-toggle:hover { color: var(--accent); }
 .sidebar-tree .tree { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 12px 12px; font-size: 13px; }
-body.has-tree .sidebar-bottom { padding: 12px 18px; border-top: 1px solid var(--line); }
+body.has-tree .sidebar-bottom { padding: 12px 18px; border-top: 1px solid var(--line); flex-shrink: 0; letter-spacing: normal; }
 body.has-tree .sidebar-bottom small { margin-top: 4px; }
 
 /* Explorer */

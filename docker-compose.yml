@@ -1,20 +1,20 @@
 services:
-  pgdeck:
+  pgdas:
     build: .
     restart: unless-stopped
     environment:
-      PGDECK_SECRET_KEY: ${PGDECK_SECRET_KEY:?Set PGDECK_SECRET_KEY in .env}
-      PGDECK_ALLOWED_HOSTS: ${PGDECK_ALLOWED_HOSTS:-localhost,127.0.0.1}
-      PGDECK_CSRF_TRUSTED_ORIGINS: ${PGDECK_CSRF_TRUSTED_ORIGINS:-}
+      PGDAS_SECRET_KEY: ${PGDAS_SECRET_KEY:?Set PGDAS_SECRET_KEY in .env}
+      PGDAS_ALLOWED_HOSTS: ${PGDAS_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      PGDAS_CSRF_TRUSTED_ORIGINS: ${PGDAS_CSRF_TRUSTED_ORIGINS:-}
       # Plain http on localhost; set to 1 once PGDAS is served over https behind a reverse proxy.
-      PGDECK_SECURE_COOKIES: ${PGDECK_SECURE_COOKIES:-0}
-      PGDECK_SQLITE_PATH: /app/data/pgdeck.sqlite3
+      PGDAS_SECURE_COOKIES: ${PGDAS_SECURE_COOKIES:-0}
+      PGDAS_SQLITE_PATH: /app/data/pgdas.sqlite3
     volumes:
       # PGDAS's own data (users, saved servers, audit log) is one SQLite file in this volume.
-      - pgdeck-data:/app/data
+      - pgdas-data:/app/data
     ports:
       # Bound to localhost only. Put an https reverse proxy in front before exposing it.
       - "127.0.0.1:8000:8000"
 
 volumes:
-  pgdeck-data:
+  pgdas-data:

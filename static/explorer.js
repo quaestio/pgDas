@@ -33,12 +33,12 @@
   var selected = null;
   // "Show system objects" (extension members, pg_catalog, information_schema) is remembered per browser.
   var showSystem = false;
-  try { showSystem = localStorage.getItem("pgdeck.showSystem") === "1"; } catch (e) { /* not remembered */ }
+  try { showSystem = localStorage.getItem("pgdas.showSystem") === "1"; } catch (e) { /* not remembered */ }
   var systemBox = document.getElementById("showSystem");
   if (systemBox) {
     systemBox.checked = showSystem;
     systemBox.addEventListener("change", function () {
-      try { localStorage.setItem("pgdeck.showSystem", systemBox.checked ? "1" : "0"); } catch (e) { /* ignore */ }
+      try { localStorage.setItem("pgdas.showSystem", systemBox.checked ? "1" : "0"); } catch (e) { /* ignore */ }
       window.location.reload();
     });
   }
@@ -55,7 +55,7 @@
   }
 
   // Error tone (see sound.js) when something could not be loaded; silent if sounds are muted or unavailable.
-  function errorTone() { if (window.pgdeckSound) window.pgdeckSound.play("error"); }
+  function errorTone() { if (window.pgdasSound) window.pgdasSound.play("error"); }
 
   function showDetail(qs) {
     if (showSystem && qs.indexOf("system=") < 0) qs += "&system=1";
@@ -255,7 +255,7 @@
   }
 
   // After a database or role was created, renamed or dropped: list that folder again and redraw the details if they show it.
-  document.addEventListener("pgdeck:changed", function (event) {
+  document.addEventListener("pgdas:changed", function (event) {
     var change = event.detail || {};
     var item = findItem({type: change.what, server: String(change.server)});
     if (item) item.reload();

@@ -75,7 +75,7 @@ class AlertTests(WriteFixture, TestCase):
 
     def test_an_idle_in_transaction_session_raises_a_warning(self):
         conn = self.other()
-        conn.execute("UPDATE pgdeck_w.logged SET what = 'held' WHERE id = 1")
+        conn.execute("UPDATE pgdas_w.logged SET what = 'held' WHERE id = 1")
         with override_settings(WATCH_IDLE_TX_SECONDS=0):
             found = alerts.live(self.server)
         self.assertTrue(any("idle in a transaction too long" in t for t in titles(found)))

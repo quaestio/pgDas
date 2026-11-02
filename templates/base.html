@@ -10,9 +10,9 @@
   <link rel="apple-touch-icon" sizes="180x180" href="{% static 'img/pgdas-180.png' %}">
   <meta name="theme-color" content="#011638">
   <link rel="stylesheet" href="{% static 'adminweb-theme.css' %}">
-  <link rel="stylesheet" href="{% static 'pgdeck.css' %}">
+  <link rel="stylesheet" href="{% static 'pgdas.css' %}">
   {# Restore the sidebar width / collapsed state before the page paints, so it does not jump. #}
-  <script>try{var w=parseInt(localStorage.getItem("pgdeck.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdeck.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed")}catch(e){}</script>
+  <script>try{var w=parseInt(localStorage.getItem("pgdas.sidebarWidth"),10);if(w>=220&&w<=640)document.documentElement.style.setProperty("--sidebar-w",w+"px");if(localStorage.getItem("pgdas.sidebarCollapsed")==="1")document.documentElement.classList.add("sidebar-collapsed")}catch(e){}</script>
 </head>
 <body class="{% if user.is_authenticated %}has-tree{% endif %}">
 <div class="scanlines"></div>
@@ -38,6 +38,10 @@
       <a href="{% url 'watch' %}" class="{% if url_name == 'watch' %}active{% endif %}"><span class="ico">▲</span> Alerts &amp; trends</a>
     </nav>
     {% endif %}
+    <div class="sidebar-bottom" aria-label="Application information">
+      <small>Version: Development</small>
+      <small>© {% now "Y" %} PGDAS contributors</small>
+    </div>
     <div class="sidebar-resizer" id="sidebarResizer" role="separator" aria-orientation="vertical" tabindex="0"
          aria-label="Resize sidebar (drag, or use the arrow keys; double-click to reset)" title="Drag to resize · double-click to reset"></div>
   </aside>

@@ -1,7 +1,7 @@
 // Layout helpers: mobile menu, collapsible sidebar and a draggable sidebar width. The width and the
 // collapsed state are kept in localStorage; templates/base.html applies them before first paint.
 (function () {
-  var KEY_WIDTH = "pgdeck.sidebarWidth", KEY_COLLAPSED = "pgdeck.sidebarCollapsed";
+  var KEY_WIDTH = "pgdas.sidebarWidth", KEY_COLLAPSED = "pgdas.sidebarCollapsed";
   var MIN = 220, MAX = 640, DEFAULT = 330, STEP = 20;
   var root = document.documentElement;
 

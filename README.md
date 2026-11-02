@@ -1,6 +1,6 @@
-<p align="center"><img src="static/img/pgdas-400.png" alt="PGDAS — PG Database Access System" width="300"></p>
+<p align="center"><img src="static/img/pgdas-400.png" alt="PGDAS — PostgreSQL Database Access System" width="300"></p>
 
-# PGDAS — PG Database Access System
+# PGDAS — PostgreSQL Database Access System
 
 A web admin for PostgreSQL. Browse servers, databases, roles, schemas, tables, views, functions and more; run SQL; create
 and drop databases and users; and keep an audit log of everything people do. Built with Django; nothing to install but
@@ -11,8 +11,10 @@ timeout and a row cap. Staff users can also change data, structure, databases an
 popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); monitoring, size trends and alerts are done (see "Monitor" and "Alerts & trends") (see the
 roadmap).
 
-The Python package, the `PGDECK_*` environment variables and the `pgdeck.sqlite3` file keep their earlier names, so
-existing installs and `.env` files work unchanged.
+**Upgrading from the earlier name (PgDeck):** the Python package is now `pgdas`, the settings are `PGDAS_*` instead of
+`PGDECK_*`, the data file is `data/pgdas.sqlite3` instead of `data/pgdeck.sqlite3` (move it, with any `-wal` and `-shm`
+files next to it, while PGDAS is stopped) and the Docker volume is `pgdas-data`. Rename the variables in your `.env`;
+`PGDECK_*` names are no longer read.
 
 ## Features
 - One Object Browser in the sidebar, laid out like pgAdmin's:
@@ -52,7 +54,7 @@ other statement, and anything typed with scripting switched off, still runs read
 - **UPDATE:** the popup shows the count, a sample of the rows as they will look, and any other tables a trigger would
   change. The old and new values of every updated row are saved in the audit log (as JSON), with an **Undo** button. Undo
   puts back the changed columns, all or nothing, and only if no updated row was changed or deleted again since. It needs a
-  primary key and at most `PGDECK_MAX_UNDO_ROWS` rows (10 000 by default); otherwise the popup says the update cannot be undone.
+  primary key and at most `PGDAS_MAX_UNDO_ROWS` rows (10 000 by default); otherwise the popup says the update cannot be undone.
   Side effects of triggers are not undone.
 - **INSERT:** the audit record holds the statement and the number of rows. `INSERT … RETURNING` shows what came back.
 - **TRUNCATE:** the popup lists each table and its row count (with `CASCADE`, also the tables that point at it). The
@@ -84,15 +86,15 @@ On such a server, a `DELETE` typed into the SQL runner works like this:
    once per record. **Download JSON** gives the whole record.
 
 Limits, on purpose: one plain `DELETE FROM table …` at a time (no `WITH`, no `RETURNING`); ordinary tables only; at most
-`PGDECK_MAX_DELETE_ROWS` (default 10,000) rows per delete, because each is stored for re-insertion. Rows removed by
+`PGDAS_MAX_DELETE_ROWS` (default 10,000) rows per delete, because each is stored for re-insertion. Rows removed by
 `ON DELETE CASCADE` or a trigger are shown in the popup but are **not** saved, so re-insert cannot bring them back.
 Re-insert fails, and changes nothing, if a row with the same key now exists or a column was dropped. Give the PostgreSQL
 login only the rights it needs (for example `DELETE` on the tables staff may clear): PGDAS can only do what that login may.
 
 ## Where PGDAS keeps its own data
 PGDAS needs **no database server of its own**. Its users, saved servers, audit log and sessions are stored in one
-SQLite file, `data/pgdeck.sqlite3` (change it with `PGDECK_SQLITE_PATH`). The file and its folder are created on
-first start. **Back it up** by copying the file while PGDAS is stopped, or with `sqlite3 data/pgdeck.sqlite3 ".backup copy.sqlite3"`.
+SQLite file, `data/pgdas.sqlite3` (change it with `PGDAS_SQLITE_PATH`). The file and its folder are created on
+first start. **Back it up** by copying the file while PGDAS is stopped, or with `sqlite3 data/pgdas.sqlite3 ".backup copy.sqlite3"`.
 SQLite allows one writer at a time, which is plenty for a team browsing and querying; it is not meant for dozens of
 people writing at the same moment.
 
@@ -100,13 +102,13 @@ The PostgreSQL servers you *browse* are separate: you add them in the app.
 
 ## Quick start with Docker (server or local)
 ``bash
-cp .env.example .env        # then set PGDECK_SECRET_KEY
+cp .env.example .env        # then set PGDAS_SECRET_KEY
 docker compose up -d --build
-docker compose exec pgdeck python manage.py createsuperuser
+docker compose exec pgdas python manage.py createsuperuser
 ``
-Open http://localhost:8000. The data lives in the `pgdeck-data` volume. The port is bound to localhost; put an https
-reverse proxy (Caddy, nginx) in front before exposing it, then set `PGDECK_ALLOWED_HOSTS`,
-`PGDECK_CSRF_TRUSTED_ORIGINS` and `PGDECK_SECURE_COOKIES=1`.
+Open http://localhost:8000. The data lives in the `pgdas-data` volume. The port is bound to localhost; put an https
+reverse proxy (Caddy, nginx) in front before exposing it, then set `PGDAS_ALLOWED_HOSTS`,
+`PGDAS_CSRF_TRUSTED_ORIGINS` and `PGDAS_SECURE_COOKIES=1`.
 
 ## Quick start without Docker (Windows, macOS, Linux)
 Requires Python 3.12+. No database to set up.
@@ -114,16 +116,16 @@ Requires Python 3.12+. No database to set up.
 python -m venv .venv
 .venv/Scripts/activate       # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env         # set PGDECK_DEBUG=1 for local use, or PGDECK_SECRET_KEY for a server
+cp .env.example .env         # set PGDAS_DEBUG=1 for local use, or PGDAS_SECRET_KEY for a server
 python manage.py migrate
 python manage.py createsuperuser
-waitress-serve --listen=127.0.0.1:8000 pgdeck.wsgi:application
+waitress-serve --listen=127.0.0.1:8000 pgdas.wsgi:application
 ``
 Use the virtual environment's Python (the `.venv` above), not your system Python, or packages will be missing.
 
 ## Connecting to the databases you manage
 Use **Add server** and give a name, host, port, a PostgreSQL role with read access (for example
-`GRANT pg_read_all_data TO pgdeck_reader;`), its password and an SSL mode. There is no database to fill in:
+`GRANT pg_read_all_data TO pgdas_reader;`), its password and an SSL mode. There is no database to fill in:
 PGDAS logs into a database the role can open (it tries `postgres`, then a database named after the role, then
 `template1`) and the tree lists only the databases that role is allowed to connect to. Adding a server never
 creates or changes anything on it. PGDAS never needs write access. Use `sslmode=require` or stronger for
@@ -131,21 +133,21 @@ remote servers.
 
 ## Security notes
 - Never expose PGDAS on the public internet without https and access restrictions (VPN or IP allow-list).
-- `PGDECK_SECRET_KEY` signs sessions and, unless you set `PGDECK_ENCRYPTION_KEY`, derives the key that encrypts saved
+- `PGDAS_SECRET_KEY` signs sessions and, unless you set `PGDAS_ENCRYPTION_KEY`, derives the key that encrypts saved
   passwords. Changing it makes saved passwords unreadable; edit each server and re-enter its password.
-- `data/pgdeck.sqlite3` holds password hashes and encrypted server passwords: keep it out of git (it is ignored),
+- `data/pgdas.sqlite3` holds password hashes and encrypted server passwords: keep it out of git (it is ignored),
   out of shared folders, and readable only by the account that runs PGDAS.
 - Read-only is enforced by PostgreSQL (`BEGIN READ ONLY`), not by filtering SQL text.
 
 ## Tests
 PGDAS's own data uses SQLite, so most tests need nothing. The explorer tests browse a real PostgreSQL server and
-create and drop a scratch database `pgdeck_test_target` on it, so they need a login that can create databases:
+create and drop a scratch database `pgdas_test_target` on it, so they need a login that can create databases:
 ``bash
 # in .env, or as environment variables
-PGDECK_TEST_PG_HOST=localhost
-PGDECK_TEST_PG_PORT=5432
-PGDECK_TEST_PG_USER=postgres
-PGDECK_TEST_PG_PASSWORD=...
+PGDAS_TEST_PG_HOST=localhost
+PGDAS_TEST_PG_PORT=5432
+PGDAS_TEST_PG_USER=postgres
+PGDAS_TEST_PG_PASSWORD=...
 python manage.py test
 ``
 Without a reachable PostgreSQL those tests are skipped and say why.
@@ -159,8 +161,8 @@ Schedules (every N hours, keep the newest M) are carried out by `python manage.p
 due. Run it from Task Scheduler or cron every few minutes, or keep it running with `python manage.py run_backups --loop`. Only
 scheduled backups are pruned; manual ones stay until you delete them. Every backup, download, restore and delete is in the audit log.
 
-Settings (`.env`): `PGDECK_PG_BIN` is the folder holding `pg_dump` and `pg_restore` (blank = look on `PATH`; for example
-`C:\Program Files\PostgreSQL\18\bin`), `PGDECK_BACKUP_DIR` is where the files go (default `data/backups`). The saved password is
+Settings (`.env`): `PGDAS_PG_BIN` is the folder holding `pg_dump` and `pg_restore` (blank = look on `PATH`; for example
+`C:\Program Files\PostgreSQL\18\bin`), `PGDAS_BACKUP_DIR` is where the files go (default `data/backups`). The saved password is
 handed to the tools through the environment, never on the command line. Copy the backup folder off the machine as well.
 
 ## Monitor
@@ -189,7 +191,7 @@ overdue. Below it, a table of database sizes with the change over 24 hours, 7, 3
 
 Size history is built by `python manage.py run_watch`, which takes one sample of every database of every saved server (every 5
 minutes with `--loop`, or from Task Scheduler or cron); **Sample now** on the page takes one by hand. Samples are kept for 90 days.
-The thresholds are settings in `.env` (`PGDECK_WATCH_*`, see `.env.example`). Alerts show on the page only: no email or chat message
+The thresholds are settings in `.env` (`PGDAS_WATCH_*`, see `.env.example`). Alerts show on the page only: no email or chat message
 is sent.
 
 ## Roadmap

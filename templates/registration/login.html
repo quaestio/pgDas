@@ -4,7 +4,7 @@
 {% block anonymous %}
 <div class="login-screen">
   <div class="login-card">
-    <img class="login-logo" src="{% static 'img/pgdas-400.png' %}" srcset="{% static 'img/pgdas-400.png' %} 1x, {% static 'img/pgdas-800.png' %} 2x" width="300" height="150" alt="PGDAS — PG Database Access System">
+    <img class="login-logo" src="{% static 'img/pgdas-400.png' %}" srcset="{% static 'img/pgdas-400.png' %} 1x, {% static 'img/pgdas-800.png' %} 2x" width="300" height="150" alt="PGDAS — PostgreSQL Database Access System">
     <div class="login-kicker">SECURE ACCESS TERMINAL</div>
     <form method="post">{% csrf_token %}
       {{ form.non_field_errors }}

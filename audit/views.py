@@ -32,7 +32,7 @@ def audit_json(request, pk):
         return HttpResponse("This audit entry has no JSON record.", status=404, content_type="text/plain")
     response = HttpResponse(json.dumps(entry.payload, indent=2, default=str, ensure_ascii=False),
                             content_type="application/json; charset=utf-8")
-    response["Content-Disposition"] = f'attachment; filename="pgdeck-audit-{entry.pk}.json"'
+    response["Content-Disposition"] = f'attachment; filename="pgdas-audit-{entry.pk}.json"'
     return response
 
 

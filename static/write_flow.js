@@ -8,13 +8,13 @@
 // never as HTML.
 (function () {
   var form = document.getElementById("sqlForm");
-  if (!form || form.dataset.canWrite !== "1" || !window.pgdeckReview) return;
+  if (!form || form.dataset.canWrite !== "1" || !window.pgdasReview) return;
   var textarea = document.getElementById("sql");
   var runButton = document.getElementById("runButton");
   var resultBox = document.getElementById("changeResult");
   var db = form.querySelector("input[name=db]").value;
 
-  function tone(type) { if (window.pgdeckSound) window.pgdeckSound.play(type); }
+  function tone(type) { if (window.pgdasSound) window.pgdasSound.play(type); }
 
   function kindOf(text) {
     var bare = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/--[^\n]*/g, "").trim();
@@ -73,14 +73,14 @@
     runButton.textContent = kind === "insert" ? "Inserting…" : "Checking…";
     var finish = function () { runButton.disabled = false; runButton.textContent = "Run"; };
     if (kind === "insert") {
-      window.pgdeckReview.post(form.dataset.executeUrl, {sql: textarea.value, db: db}).then(function (response) {
+      window.pgdasReview.post(form.dataset.executeUrl, {sql: textarea.value, db: db}).then(function (response) {
         if (!response.ok) { failed(response.body.error || "That statement could not be run."); return; }
         showMessage("success", response.body.message, {url: form.dataset.auditUrl, text: "Open the audit log", table: response.body.returned});
         tone("success");
       }).catch(function () { failed("Could not reach PGDAS to run this statement."); }).then(finish);
       return;
     }
-    window.pgdeckReview.start({
+    window.pgdasReview.start({
       server: form.dataset.server, db: db, sql: textarea.value, onError: failed,
       onSuccess: function (result) { showMessage("success", result.message, {url: form.dataset.auditUrl, text: "Open the audit log"}); },
     }).then(finish);

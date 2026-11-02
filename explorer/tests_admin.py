@@ -10,7 +10,7 @@ from . import changes, pg, server_admin
 from .tests import admin_connect, TARGET
 from .tests_writes import WriteFixture
 
-ROLE, GROUP, DB = "pgdeck_t_user", "pgdeck_t_group", "pgdeck_t_db"
+ROLE, GROUP, DB = "pgdas_t_user", "pgdas_t_group", "pgdas_t_db"
 
 
 class ParseTests(SimpleTestCase):
@@ -162,8 +162,8 @@ class RoleTests(AdminFixture, TestCase):
         with self.assertRaisesRegex(pg.PgError, "already exists"):
             self.preview(f"CREATE ROLE {ROLE}")
         with self.assertRaisesRegex(pg.PgError, "does not exist"):
-            self.preview("DROP ROLE pgdeck_t_nobody")
-        self.assertIsNone(self.preview("DROP ROLE IF EXISTS pgdeck_t_nobody")["button"])
+            self.preview("DROP ROLE pgdas_t_nobody")
+        self.assertIsNone(self.preview("DROP ROLE IF EXISTS pgdas_t_nobody")["button"])
 
 
 class GrantTests(AdminFixture, TestCase):
@@ -173,19 +173,19 @@ class GrantTests(AdminFixture, TestCase):
             conn.execute(f"CREATE ROLE {ROLE}")
 
     def can_select(self):
-        return self.query("SELECT has_table_privilege(%s, 'pgdeck_w.logged', 'SELECT')", ROLE)[0][0]
+        return self.query("SELECT has_table_privilege(%s, 'pgdas_w.logged', 'SELECT')", ROLE)[0][0]
 
     def test_grant_and_revoke_are_previewed_and_recorded(self):
-        grant = f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}"
+        grant = f"GRANT SELECT ON pgdas_w.logged TO {ROLE}"
         data = self.preview(grant)
         self.assertEqual((data["kind"], data["title"], data["button"], data["confirm_word"]), ("grant", "GRANT?", "Grant", None))
-        self.assertIn(f"~ change privileges on table pgdeck_w.logged — + {ROLE}=r/", data["objects"][0]["text"])
+        self.assertIn(f"~ change privileges on table pgdas_w.logged — + {ROLE}=r/", data["objects"][0]["text"])
         self.assertFalse(self.can_select())                                       # only a preview
         result = self.execute(grant, data["fingerprint"])
         self.assertTrue(self.can_select())
         entry = AuditEntry.objects.get(pk=result["entry_id"])
         self.assertEqual((entry.action, entry.record_label, entry.payload["object_type"]), ("grant", "GRANT · 1 change", "PRIVILEGES"))
-        revoke = f"REVOKE SELECT ON pgdeck_w.logged FROM {ROLE}"
+        revoke = f"REVOKE SELECT ON pgdas_w.logged FROM {ROLE}"
         shown = self.preview(revoke)
         self.assertIn("− ", shown["objects"][0]["text"])
         self.execute(revoke, shown["fingerprint"])
@@ -196,16 +196,16 @@ class GrantTests(AdminFixture, TestCase):
             conn.execute(f"CREATE ROLE {GROUP}")
         data = self.preview(f"GRANT {GROUP} TO {ROLE}")
         self.assertEqual(data["objects"][0]["text"], f"+ create membership {GROUP} -> {ROLE}")
-        again = self.preview(f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}")
-        self.execute(f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}", again["fingerprint"])
-        none = self.preview(f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}")
+        again = self.preview(f"GRANT SELECT ON pgdas_w.logged TO {ROLE}")
+        self.execute(f"GRANT SELECT ON pgdas_w.logged TO {ROLE}", again["fingerprint"])
+        none = self.preview(f"GRANT SELECT ON pgdas_w.logged TO {ROLE}")
         self.assertEqual((none["button"], none["count"]), (None, 0))
         with self.assertRaisesRegex(pg.PgError, "nothing to run"):
-            self.execute(f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}", none["fingerprint"])
+            self.execute(f"GRANT SELECT ON pgdas_w.logged TO {ROLE}", none["fingerprint"])
 
     def test_a_grant_on_something_missing_is_explained(self):
         with self.assertRaisesRegex(pg.PgError, "does not exist"):
-            self.preview(f"GRANT SELECT ON pgdeck_w.nope TO {ROLE}")
+            self.preview(f"GRANT SELECT ON pgdas_w.nope TO {ROLE}")
 
 
 class DatabaseTests(AdminFixture, TestCase):
@@ -226,7 +226,7 @@ class DatabaseTests(AdminFixture, TestCase):
             self.preview(sql)
 
     def test_a_failing_create_database_marks_the_record_as_failed(self):
-        sql = f"CREATE DATABASE {DB} OWNER pgdeck_t_no_such_role"
+        sql = f"CREATE DATABASE {DB} OWNER pgdas_t_no_such_role"
         data = self.preview(sql)
         with self.assertRaisesRegex(pg.PgError, "does not exist"):
             self.execute(sql, data["fingerprint"])
@@ -302,7 +302,7 @@ class SwitchTests(AdminFixture, TestCase):
         from django.contrib.auth import get_user_model
         plain = self.client_class()
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
-        for sql in (f"CREATE ROLE {ROLE}", f"GRANT SELECT ON pgdeck_w.logged TO {ROLE}", f"CREATE DATABASE {DB}"):
+        for sql in (f"CREATE ROLE {ROLE}", f"GRANT SELECT ON pgdas_w.logged TO {ROLE}", f"CREATE DATABASE {DB}"):
             with self.subTest(sql=sql):
                 response = plain.post(reverse("write_preview", args=[self.server.pk]), json.dumps({"sql": sql, "db": self.db}),
                                       content_type="application/json")
@@ -379,16 +379,16 @@ class DialogTests(AdminFixture, TestCase):
 
     def test_the_scripts_build_quoted_sql_and_go_through_the_review_popup(self):
         script = open("static/admin_dialogs.js", encoding="utf-8").read()
-        for needle in ("pgdeckReview.start", "CREATE DATABASE", "CREATE ROLE", "RENAME TO", "DROP DATABASE", "function ident", "function literal",
-                       "'********'", "pgdeck:changed", "cannot be empty", "textContent"):
+        for needle in ("pgdasReview.start", "CREATE DATABASE", "CREATE ROLE", "RENAME TO", "DROP DATABASE", "function ident", "function literal",
+                       "'********'", "pgdas:changed", "cannot be empty", "textContent"):
             self.assertIn(needle, script)
         self.assertNotIn(".innerHTML = r", script)                                    # values go in as text, never as HTML
         review = open("static/review.js", encoding="utf-8").read()
-        for needle in ("pgdeckReview", "preview.confirm_word", "confirmInput.value !== checked.word", "onSuccess"):
+        for needle in ("pgdasReview", "preview.confirm_word", "confirmInput.value !== checked.word", "onSuccess"):
             self.assertIn(needle, review)
         explorer = open("static/explorer.js", encoding="utf-8").read()
         self.assertIn("data-open-database", explorer)
-        self.assertIn("pgdeck:changed", explorer)
+        self.assertIn("pgdas:changed", explorer)
 
     def test_the_statements_the_dialogs_send_are_understood_by_the_server(self):
         post = lambda sql: self.client.post(reverse("write_preview", args=[self.server.pk]), json.dumps({"sql": sql, "db": ""}),
@@ -421,8 +421,8 @@ class LimitedLoginTests(AdminFixture, TestCase):
         from servers.models import ServerConnection
         with admin_connect(self.db) as conn:
             conn.execute(f"CREATE ROLE {self.LIMITED} LOGIN PASSWORD 'lim-pw-1' {attributes}")
-            conn.execute(f"GRANT USAGE ON SCHEMA pgdeck_w TO {self.LIMITED}")
-            conn.execute(f"GRANT SELECT ON pgdeck_w.logged TO {self.LIMITED}")
+            conn.execute(f"GRANT USAGE ON SCHEMA pgdas_w TO {self.LIMITED}")
+            conn.execute(f"GRANT SELECT ON pgdas_w.logged TO {self.LIMITED}")
         server = ServerConnection(name="limited", host=TARGET["HOST"], port=int(TARGET["PORT"]), database=TARGET["NAME"],
                                   username=self.LIMITED, sslmode="prefer")
         server.set_password("lim-pw-1")
@@ -457,16 +457,16 @@ class LimitedLoginTests(AdminFixture, TestCase):
     def test_a_role_that_cannot_create_roles_gets_postgresqls_reason(self):
         server = self.limited_server()
         with self.assertRaisesRegex(pg.PgError, "permission denied to create role"):
-            self.preview_as(server, "CREATE ROLE pgdeck_t_nobody")
+            self.preview_as(server, "CREATE ROLE pgdas_t_nobody")
 
     def test_row_and_table_changes_without_the_right_are_refused_with_the_reason(self):
         server = self.limited_server()
-        for sql, reason in (("DELETE FROM pgdeck_w.logged WHERE id = 1", "permission denied for table logged"),
-                            ("UPDATE pgdeck_w.logged SET what = 'z'", "permission denied for table logged"),
-                            ("TRUNCATE pgdeck_w.logged", "permission denied for table logged"),
-                            ("DROP TABLE pgdeck_w.logged", "must be owner of table logged"),
-                            ("ALTER TABLE pgdeck_w.logged ADD COLUMN c int", "must be owner of table logged"),
-                            ("DELETE FROM pgdeck_w.ident", "permission denied for table ident")):
+        for sql, reason in (("DELETE FROM pgdas_w.logged WHERE id = 1", "permission denied for table logged"),
+                            ("UPDATE pgdas_w.logged SET what = 'z'", "permission denied for table logged"),
+                            ("TRUNCATE pgdas_w.logged", "permission denied for table logged"),
+                            ("DROP TABLE pgdas_w.logged", "must be owner of table logged"),
+                            ("ALTER TABLE pgdas_w.logged ADD COLUMN c int", "must be owner of table logged"),
+                            ("DELETE FROM pgdas_w.ident", "permission denied for table ident")):
             with self.subTest(sql=sql), self.assertRaisesRegex(pg.PgError, reason):
                 self.preview_as(server, sql)
         self.assertEqual(self.count("logged"), 2)
@@ -475,15 +475,15 @@ class LimitedLoginTests(AdminFixture, TestCase):
     def test_what_the_role_may_do_is_allowed(self):
         server = self.limited_server()
         with admin_connect(self.db) as conn:
-            conn.execute(f"GRANT UPDATE ON pgdeck_w.logged TO {self.LIMITED}")
-        data = self.preview_as(server, "UPDATE pgdeck_w.logged SET what = 'z' WHERE id = 1")
+            conn.execute(f"GRANT UPDATE ON pgdas_w.logged TO {self.LIMITED}")
+        data = self.preview_as(server, "UPDATE pgdas_w.logged SET what = 'z' WHERE id = 1")
         self.assertEqual((data["count"], data["button"]), (1, "Update 1 record"))
-        changes.execute(server, self.db, "UPDATE pgdeck_w.logged SET what = 'z' WHERE id = 1", data["fingerprint"], None, self.staff)
-        self.assertEqual(self.query("SELECT what FROM pgdeck_w.logged WHERE id = 1")[0][0], "z")
+        changes.execute(server, self.db, "UPDATE pgdas_w.logged SET what = 'z' WHERE id = 1", data["fingerprint"], None, self.staff)
+        self.assertEqual(self.query("SELECT what FROM pgdas_w.logged WHERE id = 1")[0][0], "z")
 
     def test_a_grant_the_role_may_not_make_says_why_it_does_nothing(self):
         server = self.limited_server()
-        data = self.preview_as(server, f"GRANT SELECT ON pgdeck_w.logged TO {self.LIMITED}")
+        data = self.preview_as(server, f"GRANT SELECT ON pgdas_w.logged TO {self.LIMITED}")
         self.assertIsNone(data["button"])
         self.assertTrue(any("PostgreSQL says: no privileges were granted" in n["text"] and n["bad"] for n in data["notes"]))
 
@@ -536,8 +536,8 @@ class DatabaseSecurityTests(AdminFixture, TestCase):
         self.assertIn(f"GRANT CREATE, TEMPORARY ON DATABASE {DB}", entry.detail)
 
     def test_a_missing_role_is_refused_before_anything_is_created(self):
-        with self.assertRaisesRegex(pg.PgError, "do not exist: pgdeck_t_no_such_role"):
-            self.preview(self.script(f"GRANT CREATE ON DATABASE {DB} TO pgdeck_t_no_such_role"))
+        with self.assertRaisesRegex(pg.PgError, "do not exist: pgdas_t_no_such_role"):
+            self.preview(self.script(f"GRANT CREATE ON DATABASE {DB} TO pgdas_t_no_such_role"))
         self.assertEqual(self.query("SELECT 1 FROM pg_database WHERE datname = %s", DB), [])
         self.assertFalse(AuditEntry.objects.exists())
 

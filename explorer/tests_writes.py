@@ -68,26 +68,26 @@ class WriteFixture(shared.PgFixture):
         super().setUp()
         with shared.admin_connect(shared.TARGET["NAME"]) as conn:
             for statement in (
-                "DROP SCHEMA IF EXISTS pgdeck_w CASCADE", "CREATE SCHEMA pgdeck_w",
-                """CREATE TABLE pgdeck_w.parent (id int PRIMARY KEY, name text NOT NULL, data jsonb, amount numeric(12, 4),
+                "DROP SCHEMA IF EXISTS pgdas_w CASCADE", "CREATE SCHEMA pgdas_w",
+                """CREATE TABLE pgdas_w.parent (id int PRIMARY KEY, name text NOT NULL, data jsonb, amount numeric(12, 4),
                        born date, seen timestamptz, blob bytea, tags text[], note text)""",
-                """INSERT INTO pgdeck_w.parent
+                """INSERT INTO pgdas_w.parent
                        SELECT g, 'parent ' || g, jsonb_build_object('n', g, 'ok', g % 2 = 0), g * 1.2345, DATE '2020-01-01' + g,
                               TIMESTAMPTZ '2024-05-06 07:08:09+00' + g * interval '1 hour', decode(lpad(to_hex(g), 2, '0'), 'hex'),
                               ARRAY['a' || g, 'it''s'], CASE WHEN g % 3 = 0 THEN NULL ELSE 'note ' || g END
                        FROM generate_series(1, 10) g""",
-                "CREATE TABLE pgdeck_w.child (id serial PRIMARY KEY, parent_id int REFERENCES pgdeck_w.parent(id) ON DELETE CASCADE, label text)",
-                "INSERT INTO pgdeck_w.child (parent_id, label) SELECT p, 'child ' || p || c FROM generate_series(1, 10) p, generate_series(1, 2) c",
-                """CREATE TABLE pgdeck_w.ident (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, label text,
+                "CREATE TABLE pgdas_w.child (id serial PRIMARY KEY, parent_id int REFERENCES pgdas_w.parent(id) ON DELETE CASCADE, label text)",
+                "INSERT INTO pgdas_w.child (parent_id, label) SELECT p, 'child ' || p || c FROM generate_series(1, 10) p, generate_series(1, 2) c",
+                """CREATE TABLE pgdas_w.ident (id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, label text,
                        doubled int GENERATED ALWAYS AS (length(label) * 2) STORED)""",
-                "INSERT INTO pgdeck_w.ident (label) SELECT 'label ' || g FROM generate_series(1, 5) g",
-                "CREATE TABLE pgdeck_w.logged (id int PRIMARY KEY, what text)",
-                "INSERT INTO pgdeck_w.logged VALUES (1, 'a'), (2, 'b')",
-                "CREATE TABLE pgdeck_w.log (id serial PRIMARY KEY, msg text)",
-                """CREATE FUNCTION pgdeck_w.note_delete() RETURNS trigger LANGUAGE plpgsql AS
-                       $$ BEGIN INSERT INTO pgdeck_w.log (msg) VALUES ('deleted ' || OLD.id); RETURN OLD; END $$""",
-                "CREATE TRIGGER logged_delete AFTER DELETE ON pgdeck_w.logged FOR EACH ROW EXECUTE FUNCTION pgdeck_w.note_delete()",
-                "CREATE VIEW pgdeck_w.parent_view AS SELECT id, name FROM pgdeck_w.parent",
+                "INSERT INTO pgdas_w.ident (label) SELECT 'label ' || g FROM generate_series(1, 5) g",
+                "CREATE TABLE pgdas_w.logged (id int PRIMARY KEY, what text)",
+                "INSERT INTO pgdas_w.logged VALUES (1, 'a'), (2, 'b')",
+                "CREATE TABLE pgdas_w.log (id serial PRIMARY KEY, msg text)",
+                """CREATE FUNCTION pgdas_w.note_delete() RETURNS trigger LANGUAGE plpgsql AS
+                       $$ BEGIN INSERT INTO pgdas_w.log (msg) VALUES ('deleted ' || OLD.id); RETURN OLD; END $$""",
+                "CREATE TRIGGER logged_delete AFTER DELETE ON pgdas_w.logged FOR EACH ROW EXECUTE FUNCTION pgdas_w.note_delete()",
+                "CREATE VIEW pgdas_w.parent_view AS SELECT id, name FROM pgdas_w.parent",
             ):
                 conn.execute(statement)
         self.staff = get_user_model().objects.create_user("zed", password="pw-12345-abc", is_staff=True)
@@ -99,11 +99,11 @@ class WriteFixture(shared.PgFixture):
             return conn.execute(text, params).fetchall()
 
     def count(self, table):
-        return self.query(f"SELECT count(*) FROM pgdeck_w.{table}")[0][0]
+        return self.query(f"SELECT count(*) FROM pgdas_w.{table}")[0][0]
 
     def snapshot(self, table):
         """Every row as JSON, in key order: used to prove a re-insert restores exactly what was deleted."""
-        return [row[0] for row in self.query(f"SELECT to_jsonb(t) FROM pgdeck_w.{table} t ORDER BY id")]
+        return [row[0] for row in self.query(f"SELECT to_jsonb(t) FROM pgdas_w.{table} t ORDER BY id")]
 
     def delete(self, text, count, effects=None, confirm="ZAP"):
         return writes.execute_delete(self.server, self.db, text, count, effects or [], confirm, self.staff)
@@ -114,8 +114,8 @@ class PreviewTests(WriteFixture, TestCase):
         return writes.execute_delete(self.server, self.db, text, count, effects or [], confirm, self.staff)
 
     def test_preview_counts_the_rows_and_changes_nothing(self):
-        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.parent WHERE id <= 3 AND id <> 99")
-        self.assertEqual((preview["schema"], preview["table"], preview["count"], preview["has_where"]), ("pgdeck_w", "parent", 3, True))
+        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.parent WHERE id <= 3 AND id <> 99")
+        self.assertEqual((preview["schema"], preview["table"], preview["count"], preview["has_where"]), ("pgdas_w", "parent", 3, True))
         self.assertEqual(len(preview["sample"]), 3)
         self.assertIn("id", preview["columns"])
         self.assertEqual(self.count("parent"), 10)                          # the preview is always rolled back
@@ -123,49 +123,49 @@ class PreviewTests(WriteFixture, TestCase):
 
     def test_columns_and_rows_follow_the_tables_own_column_order(self):
         # PostgreSQL's JSON type sorts keys by length ("id", "note", "name"...). People expect the table's order.
-        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.parent WHERE id = 3")
+        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.parent WHERE id = 3")
         table_order = ["id", "name", "data", "amount", "born", "seen", "blob", "tags", "note"]
         self.assertEqual(preview["columns"], table_order)
         self.assertEqual(list(preview["sample"][0]), table_order)
-        entry = AuditEntry.objects.get(pk=self.delete("DELETE FROM pgdeck_w.parent WHERE id = 3", 1,
-                                                      [{"table": "pgdeck_w.child", "inserted": 0, "updated": 0, "deleted": 2}])["entry_id"])
+        entry = AuditEntry.objects.get(pk=self.delete("DELETE FROM pgdas_w.parent WHERE id = 3", 1,
+                                                      [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 2}])["entry_id"])
         self.assertEqual(entry.payload["columns"], table_order)
         self.assertEqual(list(entry.payload["rows"][0]), table_order)           # also in the stored (and downloaded) JSON
         self.assertLess(entry.payload_preview.index('"name"'), entry.payload_preview.index('"note"'))
 
     def test_preview_shows_only_a_sample_but_counts_everything(self):
-        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.parent")
+        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.parent")
         self.assertEqual((preview["count"], len(preview["sample"]), preview["has_where"]), (10, writes.SAMPLE_ROWS, False))
         self.assertEqual(self.count("parent"), 10)
 
     def test_preview_warns_about_cascades_and_triggers(self):
-        cascade = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.parent WHERE id = 1")
-        self.assertEqual(cascade["side_effects"], [{"table": "pgdeck_w.child", "inserted": 0, "updated": 0, "deleted": 2}])
-        trigger = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.logged WHERE id = 1")
-        self.assertEqual(trigger["side_effects"], [{"table": "pgdeck_w.log", "inserted": 1, "updated": 0, "deleted": 0}])
-        plain = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.ident WHERE id = 1")
+        cascade = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.parent WHERE id = 1")
+        self.assertEqual(cascade["side_effects"], [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 2}])
+        trigger = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.logged WHERE id = 1")
+        self.assertEqual(trigger["side_effects"], [{"table": "pgdas_w.log", "inserted": 1, "updated": 0, "deleted": 0}])
+        plain = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.ident WHERE id = 1")
         self.assertEqual(plain["side_effects"], [])
         self.assertEqual((self.count("child"), self.count("log")), (20, 0))
 
     def test_preview_with_alias_and_using(self):
         preview = writes.preview_delete(self.server, self.db,
-            "DELETE FROM pgdeck_w.parent AS p USING pgdeck_w.child c WHERE c.parent_id = p.id AND c.label = 'child 51'")
+            "DELETE FROM pgdas_w.parent AS p USING pgdas_w.child c WHERE c.parent_id = p.id AND c.label = 'child 51'")
         self.assertEqual((preview["count"], preview["sample"][0]["id"]), (1, 5))
         self.assertNotIn("label", preview["columns"])                       # only the deleted table's columns, not the USING table's
 
     def test_preview_of_nothing_matching(self):
-        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.parent WHERE id = 12345")
+        preview = writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.parent WHERE id = 12345")
         self.assertEqual((preview["count"], preview["sample"], preview["columns"]), (0, [], []))
 
     def test_preview_refuses_what_it_cannot_record(self):
         with override_settings(MAX_DELETE_ROWS=3), self.assertRaisesRegex(pg.PgError, "more than 3 rows"):
-            writes.preview_delete(self.server, self.db, "DELETE FROM pgdeck_w.parent")
+            writes.preview_delete(self.server, self.db, "DELETE FROM pgdas_w.parent")
         self.assertEqual(self.count("parent"), 10)
 
     def test_preview_errors_are_plain(self):
-        for text, message in (("DELETE FROM pgdeck_w.nope WHERE id = 1", "was not found"),
-                              ("DELETE FROM pgdeck_w.parent_view WHERE id = 1", "ordinary tables"),
-                              ("DELETE FROM pgdeck_w.parent WHERE nocolumn = 1", "nocolumn")):
+        for text, message in (("DELETE FROM pgdas_w.nope WHERE id = 1", "was not found"),
+                              ("DELETE FROM pgdas_w.parent_view WHERE id = 1", "ordinary tables"),
+                              ("DELETE FROM pgdas_w.parent WHERE nocolumn = 1", "nocolumn")):
             with self.subTest(text=text), self.assertRaisesRegex(pg.PgError, message):
                 writes.preview_delete(self.server, self.db, text)
 
@@ -174,24 +174,24 @@ class ExecuteTests(WriteFixture, TestCase):
     def test_only_the_exact_word_zap_confirms(self):
         for wrong in ("zap", "Zap", "ZAp", " ZAP", "ZAP ", "ZAPP", "ZA", "", None, "ZAP\n"):
             with self.subTest(confirm=wrong), self.assertRaisesRegex(pg.PgError, "Type ZAP in capital letters"):
-                self.delete("DELETE FROM pgdeck_w.ident WHERE id = 1", 1, confirm=wrong)
+                self.delete("DELETE FROM pgdas_w.ident WHERE id = 1", 1, confirm=wrong)
         self.assertEqual(self.count("ident"), 5)
         self.assertFalse(AuditEntry.objects.exists())
 
     def test_confirmed_delete_removes_the_rows_and_records_them_as_json(self):
-        before = self.query("SELECT to_jsonb(p) FROM pgdeck_w.parent p WHERE id IN (3, 4) ORDER BY id")
-        result = self.delete("DELETE FROM pgdeck_w.logged WHERE id = 2", 1, [{"table": "pgdeck_w.log", "inserted": 1, "updated": 0, "deleted": 0}])
-        self.assertEqual((result["count"], result["schema"], result["table"]), (1, "pgdeck_w", "logged"))
-        result = self.delete("DELETE FROM pgdeck_w.parent WHERE id IN (3, 4)",
-                             2, [{"table": "pgdeck_w.child", "inserted": 0, "updated": 0, "deleted": 4}])
+        before = self.query("SELECT to_jsonb(p) FROM pgdas_w.parent p WHERE id IN (3, 4) ORDER BY id")
+        result = self.delete("DELETE FROM pgdas_w.logged WHERE id = 2", 1, [{"table": "pgdas_w.log", "inserted": 1, "updated": 0, "deleted": 0}])
+        self.assertEqual((result["count"], result["schema"], result["table"]), (1, "pgdas_w", "logged"))
+        result = self.delete("DELETE FROM pgdas_w.parent WHERE id IN (3, 4)",
+                             2, [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 4}])
         self.assertEqual(self.count("parent"), 8)
         entry = AuditEntry.objects.get(pk=result["entry_id"])
         self.assertEqual((entry.action, entry.ok, entry.rows, entry.username, entry.server_id), ("delete", True, 2, "zed", self.server.pk))
         payload = entry.payload
         self.assertEqual((payload["kind"], payload["database"], payload["schema"], payload["table"], payload["count"]),
-                         ("delete", self.db, "pgdeck_w", "parent", 2))
+                         ("delete", self.db, "pgdas_w", "parent", 2))
         self.assertEqual(payload["no_where"], False)
-        self.assertEqual(payload["side_effects"][0]["table"], "pgdeck_w.child")
+        self.assertEqual(payload["side_effects"][0]["table"], "pgdas_w.child")
         by_id = sorted(payload["rows"], key=lambda row: row["id"])
         self.assertEqual(by_id, [row[0] for row in before])                   # the JSON is exactly what was deleted
         self.assertIn("id", payload["columns"])
@@ -206,35 +206,35 @@ class ExecuteTests(WriteFixture, TestCase):
 
     def test_the_data_must_still_be_what_was_confirmed(self):
         with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
-            self.delete("DELETE FROM pgdeck_w.ident WHERE id <= 3", 2)         # 3 match now, 2 were confirmed
+            self.delete("DELETE FROM pgdas_w.ident WHERE id <= 3", 2)         # 3 match now, 2 were confirmed
         with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
-            self.delete("DELETE FROM pgdeck_w.parent WHERE id = 1", 1)         # the cascade into child was not confirmed
+            self.delete("DELETE FROM pgdas_w.parent WHERE id = 1", 1)         # the cascade into child was not confirmed
         with self.assertRaisesRegex(pg.PgError, "changed since you checked"):
-            self.delete("DELETE FROM pgdeck_w.parent WHERE id = 1", 1, [{"table": "pgdeck_w.child", "inserted": 0, "updated": 0, "deleted": 99}])
+            self.delete("DELETE FROM pgdas_w.parent WHERE id = 1", 1, [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 99}])
         self.assertEqual((self.count("ident"), self.count("parent"), self.count("child")), (5, 10, 20))
         self.assertFalse(AuditEntry.objects.exists())
 
     def test_nothing_to_delete_is_refused(self):
         with self.assertRaisesRegex(pg.PgError, "nothing to delete"):
-            self.delete("DELETE FROM pgdeck_w.parent WHERE id = 12345", 0)
+            self.delete("DELETE FROM pgdas_w.parent WHERE id = 12345", 0)
         self.assertFalse(AuditEntry.objects.exists())
 
     def test_no_audit_record_means_no_delete(self):
         with patch("explorer.writes.record", side_effect=RuntimeError("audit store is full")):
             with self.assertRaisesRegex(pg.PgError, "could not save the audit record"):
-                self.delete("DELETE FROM pgdeck_w.ident WHERE id = 1", 1)
+                self.delete("DELETE FROM pgdas_w.ident WHERE id = 1", 1)
         self.assertEqual(self.count("ident"), 5)                               # rolled back: nothing was deleted
 
     def test_a_refused_commit_is_marked_in_the_record(self):
         # Deferred foreign key checks run at commit; make one fail there.
         with shared.admin_connect(self.db) as conn:
-            conn.execute("CREATE TABLE pgdeck_w.keeper (id int PRIMARY KEY)")
-            conn.execute("INSERT INTO pgdeck_w.keeper VALUES (1), (2)")
-            conn.execute("CREATE TABLE pgdeck_w.holder (k int REFERENCES pgdeck_w.keeper(id) DEFERRABLE INITIALLY DEFERRED)")
-            conn.execute("INSERT INTO pgdeck_w.holder VALUES (1)")
+            conn.execute("CREATE TABLE pgdas_w.keeper (id int PRIMARY KEY)")
+            conn.execute("INSERT INTO pgdas_w.keeper VALUES (1), (2)")
+            conn.execute("CREATE TABLE pgdas_w.holder (k int REFERENCES pgdas_w.keeper(id) DEFERRABLE INITIALLY DEFERRED)")
+            conn.execute("INSERT INTO pgdas_w.holder VALUES (1)")
         with self.assertRaisesRegex(pg.PgError, "did not accept the delete"):
-            self.delete("DELETE FROM pgdeck_w.keeper WHERE id = 1", 1)
-        self.assertEqual(self.query("SELECT count(*) FROM pgdeck_w.keeper")[0][0], 2)
+            self.delete("DELETE FROM pgdas_w.keeper WHERE id = 1", 1)
+        self.assertEqual(self.query("SELECT count(*) FROM pgdas_w.keeper")[0][0], 2)
         entry = AuditEntry.objects.get()
         self.assertFalse(entry.ok)
         self.assertIn("not committed", entry.detail)
@@ -247,12 +247,12 @@ class ReinsertTests(WriteFixture, TestCase):
 
     def test_reinsert_restores_the_rows_exactly_once(self):
         before = self.snapshot("parent")
-        entry = self.deleted_entry("DELETE FROM pgdeck_w.parent WHERE id IN (3, 6, 9)", 3,
-                                   [{"table": "pgdeck_w.child", "inserted": 0, "updated": 0, "deleted": 6}])
+        entry = self.deleted_entry("DELETE FROM pgdas_w.parent WHERE id IN (3, 6, 9)", 3,
+                                   [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 6}])
         self.assertTrue(entry.can_reinsert)
         self.assertEqual(self.count("parent"), 7)
         result = writes.reinsert(entry, self.staff)
-        self.assertEqual((result["count"], result["schema"], result["table"]), (3, "pgdeck_w", "parent"))
+        self.assertEqual((result["count"], result["schema"], result["table"]), (3, "pgdas_w", "parent"))
         self.assertEqual(self.snapshot("parent"), before)                       # every value, type and NULL is back
         self.assertEqual(self.count("child"), 14)                               # cascaded rows are not restored (and are said to be lost)
         entry.refresh_from_db()
@@ -266,36 +266,36 @@ class ReinsertTests(WriteFixture, TestCase):
 
     def test_identity_always_and_generated_columns_are_handled(self):
         before = self.snapshot("ident")
-        entry = self.deleted_entry("DELETE FROM pgdeck_w.ident WHERE id IN (2, 4)", 2)
+        entry = self.deleted_entry("DELETE FROM pgdas_w.ident WHERE id IN (2, 4)", 2)
         self.assertEqual([row["doubled"] for row in entry.payload["rows"]], [14, 14])   # captured, but not inserted back by hand
         writes.reinsert(entry, self.staff)
         self.assertEqual(self.snapshot("ident"), before)                        # same ids (identity), generated values recomputed
 
     def test_a_clash_with_existing_data_changes_nothing(self):
-        entry = self.deleted_entry("DELETE FROM pgdeck_w.logged WHERE id = 1", 1, [{"table": "pgdeck_w.log", "inserted": 1, "updated": 0, "deleted": 0}])
+        entry = self.deleted_entry("DELETE FROM pgdas_w.logged WHERE id = 1", 1, [{"table": "pgdas_w.log", "inserted": 1, "updated": 0, "deleted": 0}])
         with shared.admin_connect(self.db) as conn:
-            conn.execute("INSERT INTO pgdeck_w.logged VALUES (1, 'someone put this here')")
+            conn.execute("INSERT INTO pgdas_w.logged VALUES (1, 'someone put this here')")
         with self.assertRaisesRegex(pg.PgError, "duplicate key"):
             writes.reinsert(entry, self.staff)
         entry.refresh_from_db()
         self.assertIsNone(entry.restored_at)                                    # still restorable once the clash is resolved
         self.assertFalse(AuditEntry.objects.filter(action="delete.restore").exists())
-        self.assertEqual(self.query("SELECT what FROM pgdeck_w.logged WHERE id = 1")[0][0], "someone put this here")
+        self.assertEqual(self.query("SELECT what FROM pgdas_w.logged WHERE id = 1")[0][0], "someone put this here")
 
     def test_a_table_that_changed_shape(self):
-        entry = self.deleted_entry("DELETE FROM pgdeck_w.parent WHERE id = 10", 1, [{"table": "pgdeck_w.child", "inserted": 0, "updated": 0, "deleted": 2}])
+        entry = self.deleted_entry("DELETE FROM pgdas_w.parent WHERE id = 10", 1, [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 2}])
         with shared.admin_connect(self.db) as conn:
-            conn.execute("ALTER TABLE pgdeck_w.parent DROP COLUMN note")
+            conn.execute("ALTER TABLE pgdas_w.parent DROP COLUMN note")
         with self.assertRaisesRegex(pg.PgError, "no longer has the column note"):
             writes.reinsert(entry, self.staff)
         with shared.admin_connect(self.db) as conn:
-            conn.execute("DROP TABLE pgdeck_w.child")
-            conn.execute("DROP TABLE pgdeck_w.parent CASCADE")        # (the view on it goes too)
+            conn.execute("DROP TABLE pgdas_w.child")
+            conn.execute("DROP TABLE pgdas_w.parent CASCADE")        # (the view on it goes too)
         with self.assertRaisesRegex(pg.PgError, "was not found"):
             writes.reinsert(entry, self.staff)
 
     def test_what_may_not_be_restored(self):
-        entry = self.deleted_entry("DELETE FROM pgdeck_w.ident WHERE id = 1", 1)
+        entry = self.deleted_entry("DELETE FROM pgdas_w.ident WHERE id = 1", 1)
         self.server.delete()
         entry.refresh_from_db()
         with self.assertRaisesRegex(pg.PgError, "no longer saved"):
@@ -317,7 +317,7 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         return {"sql": sql, "db": self.db, "fingerprint": {"count": count, "side_effects": effects or []}, "confirm": confirm}
 
     def test_preview_endpoint(self):
-        response = self.post("write_preview", {"sql": "DELETE FROM pgdeck_w.parent WHERE id < 4", "db": self.db})
+        response = self.post("write_preview", {"sql": "DELETE FROM pgdas_w.parent WHERE id < 4", "db": self.db})
         body = response.json()
         self.assertEqual((response.status_code, body["ok"], body["count"], body["table"], body["kind"]), (200, True, 3, "parent", "delete"))
         self.assertEqual(len(body["sample"]), 3)
@@ -332,7 +332,7 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         self.assertEqual(self.client.generic("POST", reverse("write_preview", args=[self.server.pk]), "{broken", "application/json").status_code, 400)
 
     def test_execute_endpoint_requires_the_word_and_records_everything(self):
-        sql = "DELETE FROM pgdeck_w.ident WHERE id IN (1, 2)"
+        sql = "DELETE FROM pgdas_w.ident WHERE id IN (1, 2)"
         refused = self.post("write_execute", self.execute_data(sql, 2, confirm="zap"))
         self.assertEqual((refused.status_code, refused.json()["ok"]), (400, False))
         self.assertIn("capital letters", refused.json()["error"])
@@ -341,22 +341,22 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         self.assertFalse(failed.ok)                                              # a refused attempt is in the log too
         done = self.post("write_execute", self.execute_data(sql, 2))
         self.assertEqual((done.status_code, done.json()["ok"], done.json()["count"], done.json()["kind"]), (200, True, 2, "delete"))
-        self.assertIn("Deleted 2 rows from pgdeck_w.ident", done.json()["message"])
+        self.assertIn("Deleted 2 rows from pgdas_w.ident", done.json()["message"])
         self.assertEqual(self.count("ident"), 3)
         entry = AuditEntry.objects.get(pk=done.json()["entry_id"])
         self.assertTrue(entry.ok and entry.can_reinsert)
 
     def test_execute_endpoint_rejects_a_stale_count_and_junk(self):
-        stale = self.post("write_execute", self.execute_data("DELETE FROM pgdeck_w.ident", 4))
+        stale = self.post("write_execute", self.execute_data("DELETE FROM pgdas_w.ident", 4))
         self.assertIn("changed since you checked", stale.json()["error"])
-        for junk in ({"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "confirm": "ZAP"},
-                     {"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "confirm": "ZAP", "fingerprint": {"count": "many"}},
-                     {"sql": "DELETE FROM pgdeck_w.ident", "db": self.db, "confirm": "ZAP", "fingerprint": "nope"}):
+        for junk in ({"sql": "DELETE FROM pgdas_w.ident", "db": self.db, "confirm": "ZAP"},
+                     {"sql": "DELETE FROM pgdas_w.ident", "db": self.db, "confirm": "ZAP", "fingerprint": {"count": "many"}},
+                     {"sql": "DELETE FROM pgdas_w.ident", "db": self.db, "confirm": "ZAP", "fingerprint": "nope"}):
             self.assertEqual(self.post("write_execute", junk).status_code, 400)
         self.assertEqual(self.count("ident"), 5)
 
     def test_who_may_use_it(self):
-        payload = self.execute_data("DELETE FROM pgdeck_w.ident WHERE id = 1", 1)
+        payload = self.execute_data("DELETE FROM pgdas_w.ident WHERE id = 1", 1)
         # a signed-in user who is not staff
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         other = Client()
@@ -375,7 +375,7 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         self.assertEqual(self.client.get(url).status_code, 405)
         strict = Client(enforce_csrf_checks=True)
         strict.force_login(self.staff)
-        response = strict.post(url, json.dumps(self.execute_data("DELETE FROM pgdeck_w.ident", 5)), content_type="application/json")
+        response = strict.post(url, json.dumps(self.execute_data("DELETE FROM pgdas_w.ident", 5)), content_type="application/json")
         self.assertEqual(response.status_code, 403)                              # no CSRF token: refused before anything runs
         self.assertEqual(self.count("ident"), 5)
 
@@ -401,26 +401,26 @@ class PagesTests(WriteFixture, TestCase):
 
     def test_a_delete_typed_into_the_normal_form_still_cannot_write(self):
         response = self.client.post(reverse("sql_runner", args=[self.server.pk]),
-                                    {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db})
+                                    {"sql": "DELETE FROM pgdas_w.ident WHERE id = 1", "db": self.db})
         self.assertContains(response, "read-only transaction")
         self.assertContains(response, "needs JavaScript")                       # staff: told how to proceed
         self.assertEqual(self.count("ident"), 5)                                 # the plain path stays read-only everywhere
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         self.client.force_login(plain)
         other = self.client.post(reverse("sql_runner", args=[self.server.pk]),
-                                 {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db})
+                                 {"sql": "DELETE FROM pgdas_w.ident WHERE id = 1", "db": self.db})
         self.assertContains(other, "Only staff users can change data")
         self.assertEqual(self.count("ident"), 5)
 
     def post_delete(self):
         return self.client.post(reverse("write_execute", args=[self.server.pk]), json.dumps(
-            {"sql": "DELETE FROM pgdeck_w.ident WHERE id = 1", "db": self.db,
+            {"sql": "DELETE FROM pgdas_w.ident WHERE id = 1", "db": self.db,
              "fingerprint": {"count": 1, "side_effects": []}, "confirm": "ZAP"}), content_type="application/json").json()
 
     def test_audit_log_shows_the_json_record_and_offers_reinsert(self):
         entry = AuditEntry.objects.get(pk=self.post_delete()["entry_id"])
         page = self.client.get(reverse("audit_list"))
-        for text in ("JSON record", "1 row from pgdeck_w.ident", f"Re-insert 1 row", "Download JSON", "reinsertModal",
+        for text in ("JSON record", "1 row from pgdas_w.ident", f"Re-insert 1 row", "Download JSON", "reinsertModal",
                      '&quot;kind&quot;: &quot;delete&quot;', "&quot;label&quot;: &quot;label 1&quot;"):
             self.assertContains(page, text)
         self.assertContains(page, reverse("audit_reinsert", args=[entry.pk]))
@@ -429,7 +429,7 @@ class PagesTests(WriteFixture, TestCase):
         entry = AuditEntry.objects.get(pk=self.post_delete()["entry_id"])
         self.assertEqual(self.client.get(reverse("audit_reinsert", args=[entry.pk])).status_code, 405)
         response = self.client.post(reverse("audit_reinsert", args=[entry.pk]), {"page": "1"}, follow=True)
-        self.assertContains(response, "Re-inserted 1 row into pgdeck_w.ident")
+        self.assertContains(response, "Re-inserted 1 row into pgdas_w.ident")
         self.assertEqual(self.count("ident"), 5)
         self.assertContains(response, "re-inserted")
         self.assertNotContains(response, "Re-insert 1 row")                      # no second button once restored
@@ -442,7 +442,7 @@ class PagesTests(WriteFixture, TestCase):
         entry = AuditEntry.objects.get(pk=self.post_delete()["entry_id"])
         response = self.client.get(reverse("audit_json", args=[entry.pk]))
         self.assertEqual(response["Content-Type"], "application/json; charset=utf-8")
-        self.assertIn(f"pgdeck-audit-{entry.pk}.json", response["Content-Disposition"])
+        self.assertIn(f"pgdas-audit-{entry.pk}.json", response["Content-Disposition"])
         data = json.loads(response.content)
         self.assertEqual((data["kind"], data["count"], data["rows"][0]["id"]), ("delete", 1, 1))
         plain_entry = AuditEntry.objects.create(username="zed", action="sql.run")

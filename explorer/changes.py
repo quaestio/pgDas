@@ -109,10 +109,10 @@ def parse_update(text):
 
 def _update_and_count(conn, parsed):
     """Run the UPDATE; return how many rows it changed and the first few rows as they look afterwards."""
-    wrapped = (f"WITH pgdeck_updated AS ({parsed['statement']} RETURNING {parsed['target']}.*) "
-               "SELECT (SELECT count(*) FROM pgdeck_updated), "
+    wrapped = (f"WITH pgdas_updated AS ({parsed['statement']} RETURNING {parsed['target']}.*) "
+               "SELECT (SELECT count(*) FROM pgdas_updated), "
                "(SELECT coalesce(jsonb_agg(to_jsonb(s)), '[]'::jsonb) "
-               f"FROM (SELECT * FROM pgdeck_updated LIMIT {SAMPLE_ROWS}) s)")
+               f"FROM (SELECT * FROM pgdas_updated LIMIT {SAMPLE_ROWS}) s)")
     count, sample = _run(conn, wrapped).fetchone()
     return count, sample
 
@@ -140,7 +140,7 @@ def _key_match(pk, left, right):
 
 def _update_rows(conn, parsed, limit):
     """Run the UPDATE and return the rows as they look afterwards (JSON), at most limit + 1 of them."""
-    wrapped = f"WITH pgdeck_updated AS ({parsed['statement']} RETURNING {parsed['target']}.*) SELECT to_jsonb(pgdeck_updated) FROM pgdeck_updated"
+    wrapped = f"WITH pgdas_updated AS ({parsed['statement']} RETURNING {parsed['target']}.*) SELECT to_jsonb(pgdas_updated) FROM pgdas_updated"
     return [row[0] for row in _run(conn, wrapped).fetchmany(limit + 1)]
 
 

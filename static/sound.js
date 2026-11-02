@@ -2,7 +2,7 @@
 // A click gives a rising blip, success a higher one, an error a low falling one. The speaker button in the header
 // mutes them; the choice is remembered. Browsers only allow audio after the visitor has clicked something on the page.
 (function () {
-  var KEY = "pgdeck.sound";
+  var KEY = "pgdas.sound";
   // [start Hz, end Hz] of each tone, as in the template.
   var TONES = {click: [420, 580], success: [620, 960], error: [180, 120]};
   var context = null;
@@ -30,7 +30,7 @@
       oscillator.stop(now + 0.12);
     } catch (e) { /* sound is a nicety: never break the page */ }
   }
-  window.pgdeckSound = {play: play, isOn: function () { return on; }};
+  window.pgdasSound = {play: play, isOn: function () { return on; }};
 
   // A click on anything clickable gives the click tone (capture phase, so it also covers handlers that stop propagation).
   document.addEventListener("click", function (event) {

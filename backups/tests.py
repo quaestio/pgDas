@@ -16,12 +16,12 @@ from explorer.tests_writes import WriteFixture
 from . import dump
 from .models import Backup, BackupSchedule
 
-NEW_DB = "pgdeck_t_restored"
+NEW_DB = "pgdas_t_restored"
 
 
 class ToolTests(SimpleTestCase):
     def test_a_missing_tool_folder_is_explained(self):
-        with override_settings(PG_BIN="C:/does/not/exist"), self.assertRaisesRegex(pg.PgError, "PGDECK_PG_BIN"):
+        with override_settings(PG_BIN="C:/does/not/exist"), self.assertRaisesRegex(pg.PgError, "PGDAS_PG_BIN"):
             dump.tool("pg_dump")
 
 
@@ -61,9 +61,9 @@ class BackupTests(BackupFixture, TestCase):
         self.assertNotIn(self.server.get_password(), backup.error + " ".join(AuditEntry.objects.values_list("detail", flat=True)))
 
     def test_a_failed_backup_is_recorded_with_the_reason_and_leaves_no_file(self):
-        backup = dump.make_backup(self.server, "pgdeck_no_such_db", self.staff)
+        backup = dump.make_backup(self.server, "pgdas_no_such_db", self.staff)
         self.assertEqual(backup.status, "failed")
-        self.assertIn("pgdeck_no_such_db", backup.error)
+        self.assertIn("pgdas_no_such_db", backup.error)
         self.assertFalse(backup.available)
         self.assertEqual(list(Path(dump.settings.BACKUP_DIR).glob("*")), [])
         self.assertTrue(AuditEntry.objects.filter(action="backup.create", ok=False).exists())
@@ -79,7 +79,7 @@ class BackupTests(BackupFixture, TestCase):
         backup = dump.make_backup(self.server, self.db, self.staff)
         dump.restore_backup(backup, NEW_DB, self.staff)
         with admin_connect(NEW_DB) as conn:
-            self.assertEqual(conn.execute("SELECT count(*) FROM pgdeck_w.logged").fetchone()[0], 2)
+            self.assertEqual(conn.execute("SELECT count(*) FROM pgdas_w.logged").fetchone()[0], 2)
         self.assertTrue(AuditEntry.objects.filter(action="backup.restore", ok=True).exists())
 
     def test_restore_refuses_an_existing_or_odd_name_and_keeps_what_exists(self):
