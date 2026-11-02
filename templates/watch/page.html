@@ -96,7 +96,7 @@
       .then(function (r) { return r.json(); }).then(function (d) { load(); $("wStatus").textContent = d.message || d.error; });
   });
   $("wTest").addEventListener("click", function () {
-    $("wTestResult").textContent = "Sending?";
+    $("wTestResult").textContent = "Sending…";
     fetch("{% url 'watch_test_notify' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": csrf}})
       .then(function (r) { return r.json(); }).then(function (d) { $("wTestResult").textContent = d.message || d.error; })
       .catch(function () { $("wTestResult").textContent = "Could not reach PGDAS."; });

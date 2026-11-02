@@ -79,7 +79,7 @@
     var col = el("div", {class: "dash-col"}), gauge = el("div", {class: "gauge", role: "img", "aria-label": label + (g ? " " + g.percent + "%" : " not available")});
     gauge.style.setProperty("--val", g ? Math.max(0, Math.min(100, g.percent)) : 0);
     if (g && COLORS[level]) gauge.style.background = "conic-gradient(" + COLORS[level] + " calc(var(--val) * 1%), #07365f 0)";
-    var inner = el("div", {}); inner.appendChild(document.createTextNode(short)); inner.appendChild(el("strong", {}, g ? g.percent + "%" : "?"));
+    var inner = el("div", {}); inner.appendChild(document.createTextNode(short)); inner.appendChild(el("strong", {}, g ? g.percent + "%" : "–"));
     gauge.appendChild(inner); col.appendChild(gauge);
     col.appendChild(el("div", {class: "dash-col-label"}, label)); col.appendChild(el("div", {class: "dash-col-detail"}, g ? g.label : sub));
     var icon = el("i", {class: "dash-pulse", "aria-hidden": "true"}), s = svg("svg", {viewBox: "0 0 16 16", width: "27", height: "27"});
