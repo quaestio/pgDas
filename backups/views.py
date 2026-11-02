@@ -102,6 +102,9 @@ def backup_download(request, pk):
 @require_POST
 def backup_delete(request, pk):
     backup = get_object_or_404(Backup, pk=pk)
+    if request.POST.get("confirm", "") != backup.database:                    # the popup asks for it; the server insists too
+        messages.error(request, f"Type the database name ({backup.database}) exactly to delete this backup. Nothing was deleted.")
+        return _back()
     dump.delete_backup(backup, request.user)
     messages.success(request, "Backup deleted.")
     return _back()

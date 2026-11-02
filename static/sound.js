@@ -4,7 +4,9 @@
 (function () {
   var KEY = "pgdas.sound";
   // [start Hz, end Hz] of each tone, as in the template.
-  var TONES = {click: [420, 580], success: [620, 960], error: [180, 120]};
+  var TONES = {click: [420, 580], success: [620, 960], error: [180, 120], warning: [540, 300]};
+  // When each blip of a sound starts, in seconds: a warning is two descending blips, everything else one.
+  var BEATS = {warning: [0, 0.18]};
   var context = null;
   var on = true;
   try { on = localStorage.getItem(KEY) !== "0"; } catch (e) { /* not remembered */ }
@@ -16,18 +18,20 @@
       if (!Audio) return;
       context = context || new Audio();
       if (context.state === "suspended") context.resume();
-      var tone = TONES[type] || TONES.click, now = context.currentTime;
-      var oscillator = context.createOscillator(), gain = context.createGain();
-      oscillator.type = "sine";
-      oscillator.frequency.setValueAtTime(tone[0], now);
-      oscillator.frequency.exponentialRampToValueAtTime(tone[1], now + 0.075);
-      gain.gain.setValueAtTime(0.0001, now);
-      gain.gain.exponentialRampToValueAtTime(0.055, now + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.11);
-      oscillator.connect(gain);
-      gain.connect(context.destination);
-      oscillator.start(now);
-      oscillator.stop(now + 0.12);
+      var tone = TONES[type] || TONES.click, base = context.currentTime, warning = type === "warning";
+      (BEATS[type] || [0]).forEach(function (offset) {
+        var now = base + offset, oscillator = context.createOscillator(), gain = context.createGain();
+        oscillator.type = warning ? "triangle" : "sine";
+        oscillator.frequency.setValueAtTime(tone[0], now);
+        oscillator.frequency.exponentialRampToValueAtTime(tone[1], now + (warning ? 0.13 : 0.075));
+        gain.gain.setValueAtTime(0.0001, now);
+        gain.gain.exponentialRampToValueAtTime(warning ? 0.11 : 0.055, now + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + (warning ? 0.16 : 0.11));
+        oscillator.connect(gain);
+        gain.connect(context.destination);
+        oscillator.start(now);
+        oscillator.stop(now + (warning ? 0.17 : 0.12));
+      });
     } catch (e) { /* sound is a nicety: never break the page */ }
   }
   window.pgdasSound = {play: play, isOn: function () { return on; }};

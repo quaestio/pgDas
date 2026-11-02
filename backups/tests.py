@@ -101,7 +101,7 @@ class BackupTests(BackupFixture, TestCase):
     def test_delete_removes_the_file(self):
         backup = dump.make_backup(self.server, self.db, self.staff)
         path = backup.path
-        self.client.post(reverse("backup_delete", args=[backup.pk]))
+        self.client.post(reverse("backup_delete", args=[backup.pk]), {"confirm": self.db})
         self.assertFalse(path.exists())
         self.assertFalse(Backup.objects.filter(pk=backup.pk).exists())
 

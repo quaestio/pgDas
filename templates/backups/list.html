@@ -3,6 +3,7 @@
 {% block title %}Backups · PGDAS{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="{% static 'backups.css' %}">
+<link rel="stylesheet" href="{% static 'confirm.css' %}">
 <div class="title-row"><div><div class="eyebrow">CONSOLE / <span>BACKUPS</span></div><h1>Backups</h1>
   <p class="muted">Each backup is a <code>pg_dump</code> file (custom format) kept on this machine. Restore always goes into a <b>new</b> database, so nothing existing is overwritten.</p></div></div>
 
@@ -68,7 +69,10 @@
           </div>
           {% endif %}
           {% if b.status != "running" %}
-          <form method="post" action="{% url 'backup_delete' b.pk %}" onsubmit="return confirm('Delete this backup{% if b.available %} and its file{% endif %}?')">{% csrf_token %}<button class="btn" type="submit">Delete</button></form>
+          <form method="post" action="{% url 'backup_delete' b.pk %}" data-typed-confirm="{{ b.database }}" data-confirm-title="DELETE BACKUP" data-confirm-button="Delete backup"
+                data-confirm-message="{% if b.available %}This permanently deletes the backup file of {{ b.database }}.{% else %}This removes the record of a failed backup of {{ b.database }}; there is no file.{% endif %}"
+                data-confirm-detail="{{ b.server_name }} · {{ b.created_at|date:'Y-m-d H:i' }} UTC{% if b.available %} · {{ b.size|filesizeformat }}{% endif %}"
+                data-confirm-warning="{% if b.available %}The file is removed from this machine and cannot be recovered. The database itself is not touched.{% else %}Only the entry in this list is removed.{% endif %}">{% csrf_token %}<input type="hidden" name="confirm" value=""><button class="btn" type="submit">Delete</button></form>
           {% endif %}
         </td>
       </tr>
@@ -78,6 +82,7 @@
 </section>
 {% endblock %}
 {% block scripts %}
+<script src="{% static 'confirm.js' %}"></script>
 <script>
 // Each Server dropdown fills the Database dropdown next to it with that server's databases, and the chosen database fills the
 // schema checkboxes under Options.
