@@ -77,6 +77,7 @@ def _relation_context(conn, node, request):
         context["constraints"] = pg.table_constraints(conn, schema, name)
     elif tab == "indexes":
         context["indexes"] = pg.table_indexes(conn, schema, name)
+        context["column_names"] = json.dumps([c["name"] for c in pg.table_columns(conn, schema, name)])
     elif tab == "triggers":
         context["triggers"] = pg.table_triggers(conn, schema, name)
     elif tab == "data":

@@ -144,6 +144,49 @@
       sql: function (v, ctx) { return "ALTER TABLE " + qualified(ctx) + "\n    " + this.actions(v, ctx).join(",\n    "); },
       after: function () { return {redraw: true}; },
     },
+    "create-index": {
+      title: "CREATE — INDEX", done: "Index created.",
+      build: function (form, ctx) {
+        form.appendChild(row("Table", el("input", {type: "text", value: ctx.schema + "." + ctx.table, readonly: "readonly"})));
+        form.appendChild(row("Name", textInput("name", "optional: PostgreSQL picks one when empty")));
+        var method = el("select", {"data-field": "method"});
+        ["btree", "hash", "gist", "gin", "brin", "spgist"].forEach(function (m) { method.appendChild(el("option", {value: m, text: m})); });
+        form.appendChild(row("Method", method));
+        form.appendChild(checkbox("unique", "Unique (no two rows may have the same values)"));
+        form.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Columns (in index order)"})]));
+        (ctx.columns || []).forEach(function (name) {
+          var box = el("input", {type: "checkbox", "data-idxcol": name}), desc = el("input", {type: "checkbox", "data-idxdesc": name});
+          form.appendChild(el("div", {"class": "dlg-check"}, [el("label", {}, [box, document.createTextNode(" " + name)]),
+            el("label", {"class": "muted", style: "margin-left:14px"}, [desc, document.createTextNode(" descending")])]));
+        });
+        form.appendChild(row("Expression", textInput("expr", "optional, e.g. lower(email)")));
+        form.appendChild(row("Only rows where", textInput("where", "optional partial index, e.g. active")));
+      },
+      collect: function (v, form) {
+        v.items = Array.prototype.filter.call(form.querySelectorAll("[data-idxcol]"), function (b) { return b.checked; }).map(function (b) {
+          var name = b.getAttribute("data-idxcol"), desc = form.querySelector('[data-idxdesc="' + name.replace(/"/g, '\\"') + '"]');
+          return ident(name) + (desc && desc.checked ? " DESC" : "");
+        });
+        if (v.expr.trim()) v.items.push("(" + v.expr.trim() + ")");
+        return v;
+      },
+      problem: function (v) { return v.items.length ? "" : "Choose at least one column or enter an expression."; },
+      sql: function (v, ctx) {
+        return "CREATE " + (v.unique ? "UNIQUE " : "") + "INDEX " + (v.name.trim() ? ident(v.name.trim()) + " " : "") + "ON " + qualified(ctx) + " USING " + v.method +
+          " (" + v.items.join(", ") + ")" + (v.where.trim() ? " WHERE " + v.where.trim() : "");
+      },
+      after: function () { return {redraw: true}; },
+    },
+    "rename-index": {
+      title: "RENAME — INDEX", done: "Index renamed.",
+      build: function (form, ctx) {
+        form.appendChild(row("Index", el("input", {type: "text", value: ctx.index, readonly: "readonly"})));
+        form.appendChild(row("New name", textInput("name")));
+      },
+      problem: function (v, ctx) { return !v.name.trim() ? "'New name' cannot be empty." : v.name.trim() === ctx.index ? "That is the current name." : ""; },
+      sql: function (v, ctx) { return "ALTER INDEX " + ident(ctx.schema) + "." + ident(ctx.index) + " RENAME TO " + ident(v.name.trim()); },
+      after: function () { return {redraw: true}; },
+    },
   };
 
   function folder(ctx) { return {type: "tables", server: ctx.server, db: ctx.db, schema: ctx.schema}; }
@@ -315,7 +358,13 @@
       if (!ctx) return;
       var what = trigger.getAttribute("data-table-dialog");
       ctx.column = columnOf(trigger);
-      if (what === "drop-table") review(ctx, "DROP TABLE " + qualified(ctx), {node: folder(ctx), open: folder(ctx)}, "Table dropped.");
+      var indexRow = trigger.closest("tr[data-index]"), indexTab = trigger.closest("[data-index-tab]");
+      ctx.index = indexRow ? indexRow.getAttribute("data-index") : "";
+      ctx.columns = indexTab ? JSON.parse(indexTab.getAttribute("data-index-tab")) : [];
+      if (what === "drop-index") review(ctx, "DROP INDEX " + ident(ctx.schema) + "." + ident(ctx.index), {redraw: true}, "Index dropped.");
+      else if (what === "reindex-index") review(ctx, "REINDEX INDEX " + ident(ctx.schema) + "." + ident(ctx.index), {redraw: true}, "Index rebuilt.");
+      else if (what === "reindex-table") review(ctx, "REINDEX TABLE " + qualified(ctx), {redraw: true}, "Indexes rebuilt.");
+      else if (what === "drop-table") review(ctx, "DROP TABLE " + qualified(ctx), {node: folder(ctx), open: folder(ctx)}, "Table dropped.");
       else if (what === "drop-column") review(ctx, "ALTER TABLE " + qualified(ctx) + " DROP COLUMN " + ident(ctx.column.name), {redraw: true}, "Column dropped.");
       else openDialog(what, ctx);
       return;

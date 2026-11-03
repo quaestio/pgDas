@@ -32,7 +32,7 @@ from .writes import SAMPLE_ROWS, _IDENT, _in_table_order, _resolve_table, _side_
 
 # The word to type. ALTER asks for its word only when the change is risky (see _alter_is_risky); CREATE never does.
 CONFIRM_WORDS = {"delete": writes.CONFIRM_WORD, "update": None, "insert": None, "truncate": "TRUNCATE", "drop": "DROP",
-                 "create": None, "alter": "ALTER", "grant": None, "revoke": None}
+                 "create": None, "alter": "ALTER", "grant": None, "revoke": None, "reindex": None}
 STRUCTURE_KINDS = ("truncate", "drop", "create", "alter")   # these need the server's second switch, "Also allow CREATE, ALTER, TRUNCATE and DROP"
 _TABLE_REF = rf"{_IDENT}(?:\s*\.\s*{_IDENT})?"
 
@@ -855,7 +855,9 @@ def preview(server, database, text):
         return server_admin.preview(server, database, text)
     if kind in ("grant", "revoke"):
         raise PgError("Write it as GRANT … TO … or REVOKE … FROM ….")
-    from . import table_rebuild
+    from . import reindex, table_rebuild
+    if kind == "reindex":
+        return reindex.preview(server, database, text)
     if kind == "alter" and table_rebuild.is_reorder_statement(text):
         return table_rebuild.preview(server, database, text)
     if kind in ("create", "alter"):
@@ -872,7 +874,9 @@ def execute(server, database, text, fingerprint, confirm, user):
     if server_admin.is_admin_statement(text):
         result = server_admin.execute(server, database, text, fingerprint, confirm, user)
         return {**result, "kind": kind}
-    from . import table_rebuild
+    from . import reindex, table_rebuild
+    if kind == "reindex":
+        return {"kind": kind, **reindex.execute(server, database, text, fingerprint, confirm, user)}
     if kind == "alter" and table_rebuild.is_reorder_statement(text):
         return {"kind": kind, **table_rebuild.execute(server, database, text, fingerprint, confirm, user)}
     if kind == "insert":

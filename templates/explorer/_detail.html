@@ -238,11 +238,15 @@
       {% empty %}<tr><td colspan="3" class="muted">No constraints.</td></tr>{% endfor %}</tbody>
     </table></div>
   {% elif tab == "indexes" %}
+    <div {% if structure and relation_kind == "table" %}data-index-tab="{{ column_names }}"{% endif %}>
+    {% if structure and relation_kind == "table" %}<div class="column-tools"><button type="button" class="btn primary" data-table-dialog="create-index">+ Create index</button>
+      <button type="button" class="btn" data-table-dialog="reindex-table" title="Rebuild every index of this table">Reindex table</button></div>{% endif %}
     <div class="scroll"><table>
-      <thead><tr><th>NAME</th><th>KIND</th><th>DEFINITION</th></tr></thead>
-      <tbody>{% for i in indexes %}<tr><td>{{ i.name }}</td><td>{% if i.primary %}<span class="badge ok">primary</span>{% elif i.unique %}<span class="badge">unique</span>{% endif %}</td><td class="cell">{{ i.definition }}</td></tr>
-      {% empty %}<tr><td colspan="3" class="muted">No indexes.</td></tr>{% endfor %}</tbody>
-    </table></div>
+      <thead><tr><th>NAME</th><th>KIND</th><th>DEFINITION</th>{% if structure and relation_kind == "table" %}<th></th>{% endif %}</tr></thead>
+      <tbody>{% for i in indexes %}<tr data-index="{{ i.name }}"><td>{{ i.name }}</td><td>{% if i.primary %}<span class="badge ok">primary</span>{% elif i.unique %}<span class="badge">unique</span>{% endif %}</td><td class="cell">{{ i.definition }}</td>
+        {% if structure and relation_kind == "table" %}<td class="col-actions"><button type="button" class="btn" data-table-dialog="rename-index">Rename</button><button type="button" class="btn" data-table-dialog="reindex-index">Reindex</button>{% if not i.primary %}<button type="button" class="btn danger" data-table-dialog="drop-index">Drop</button>{% endif %}</td>{% endif %}</tr>
+      {% empty %}<tr><td colspan="4" class="muted">No indexes.</td></tr>{% endfor %}</tbody>
+    </table></div></div>
   {% elif tab == "data" and data.grid_json %}
     <div data-grid="{{ data.grid_json }}">
       <div class="grid-bar"><button type="button" class="btn" data-grid-add>+ Add row</button>

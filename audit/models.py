@@ -58,6 +58,9 @@ class AuditEntry(models.Model):
             return f"{rows(p.get('count', 0))} from {where}"
         if kind == "update":
             return f"UPDATE · {rows(p.get('count', 0))} in {where}"
+        if kind == "reindex":
+            n = len(p.get("indexes", []))
+            return f"REINDEX · {n} index{'' if n == 1 else 'es'}"
         if kind == "rows":
             return f"grid edit · {rows(p.get('count', 0))} in {where}"
         if kind == "insert":
