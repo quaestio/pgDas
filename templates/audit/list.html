@@ -33,7 +33,7 @@
               <button type="button" class="btn danger" data-reinsert="{% url 'audit_undo' entry.pk %}" data-count="{{ entry.payload.count }}" data-verb="undo"
                       data-table="{{ entry.payload.schema }}.{{ entry.payload.table }}">Undo {{ entry.payload.count }} row{{ entry.payload.count|pluralize }}</button>
             {% elif entry.restored_at %}
-              <span class="badge ok">{% if entry.payload.kind == "update" %}undone{% else %}re-inserted{% endif %} {{ entry.restored_at|date:"Y-m-d H:i" }} by {{ entry.restored_by }}</span>
+              <span class="badge ok">{% if entry.payload.kind == "update" or entry.payload.kind == "rows" %}undone{% else %}re-inserted{% endif %} {{ entry.restored_at|date:"Y-m-d H:i" }} by {{ entry.restored_by }}</span>
             {% endif %}
           </div>
           {% endif %}

@@ -10,3 +10,14 @@ tr.moved td { background: rgba(255, 193, 7, 0.12); }
 .tdlg-col { display: grid; grid-template-columns: 1.1fr 1.1fr 1.3fr auto auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 .tdlg-col label { white-space: nowrap; font-size: 13px; }
 @media (max-width: 720px) { .tdlg-col { grid-template-columns: 1fr 1fr; } }
+
+/* The editable data grid (static/row_edit.js). */
+.grid-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.grid-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+table.grid td.edited { background: rgba(255, 193, 7, 0.16); outline: 1px solid #b8860b; }
+table.grid tr.deleting td { text-decoration: line-through; opacity: 0.55; background: rgba(220, 53, 69, 0.12); }
+table.grid tr.new-row td { background: rgba(40, 167, 69, 0.10); }
+table.grid td[data-col] { cursor: cell; }
+.grid-pick { width: 34px; text-align: center; }
+.cell-input { min-width: 90px; width: 100%; box-sizing: border-box; }
+.cell-null { padding: 1px 6px; font-size: 11px; margin-left: 4px; }

@@ -11,7 +11,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from audit.models import AuditEntry, record
 from servers.models import ServerConnection
 
-from . import changes, pg, server_admin, tree
+from . import changes, pg, row_edits, server_admin, tree
 
 TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
@@ -80,7 +80,20 @@ def _relation_context(conn, node, request):
     elif tab == "triggers":
         context["triggers"] = pg.table_triggers(conn, schema, name)
     elif tab == "data":
-        context["data"] = pg.fetch_rows(conn, schema, name, request.GET.get("page"))
+        editable = info["relkind"] == "r" and _can_structure(request.user, None)
+        context["data"] = pg.fetch_rows(conn, schema, name, request.GET.get("page"), raw=editable)
+        if editable:
+            pk = changes._primary_key(conn, schema, name)
+            data = context["data"]
+            if pk:
+                names = [c["name"] for c in data["columns"]]
+                data["grid"] = [{"cells": [{"shown": shown, "raw": raw} for shown, raw in zip(row, raw_row)],
+                                 "key": json.dumps({c: raw_row[names.index(c)] for c in pk})} for row, raw_row in zip(data["rows"], data["raw"])]
+                data["grid_json"] = json.dumps({"schema": schema, "table": name, "pk": pk, "columns": [
+                    {"name": c["name"], "type": c["type"], "locked": bool(c["generated"] or c["identity"] == "a"), "key": c["name"] in pk,
+                     "nullable": c["nullable"], "default": bool(c["default"] or c["identity"])} for c in data["columns"]]})
+            else:
+                data["no_key"] = True
     elif tab == "sql":
         if info["relkind"] in ("v", "m"):
             context["ddl"] = pg.view_ddl(conn, schema, name)
@@ -284,6 +297,50 @@ def write_execute(request, pk):
                                  data.get("fingerprint"), data.get("confirm"), request.user)
     except pg.PgError as error:
         record(request.user, kind, server, str(data.get("sql") or "")[:2000], ok=False)    # a refused attempt is logged too
+        return _refuse(str(error), 400)
+    return JsonResponse({"ok": True, **result}, json_dumps_params={"default": str})
+
+
+def _rows_request(request, pk):
+    """Common checks for the data grid's save: (server, data, None) or (None, None, error response)."""
+    server = get_object_or_404(ServerConnection, pk=pk)
+    if not request.user.is_staff:
+        return None, None, _refuse("Only staff users can change data.")
+    try:
+        data = json.loads(request.body or b"{}")
+        if not isinstance(data, dict):
+            raise ValueError
+    except ValueError:
+        return None, None, _refuse("That request was not understood.", 400)
+    return server, data, None
+
+
+@login_required
+@require_POST
+def rows_preview(request, pk):
+    """Step 1 of saving the grid's edits: what the whole batch would do. Nothing is changed (always rolled back)."""
+    server, data, failure = _rows_request(request, pk)
+    if failure:
+        return failure
+    try:
+        preview = row_edits.preview(server, str(data.get("db") or ""), data)
+    except pg.PgError as error:
+        return _refuse(str(error), 400)
+    return JsonResponse({"ok": True, **preview}, json_dumps_params={"default": str})
+
+
+@login_required
+@require_POST
+def rows_execute(request, pk):
+    """Step 2: save the batch for real, after the checked facts and the typed word are verified again."""
+    server, data, failure = _rows_request(request, pk)
+    if failure:
+        return failure
+    try:
+        result = row_edits.execute(server, str(data.get("db") or ""), data, data.get("fingerprint") if isinstance(data.get("fingerprint"), dict) else {},
+                                   data.get("confirm"), request.user)
+    except pg.PgError as error:
+        record(request.user, "rows.edit", server, f"Saving edits to {data.get('schema')}.{data.get('table')} failed: {error}"[:2000], ok=False)
         return _refuse(str(error), 400)
     return JsonResponse({"ok": True, **result}, json_dumps_params={"default": str})
 

@@ -659,18 +659,26 @@ def display(value):
     return str(value)
 
 
-def fetch_rows(conn, schema, table, page):
+def fetch_rows(conn, schema, table, page, raw=False):
+    """One page of rows. With raw=True each row also carries the exact text PostgreSQL has for every cell ("raw", None for NULL),
+    which the editable grid sends back to prove a cell is still what the person saw."""
     columns = table_columns(conn, schema, table)
     if not columns:
         raise PgError(f"{schema}.{table} does not exist or has no columns.")
     page = max(int(page or 1), 1)
-    query = sql.SQL("SELECT * FROM {}.{} LIMIT %s OFFSET %s").format(sql.Identifier(schema), sql.Identifier(table))
-    rows = conn.execute(query, (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE)).fetchall()
-    return {
+    extra = sql.SQL(", ").join(sql.SQL("t.{}::text").format(sql.Identifier(c["name"])) for c in columns) if raw else None
+    query = sql.SQL("SELECT t.*{} FROM {}.{} t LIMIT %s OFFSET %s").format(
+        sql.SQL(", ") + extra if raw else sql.SQL(""), sql.Identifier(schema), sql.Identifier(table))
+    rows = conn.execute(query, (PAGE_SIZE + 1, (page - 1) * PAGE_SIZE)).fetchall()[:PAGE_SIZE + 1]
+    width = len(columns)
+    result = {
         "columns": columns, "page": page,
-        "rows": [[display(value) for value in row] for row in rows[:PAGE_SIZE]],
+        "rows": [[display(value) for value in row[:width]] for row in rows[:PAGE_SIZE]],
         "has_next": len(rows) > PAGE_SIZE,
     }
+    if raw:
+        result["raw"] = [list(row[width:]) for row in rows[:PAGE_SIZE]]
+    return result
 
 
 def run_sql(server, statement, database=None):

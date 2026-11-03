@@ -243,6 +243,38 @@
       <tbody>{% for i in indexes %}<tr><td>{{ i.name }}</td><td>{% if i.primary %}<span class="badge ok">primary</span>{% elif i.unique %}<span class="badge">unique</span>{% endif %}</td><td class="cell">{{ i.definition }}</td></tr>
       {% empty %}<tr><td colspan="3" class="muted">No indexes.</td></tr>{% endfor %}</tbody>
     </table></div>
+  {% elif tab == "data" and data.grid_json %}
+    <div data-grid="{{ data.grid_json }}">
+      <div class="grid-bar"><button type="button" class="btn" data-grid-add>+ Add row</button>
+        <span class="muted">Double-click a cell to edit it. Tick rows to delete them. Nothing is saved until you press Save.</span>
+        <span class="grid-actions"><span class="muted" data-grid-count></span>
+          <button type="button" class="btn" data-grid-discard disabled>Discard</button>
+          <button type="button" class="btn primary" data-grid-save disabled>Save changes…</button></span></div>
+      <p class="warn-line" data-grid-message hidden></p>
+      <div class="scroll"><table class="grid">
+        <thead><tr><th></th>{% for c in data.columns %}<th>{{ c.name }}<br><span class="muted" style="font-weight:400">{{ c.type }}</span></th>{% endfor %}</tr></thead>
+        <tbody>{% for row in data.grid %}<tr data-row-key="{{ row.key }}"><td class="grid-pick"><input type="checkbox" data-grid-pick aria-label="Delete this row"></td>
+          {% for cell in row.cells %}{% if cell.raw is None %}<td class="null" data-col="{{ forloop.counter0 }}" data-raw="" data-null="1">NULL</td>{% else %}<td class="cell" data-col="{{ forloop.counter0 }}" data-raw="{{ cell.raw }}">{{ cell.shown }}</td>{% endif %}{% endfor %}</tr>
+        {% empty %}<tr class="grid-empty"><td colspan="{{ data.columns|length|add:1 }}" class="muted">No rows on this page.</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+    <div class="pager">
+      {% if data.page > 1 %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'-1' }}">← Previous</a>{% endif %}
+      <span class="muted">Page {{ data.page }}</span>
+      {% if data.has_next %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'1' }}">Next →</a>{% endif %}
+    </div>
+  {% elif tab == "data" and data.no_key %}
+    <p class="muted">This table has no primary key, so its rows cannot be edited here. Add a primary key to edit rows in the grid.</p>
+    <div class="scroll"><table>
+      <thead><tr>{% for c in data.columns %}<th>{{ c.name }}<br><span class="muted" style="font-weight:400">{{ c.type }}</span></th>{% endfor %}</tr></thead>
+      <tbody>{% for row in data.rows %}<tr>{% for value in row %}{% if value is None %}<td class="null">NULL</td>{% else %}<td class="cell">{{ value }}</td>{% endif %}{% endfor %}</tr>
+      {% empty %}<tr><td colspan="{{ data.columns|length }}" class="muted">No rows on this page.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <div class="pager">
+      {% if data.page > 1 %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'-1' }}">← Previous</a>{% endif %}
+      <span class="muted">Page {{ data.page }}</span>
+      {% if data.has_next %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'1' }}">Next →</a>{% endif %}
+    </div>
   {% elif tab == "data" %}
     <div class="scroll"><table>
       <thead><tr>{% for c in data.columns %}<th>{{ c.name }}<br><span class="muted" style="font-weight:400">{{ c.type }}</span></th>{% endfor %}</tr></thead>

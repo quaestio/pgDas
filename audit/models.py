@@ -40,6 +40,8 @@ class AuditEntry(models.Model):
     @property
     def can_undo(self):
         undo = (self.payload or {}).get("undo") or {}
+        if (self.payload or {}).get("kind") == "rows":
+            return self.ok and self.restored_at is None and bool(self.payload.get("count"))
         return (bool(self.payload) and self.payload.get("kind") == "update" and self.ok and self.restored_at is None
                 and bool(undo.get("old")))
 
@@ -56,6 +58,8 @@ class AuditEntry(models.Model):
             return f"{rows(p.get('count', 0))} from {where}"
         if kind == "update":
             return f"UPDATE · {rows(p.get('count', 0))} in {where}"
+        if kind == "rows":
+            return f"grid edit · {rows(p.get('count', 0))} in {where}"
         if kind == "insert":
             return f"INSERT · {rows(p.get('count', 0))} into {where}"
         if kind == "restore":
@@ -84,6 +88,9 @@ class AuditEntry(models.Model):
         shown = {**self.payload}
         if "rows" in self.payload:
             shown["rows"] = self.payload["rows"][:PREVIEW_ROWS]
+        if self.payload.get("kind") == "rows":
+            for part in ("old", "new", "inserted", "deleted"):
+                shown[part] = (self.payload.get(part) or [])[:PREVIEW_ROWS]
         if "old" in undo:
             shown["undo"] = {**undo, "old": undo["old"][:PREVIEW_ROWS], "new": undo["new"][:PREVIEW_ROWS]}
         text = json.dumps(shown, indent=2, default=str, ensure_ascii=False)

@@ -80,7 +80,7 @@
 <script src="{% static 'app.js' %}"></script>
 <script src="{% static 'sound.js' %}"></script>
 <script src="{% static 'typedname.js' %}"></script>
-{% if user.is_staff %}<script src="{% static 'review.js' %}"></script><script src="{% static 'admin_dialogs.js' %}"></script><script src="{% static 'db_sessions.js' %}"></script><script src="{% static 'table_dialogs.js' %}"></script>{% endif %}
+{% if user.is_staff %}<script src="{% static 'review.js' %}"></script><script src="{% static 'admin_dialogs.js' %}"></script><script src="{% static 'db_sessions.js' %}"></script><script src="{% static 'table_dialogs.js' %}"></script><script src="{% static 'row_edit.js' %}"></script>{% endif %}
 {% if user.is_authenticated %}<script src="{% static 'explorer.js' %}"></script>{% endif %}
 {% block scripts %}{% endblock %}
 </body>

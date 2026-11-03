@@ -37,6 +37,8 @@
   function urls(server) {
     return {previewUrl: modal.dataset.previewUrl.replace("/c/0/", "/c/" + server + "/"),
             executeUrl: modal.dataset.executeUrl.replace("/c/0/", "/c/" + server + "/"),
+            rowsPreviewUrl: (modal.dataset.rowsPreviewUrl || "").replace("/c/0/", "/c/" + server + "/"),
+            rowsExecuteUrl: (modal.dataset.rowsExecuteUrl || "").replace("/c/0/", "/c/" + server + "/"),
             auditUrl: modal.dataset.auditUrl};
   }
 
@@ -150,7 +152,7 @@
     var request = checked.request;
     goButton.disabled = true;
     goButton.textContent = "Working…";
-    post(request.executeUrl, {sql: request.sql, db: request.db, fingerprint: checked.fingerprint, confirm: confirmInput.value}).then(function (response) {
+    post(request.executeUrl, Object.assign({}, request.rows || {sql: request.sql, db: request.db}, {db: request.db, fingerprint: checked.fingerprint, confirm: confirmInput.value})).then(function (response) {
       if (response.ok) {
         closeModal();
         tone("success");
@@ -183,9 +185,10 @@
     post: post,
     start: function (options) {
       var u = urls(options.server);
-      var request = {sql: options.sql, db: options.db || "", previewUrl: u.previewUrl, executeUrl: u.executeUrl,
-                     onSuccess: options.onSuccess, onError: options.onError};
-      return post(u.previewUrl, {sql: request.sql, db: request.db}).then(function (response) {
+      // options.rows = {schema, table, edits, inserts, deletes}: a batch of data-grid edits, reviewed and saved as one (explorer/row_edits.py).
+      var request = {sql: options.sql, db: options.db || "", rows: options.rows, previewUrl: options.rows ? u.rowsPreviewUrl : u.previewUrl,
+                     executeUrl: options.rows ? u.rowsExecuteUrl : u.executeUrl, onSuccess: options.onSuccess, onError: options.onError};
+      return post(request.previewUrl, Object.assign({}, options.rows || {sql: request.sql}, {db: request.db})).then(function (response) {
         if (!response.ok) { if (options.onError) options.onError(response.body.error || "That statement could not be run."); return; }
         openModal(request, response.body);
       }).catch(function () {

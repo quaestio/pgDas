@@ -1,6 +1,6 @@
 {# The warning popup every changing statement goes through (static/review.js fills it in from the preview). Staff only. #}
 <div id="changeModal" class="cyber-modal" hidden
-     data-preview-url="{% url 'write_preview' 0 %}" data-execute-url="{% url 'write_execute' 0 %}" data-audit-url="{% url 'audit_list' %}">
+     data-preview-url="{% url 'write_preview' 0 %}" data-execute-url="{% url 'write_execute' 0 %}" data-rows-preview-url="{% url 'rows_preview' 0 %}" data-rows-execute-url="{% url 'rows_execute' 0 %}" data-audit-url="{% url 'audit_list' %}">
   {% csrf_token %}
   <div class="cyber-dialog wide" role="dialog" aria-modal="true" aria-labelledby="changeTitle">
     <div class="modal-top"><span id="changeTitle">WARNING</span><button type="button" id="changeClose" aria-label="Close">✕</button></div>

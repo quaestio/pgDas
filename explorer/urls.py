@@ -9,4 +9,6 @@ urlpatterns = [
     path("c/<int:pk>/sql/", views.sql_runner, name="sql_runner"),
     path("c/<int:pk>/sql/write/preview/", views.write_preview, name="write_preview"),
     path("c/<int:pk>/sql/write/", views.write_execute, name="write_execute"),
+    path("c/<int:pk>/rows/preview/", views.rows_preview, name="rows_preview"),
+    path("c/<int:pk>/rows/", views.rows_execute, name="rows_execute"),
 ]

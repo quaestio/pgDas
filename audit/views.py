@@ -60,7 +60,7 @@ def audit_undo(request, pk):
     """Put the old values of a recorded UPDATE back. Asked for through a confirmation popup; works once per record."""
     entry = get_object_or_404(AuditEntry, pk=pk)
     try:
-        result = changes.undo_update(entry, request.user)
+        result = changes.undo_entry(entry, request.user)
     except PgError as error:
         record(request.user, "update.undo", entry.server, f"Undo of audit entry #{entry.pk} failed: {error}", ok=False)
         messages.error(request, f"Could not undo: {error}")

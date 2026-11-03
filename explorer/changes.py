@@ -50,10 +50,10 @@ def _normalise(ref):
     return re.sub(r"\s*\.\s*", ".", ref)
 
 
-def _run(conn, statement):
+def _run(conn, statement, params=None):
     """Run a statement; a database error becomes a plain message with its DETAIL and HINT (they say what depends on what)."""
     try:
-        return conn.execute(statement)
+        return conn.execute(statement, params)
     except psycopg.Error as error:
         diag = error.diag
         detail = "; ".join(line.strip() for line in (diag.message_detail or "").splitlines() if line.strip())   # one line per object
@@ -251,6 +251,14 @@ def _execute_update(server, database, text, fingerprint, user):
     return {"count": count, "schema": schema, "table": table, "entry_id": entry.pk, "side_effects": effects,
             "message": f"Updated {count:,} row{'s' if count != 1 else ''} in {schema}.{table}. "
                        f"Recorded in the audit log as entry #{entry.pk}."}
+
+
+def undo_entry(entry, user):
+    """Undo a recorded UPDATE, or a saved batch of row edits from the data grid."""
+    if (entry.payload or {}).get("kind") == "rows":
+        from . import row_edits
+        return row_edits.undo(entry, user)
+    return undo_update(entry, user)
 
 
 def undo_update(entry, user):
