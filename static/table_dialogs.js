@@ -48,10 +48,90 @@
   function textInput(field, placeholder) {
     return el("input", {type: "text", "data-field": field, autocomplete: "off", spellcheck: "false", maxlength: "200", placeholder: placeholder || ""});
   }
+  // A searchable type list: click or focus to see every type, type to narrow it (matches the name or the description, any order of
+  // words), ▲ ▼ Enter or a click to pick. Anything typed is still accepted as it is (varchar(50), text[], a type of your own).
+  var extraTypes = [];            // the database's own types, once they have arrived
+  var comboCount = 0;
   function typeInput(field) {
-    var input = textInput(field, "type, e.g. integer or varchar(50)");
-    input.setAttribute("list", "tdlgTypes");
-    return input;
+    var id = "tdlgType" + (++comboCount);
+    var input = textInput(field, "search or type, e.g. integer or varchar(50)");
+    input.setAttribute("role", "combobox"); input.setAttribute("aria-expanded", "false"); input.setAttribute("aria-controls", id); input.setAttribute("aria-autocomplete", "list");
+    var list = el("ul", {"class": "combo-list", id: id, role: "listbox", hidden: "hidden"});
+    var wrap = el("div", {"class": "combo"}, [input, list]);
+    var shown = [], active = -1, picking = false;
+
+    function matches(query) {
+      var words = query.toLowerCase().split(/\s+/).filter(Boolean);
+      return TYPES.concat(extraTypes.map(function (t) { return [t.name, t.kind]; })).filter(function (t) {
+        var hay = (t[0] + " " + t[1]).toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) >= 0; });
+      }).sort(function (a, b) {
+        // name starts with the first word, then name contains every word, then only the description matches
+        var rank = function (t) {
+          var name = t[0].toLowerCase();
+          return name.indexOf(words[0] || "") === 0 ? 0 : words.every(function (w) { return name.indexOf(w) >= 0; }) ? 1 : 2;
+        };
+        return rank(a) - rank(b);
+      });
+    }
+
+    function render(query) {
+      list.textContent = "";
+      shown = matches(query || "");
+      active = shown.length ? 0 : -1;
+      shown.forEach(function (t, index) {
+        var item = el("li", {role: "option", id: id + "-" + index, "class": "combo-item" + (index === active ? " active" : "")},
+                      [el("span", {"class": "combo-name", text: t[0]}), el("span", {"class": "combo-note muted", text: t[1]})]);
+        item.addEventListener("mousedown", function (event) { event.preventDefault(); pick(index); });
+        list.appendChild(item);
+      });
+      if (!shown.length) list.appendChild(el("li", {"class": "combo-empty muted", text: "No listed type matches — what you typed is used as it is."}));
+      input.setAttribute("aria-activedescendant", active >= 0 ? id + "-" + active : "");
+    }
+
+    function show(query) {
+      render(query);
+      var box = input.getBoundingClientRect();
+      list.style.left = box.left + "px"; list.style.top = box.bottom + 2 + "px"; list.style.width = Math.max(box.width, 320) + "px";
+      list.style.maxHeight = Math.max(120, window.innerHeight - box.bottom - 16) + "px";
+      list.hidden = false; input.setAttribute("aria-expanded", "true");
+    }
+
+    function hide() { list.hidden = true; input.setAttribute("aria-expanded", "false"); }
+
+    function pick(index) {
+      input.value = shown[index][0];
+      picking = true;
+      input.dispatchEvent(new Event("input", {bubbles: true}));          // so the dialog rebuilds its SQL
+      picking = false;
+      hide();
+    }
+
+    function move(step) {
+      if (!shown.length) return;
+      list.children[active] && list.children[active].classList.remove("active");
+      active = (active + step + shown.length) % shown.length;
+      var item = list.children[active];
+      item.classList.add("active"); item.scrollIntoView({block: "nearest"});
+      input.setAttribute("aria-activedescendant", item.id);
+    }
+
+    input.addEventListener("focus", function () { show(""); input.select(); });         // the whole list first, whatever the box already holds
+    input.addEventListener("click", function () { if (list.hidden) show(""); });
+    input.addEventListener("input", function () { if (!picking) show(input.value); });
+    input.addEventListener("blur", function () { hide(); });
+    input.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        if (list.hidden) show(input.value); else move(event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Enter" && !list.hidden && active >= 0 && shown.length) {
+        event.preventDefault(); event.stopPropagation(); pick(active);
+      } else if (event.key === "Escape" && !list.hidden) {
+        event.preventDefault(); event.stopPropagation(); hide();                          // closes the list, not the dialog
+      }
+    });
+    wrap.input = input;
+    return wrap;
   }
   function checkbox(field, label, checked) {
     var box = el("input", {type: "checkbox", "data-field": field});
@@ -139,7 +219,7 @@
       build: function (form, ctx) {
         var c = ctx.column, plain = !c.identity && !c.generated;
         form.appendChild(row("Column", el("input", {type: "text", value: c.name, readonly: "readonly"})));
-        var type = typeInput("type"); type.value = c.type;
+        var type = typeInput("type"); type.input.value = c.type;
         form.appendChild(row("Type", type));
         form.appendChild(checkbox("using", "Convert the existing values to the new type (USING " + c.name + "::type)", true));
         var def = textInput("default", plain ? "SQL expression; empty = no default" : "");
@@ -212,7 +292,7 @@
     start = start || {};
     var line = el("div", {"class": "tdlg-col", "data-col": ""});
     var name = textInput("c-name", "name"), type = typeInput("c-type"), def = textInput("c-default", "default");
-    name.value = start.name || ""; type.value = start.type || "";
+    name.value = start.name || ""; type.input.value = start.type || "";
     var notnull = el("input", {type: "checkbox", "data-field": "c-notnull"}), pk = el("input", {type: "checkbox", "data-field": "c-pk"});
     pk.checked = !!start.pk;
     var remove = el("button", {type: "button", "class": "btn", "data-col-remove": "", title: "Remove this column", text: "✕"});
@@ -284,15 +364,13 @@
 
   // The types this database adds (enums, domains, composite and range types, extension types) join the suggestions once they arrive.
   var typeCache = {};
-  function addDatabaseTypes(datalist, ctx) {
+  function addDatabaseTypes(ctx) {
+    extraTypes = [];
     if (!ctx.types_url) return;
-    var add = function (found) {
-      found.forEach(function (t) { datalist.appendChild(el("option", {value: t.name, label: t.kind})); });
-    };
-    if (typeCache[ctx.types_url]) { add(typeCache[ctx.types_url]); return; }
+    if (typeCache[ctx.types_url]) { extraTypes = typeCache[ctx.types_url]; return; }
     fetch(ctx.types_url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
       .then(function (r) { return r.ok ? r.json() : {types: []}; })
-      .then(function (data) { typeCache[ctx.types_url] = data.types || []; add(typeCache[ctx.types_url]); })
+      .then(function (data) { typeCache[ctx.types_url] = data.types || []; extraTypes = typeCache[ctx.types_url]; })
       .catch(function () { /* the built-in types are still offered */ });
   }
 
@@ -301,25 +379,23 @@
     var kind = KINDS[kindName];
     var form = el("div", {"class": "dlg-panel", "data-panel": "general"});
     var sqlPanel = el("div", {"class": "dlg-panel", "data-panel": "sql", hidden: "hidden"}, [el("pre", {"class": "sql dlg-sql", "data-sql": ""})]);
-    var datalist = el("datalist", {id: "tdlgTypes"});
-    TYPES.forEach(function (t) { datalist.appendChild(el("option", {value: t[0], label: t[1]})); });
     var root = el("div", {"class": "cyber-modal", "data-tdlg": ""}, [el("div", {"class": "cyber-dialog dlg tdlg", role: "dialog", "aria-modal": "true"}, [
       el("div", {"class": "modal-top"}, [el("span", {text: kind.title}), el("button", {type: "button", "data-dlg-close": "", "aria-label": "Close", text: "✕"})]),
       el("div", {"class": "dlg-tabs", role: "tablist"}, [
         el("button", {type: "button", "class": "dlg-tab active", "data-tab": "general", text: "General"}),
         el("button", {type: "button", "class": "dlg-tab", "data-tab": "sql", text: "SQL"})]),
-      form, sqlPanel, datalist,
+      form, sqlPanel,
       el("p", {"class": "dlg-problem", "data-problem": "", hidden: "hidden"}),
       el("div", {"class": "dlg-foot"}, [
         el("button", {type: "button", "class": "btn", "data-dlg-close": "", text: "Close"}),
         el("button", {type: "button", "class": "btn primary", "data-dlg-save": "", disabled: "disabled", text: "Save"})]),
     ])]);
     open = {kind: kind, root: root, form: form, ctx: ctx};
-    addDatabaseTypes(datalist, ctx);
+    addDatabaseTypes(ctx);
     kind.build(form, ctx);
     document.body.appendChild(root);
     refresh();
-    var first = form.querySelector("input:not([readonly]):not([disabled])");
+    var first = form.querySelector("input:not([readonly]):not([disabled]):not([role=combobox])");     // not the type list: it would open at once
     if (first) first.focus();
   }
 

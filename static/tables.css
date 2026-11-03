@@ -21,3 +21,15 @@ table.grid td[data-col] { cursor: cell; }
 .grid-pick { width: 34px; text-align: center; }
 .cell-input { min-width: 90px; width: 100%; box-sizing: border-box; }
 .cell-null { padding: 1px 6px; font-size: 11px; margin-left: 4px; }
+
+/* The searchable column type list (static/table_dialogs.js). */
+.combo { position: relative; flex: 1; min-width: 0; }
+.combo input { width: 100%; box-sizing: border-box; }
+.combo-list { position: fixed; z-index: 300; margin: 0; padding: 4px 0; list-style: none; overflow-y: auto; border: 1px solid #1f6f9f; border-radius: 6px;
+  background: #06121f; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); }
+.combo-list[hidden] { display: none; }
+.combo-item { display: flex; justify-content: space-between; gap: 14px; padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.combo-item.active, .combo-item:hover { background: rgba(31, 159, 255, 0.22); }
+.combo-name { font-weight: 600; white-space: nowrap; }
+.combo-note { font-size: 12px; text-align: right; }
+.combo-empty { padding: 6px 12px; font-size: 12px; }

@@ -82,6 +82,9 @@ class TableButtonsTests(AdminFixture, TestCase):
                          "polygon", "real", "smallint", "smallserial", "serial", "text", "time with time zone", "timestamp with time zone", "tsquery", "tsvector",
                          "uuid", "xml"):                                          # Table 8.1 of the PostgreSQL manual, "Data Types"
             self.assertIn(f'["{official}', script)
+        for needle in ('role", "combobox"', "combo-list", "aria-activedescendant", '"ArrowDown"', "words.every"):      # the searchable type list
+            self.assertIn(needle, script)
+        self.assertNotIn("<datalist", script)
         self.assertNotIn("innerHTML", script)
         self.assertNotRegex(script, r"\bconfirm\(")
         explorer = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")
