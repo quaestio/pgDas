@@ -1,0 +1,17 @@
+/* Server > Databases: the "N sessions" button on each row, and the popup it opens (static/db_sessions.js). */
+.sessions-btn { display: inline-block; margin-left: 4px; padding: 3px 10px; font: inherit; font-size: 11px; letter-spacing: .4px; cursor: pointer;
+  background: #03264a; color: #84bbd9; border: 1px solid #12507a; vertical-align: middle; transition: background .15s, border-color .15s; }
+.sessions-btn:hover, .sessions-btn:focus-visible { background: #04335f; border-color: var(--accent, #00cfff); color: #fff; outline: none; }
+.sessions-btn.busy { color: #ffc2cb; background: #2a0f18; border-color: #7a2c3a; }
+.sessions-btn.busy:hover, .sessions-btn.busy:focus-visible { background: #3a1522; border-color: #ff7b8d; }
+
+.cyber-dialog.dlg.dbs { width: min(100%, 980px); }
+.dbs .scroll { flex: 1 1 auto; min-height: 90px; max-height: 46vh; overflow: auto; }
+.dbs table { font-size: 12px; }
+.dbs .dbs-query { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Consolas, monospace; color: #9cd4f5; }
+.dbs .dbs-actions { white-space: nowrap; text-align: right; }
+.dbs .dbs-actions .btn { padding: 4px 10px; margin-left: 6px; font-size: 11px; }
+.dbs .btn.armed { background: #7a2c3a; border-color: #ff7b8d; color: #fff; }
+.dbs .dlg-problem.ok { color: #00e99c; background: #04231a; border-color: #0b6a4b; }
+.dbs .dlg-foot { justify-content: space-between; }
+.dbs .dlg-foot .btn[disabled] { opacity: .4; cursor: not-allowed; }

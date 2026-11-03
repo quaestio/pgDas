@@ -122,4 +122,20 @@
     </div>
   </div>
 </div>
+<div id="dlgDbSessions" class="cyber-modal" hidden data-data-url="{% url 'monitor_data' %}" data-stop-url="{% url 'monitor_stop' %}">
+  <div class="cyber-dialog dlg dbs" role="dialog" aria-modal="true" aria-labelledby="dbsTitle">
+    <div class="modal-top"><span id="dbsTitle">SESSIONS</span><button type="button" data-dbs-close aria-label="Close">✕</button></div>
+    <p class="dlg-hint" id="dbsSummary"></p>
+    <div class="scroll"><table>
+      <thead><tr><th>PID</th><th>USER</th><th>APPLICATION</th><th>CLIENT</th><th>STATE</th><th>RUNNING</th><th>LAST QUERY</th><th></th></tr></thead>
+      <tbody id="dbsRows"></tbody>
+    </table></div>
+    <p class="dlg-problem" id="dbsMessage" hidden role="status" aria-live="polite"></p>
+    <p class="dlg-hint">To drop this database while others are connected, use <strong>Delete</strong> and tick “Disconnect the other sessions first”. Which sessions you may end is PostgreSQL’s decision; if it refuses, its reason is shown here.</p>
+    <div class="dlg-foot">
+      <div><button type="button" class="btn" data-dbs-refresh>Refresh</button> <button type="button" class="btn danger" data-dbs-end-all disabled>End all sessions</button></div>
+      <button type="button" class="btn" data-dbs-close>Close</button>
+    </div>
+  </div>
+</div>
 <div id="pgToast" class="toast" hidden role="status" aria-live="polite"></div>

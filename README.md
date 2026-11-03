@@ -186,6 +186,12 @@ busy sessions; the **largest databases**; and, for staff, the **recent activity*
 alerts below plus failed changes of the last 7 days). It refreshes every 30 seconds. PostgreSQL cannot report the CPU, memory, disk or
 network use of the machine it runs on, so those are not shown. The size history is on **Alerts & trends**.
 
+**Sessions per database.** In the Object Browser, **Server > Databases** shows "N sessions" on every row (also "0 sessions"; highlighted
+when anything is connected). Clicking it opens a popup with the sessions connected to that database (user, application, client, state,
+how long, last query) that refreshes every few seconds, with **Cancel query**, **End session** and **End all sessions**. Each takes two
+clicks (the first arms the button), the same PostgreSQL rights apply as on the Monitor page, and the list's counts refresh when the popup
+closes. To drop a database while others are connected, use Delete and tick "Disconnect the other sessions first".
+
 ## Alerts & trends
 **Alerts & trends** (staff) lists what needs attention on a server, worked out each time the page is opened (nothing is stored or
 sent): sessions blocked by locks, sessions idle in a transaction too long, queries running too long, connections near
