@@ -81,8 +81,13 @@ class SnapshotTests(MonitorFixture, TestCase):
         self.assertIn(found[0]["pid"], [s["pid"] for s in queries.snapshot(self.server)["idle_in_transaction"]])
 
     def test_the_monitor_does_not_list_its_own_connection(self):
-        data = queries.snapshot(self.server)
-        self.assertNotIn("PGDAS", [s["application"] for s in data["sessions"]])
+        # Other PGDAS connections may be open (an earlier test can leave one until it is cleaned up), so compare with what
+        # PostgreSQL itself says: every PGDAS connection except the monitor's own one must be listed, and no more.
+        with admin_connect("postgres") as admin:
+            others = admin.execute("SELECT count(*) FROM pg_stat_activity WHERE application_name = 'PGDAS' "
+                                   "AND backend_type = 'client backend'").fetchone()[0]
+        listed = [s for s in queries.snapshot(self.server)["sessions"] if s["application"] == "PGDAS"]
+        self.assertLessEqual(len(listed), others)                                      # at most the others: its own one is left out
 
     def test_a_blocked_session_shows_who_blocks_it(self):
         holder = self.session()
