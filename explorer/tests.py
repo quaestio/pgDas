@@ -697,7 +697,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertIn("sound.js", html)
         script = open("static/sound.js", encoding="utf-8").read()
         for needle in ("click: [420, 580]", "success: [620, 960]", "error: [180, 120]",   # the template's tones
-                       'createOscillator', "exponentialRampToValueAtTime(0.055", "pgdas.sound", "localStorage.setItem",
+                       'createOscillator', "exponentialRampToValueAtTime(warning ? 0.11 : 0.055", "warning: [540, 300]", "pgdas.sound", "localStorage.setItem",
                        'closest("button, a, .metric, .row, input[type=checkbox], select")', "Mute sounds"):
             self.assertIn(needle, script)
         self.assertNotIn(".mp3", script)                               # no audio files: tones are generated
