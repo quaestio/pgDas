@@ -847,6 +847,9 @@ def preview(server, database, text):
         return server_admin.preview(server, database, text)
     if kind in ("grant", "revoke"):
         raise PgError("Write it as GRANT … TO … or REVOKE … FROM ….")
+    from . import table_rebuild
+    if kind == "alter" and table_rebuild.is_reorder_statement(text):
+        return table_rebuild.preview(server, database, text)
     if kind in ("create", "alter"):
         return _preview_ddl(server, database, text, kind)
     return {"delete": _preview_delete, "update": _preview_update, "truncate": _preview_truncate, "drop": _preview_drop}[kind](
@@ -861,6 +864,9 @@ def execute(server, database, text, fingerprint, confirm, user):
     if server_admin.is_admin_statement(text):
         result = server_admin.execute(server, database, text, fingerprint, confirm, user)
         return {**result, "kind": kind}
+    from . import table_rebuild
+    if kind == "alter" and table_rebuild.is_reorder_statement(text):
+        return {"kind": kind, **table_rebuild.execute(server, database, text, fingerprint, confirm, user)}
     if kind == "insert":
         result = _execute_insert(server, database, text, user)
     elif kind == "update":

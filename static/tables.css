@@ -1,0 +1,12 @@
+/* Table structure: the buttons on the table page and the Columns tab, and the New table / Edit column dialogs (static/table_dialogs.js). */
+.table-actions { margin-left: 14px; font-size: 13px; font-weight: 400; vertical-align: middle; }
+.column-tools { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.col-actions { white-space: nowrap; text-align: right; }
+.col-actions .btn { padding: 2px 8px; font-size: 12px; margin-left: 4px; }
+tr.moved td { background: rgba(255, 193, 7, 0.12); }
+.order-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 14px; border: 1px solid #b8860b; border-radius: 8px; background: rgba(255, 193, 7, 0.08); }
+.order-bar[hidden] { display: none; }
+.cyber-dialog.dlg.tdlg { width: min(100%, 860px); }
+.tdlg-col { display: grid; grid-template-columns: 1.1fr 1.1fr 1.3fr auto auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tdlg-col label { white-space: nowrap; font-size: 13px; }
+@media (max-width: 720px) { .tdlg-col { grid-template-columns: 1fr 1fr; } }

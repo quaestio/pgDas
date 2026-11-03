@@ -57,8 +57,10 @@
   // Error tone (see sound.js) when something could not be loaded; silent if sounds are muted or unavailable.
   function errorTone() { if (window.pgdasSound) window.pgdasSound.play("error"); }
 
+  var lastQuery = "";                                   // what the details pane shows now, including its tab, so a change can redraw it
   function showDetail(qs) {
     if (showSystem && qs.indexOf("system=") < 0) qs += "&system=1";
+    lastQuery = qs;
     // The top Servers node is the dashboard above this pane (templates/explorer/explorer.html): nothing to load here.
     var top = /(^|&)type=servers(&|$)/.test(qs);
     detailEl.hidden = top;
@@ -269,6 +271,13 @@
   // After a database or role was created, renamed or dropped: list that folder again and redraw the details if they show it.
   document.addEventListener("pgdas:changed", function (event) {
     var change = event.detail || {};
+    if (change.node || change.open || change.redraw) {                   // table changes: reload that folder, open the table, or redraw this page
+      var folderItem = change.node && findItem(change.node);
+      if (folderItem) folderItem.reload();
+      if (change.open) openPath(change.open);
+      else if (change.redraw && detailEl && lastQuery) showDetail(lastQuery);
+      return;
+    }
     var item = findItem({type: change.what, server: String(change.server)});
     if (item) item.reload();
     var current = selected && selected.parentNode;

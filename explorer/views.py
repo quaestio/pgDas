@@ -72,6 +72,7 @@ def _relation_context(conn, node, request):
         context["sequence"] = pg.sequence_info(conn, schema, name)
     elif tab == "columns":
         context["columns"] = pg.table_columns(conn, schema, name)
+        context["column_names"] = json.dumps([c["name"] for c in context["columns"]])
     elif tab == "constraints":
         context["constraints"] = pg.table_constraints(conn, schema, name)
     elif tab == "indexes":
@@ -185,10 +186,14 @@ def detail(request):
                     context["owner"] = owners.get(schema, "")
                     context["folder"] = "Tables"
                     context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in FOLDERS["tables"][1]]
+                    if kind == "schema" and _can_structure(request.user, server):
+                        context["structure"] = _structure_json(server, db, schema)
         elif kind in FOLDERS:
             context["folder"], kinds = FOLDERS[kind]
             with pg.connect(server, db) as conn:
                 context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in kinds]
+            if kind == "tables" and _can_structure(request.user, server):
+                context["structure"] = _structure_json(server, db, schema)
         elif kind in ("functions", "procedures"):
             context["folder"] = kind.capitalize()
             with pg.connect(server, db) as conn:
@@ -200,6 +205,8 @@ def detail(request):
         elif kind in RELATION_NODES or kind in SUBNODE_TABS:
             with pg.connect(server, db) as conn:
                 context.update(_relation_context(conn, node, request))
+            if context.get("relation_kind") == "table" and _can_structure(request.user, server):
+                context["structure"] = _structure_json(server, db, schema, node["table"])
         elif kind in ("function", "procedure"):
             with pg.connect(server, db) as conn:
                 context.update(_function_context(conn, node, request))
@@ -222,6 +229,11 @@ _can_structure = _can_admin = _can_write
 def _admin_json(server, roles, databases):
     """What the Create database / Create role / Rename dialogs need to fill their lists, as one JSON attribute."""
     return json.dumps({"server": server.pk, "roles": [r["name"] for r in roles], "databases": [d["name"] for d in databases]})
+
+
+def _structure_json(server, db, schema, table=""):
+    """Where the table-structure buttons (New table, Rename, Drop, column actions) apply, as one JSON attribute."""
+    return json.dumps({"server": server.pk, "db": db, "schema": schema, "table": table})
 
 
 def _refuse(message, status=403):

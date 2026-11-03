@@ -114,6 +114,7 @@
       {% empty %}<tr><td colspan="2" class="muted">None in this schema.</td></tr>{% endfor %}</tbody>
     </table></div>
   {% else %}
+    {% if structure %}<div data-structure="{{ structure }}" style="margin-bottom:12px"><button type="button" class="btn primary" data-table-dialog="new-table">+ New table</button></div>{% endif %}
     <div class="scroll"><table>
       <thead><tr><th>NAME</th><th>TYPE</th><th>ROWS (ESTIMATE)</th></tr></thead>
       <tbody>{% for t in items %}<tr><td>{{ t.name }}</td><td class="muted">{{ t.kind }}</td>
@@ -122,7 +123,8 @@
     </table></div>
   {% endif %}
 {% elif tabs %}
-  <h2>{{ title }}</h2>
+  <div {% if structure %}data-structure="{{ structure }}"{% endif %}>
+  <h2>{{ title }}{% if structure %} <span class="table-actions"><button type="button" class="btn" data-table-dialog="rename-table">Rename</button> <button type="button" class="btn danger" data-table-dialog="drop-table">Drop</button></span>{% endif %}</h2>
   <div class="tabs">{% for key, label in tabs %}<a href="#" data-detail="{{ base }}&tab={{ key }}" class="{% if key == tab %}active{% endif %}">{{ label }}</a>{% endfor %}</div>
   {% if tab == "properties" and object_kind == "role" %}
     <dl class="props">
@@ -216,12 +218,19 @@
       {% empty %}<tr><td colspan="6" class="muted">No triggers.</td></tr>{% endfor %}</tbody>
     </table></div>
   {% elif tab == "columns" %}
+    <div {% if structure %}data-columns-tab="{{ column_names }}"{% endif %}>
+    {% if structure %}<div class="column-tools"><button type="button" class="btn primary" data-table-dialog="add-column">+ Add column</button>
+      <span class="muted">Use ▲ ▼ to change the order, then apply it.</span></div>
+      <div class="order-bar" data-order-bar hidden><span>The order of the columns has changed. Applying it rebuilds the table.</span>
+        <button type="button" class="btn danger" data-order-apply>Apply new order…</button> <button type="button" class="btn" data-order-undo>Undo</button></div>{% endif %}
     <div class="scroll"><table>
-      <thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>NULLABLE</th><th>DEFAULT</th></tr></thead>
-      <tbody>{% for c in columns %}<tr><td class="muted">{{ forloop.counter }}</td><td>{{ c.name }}</td><td class="muted">{{ c.type }}</td>
+      <thead><tr><th>#</th><th>NAME</th><th>TYPE</th><th>NULLABLE</th><th>DEFAULT</th>{% if structure %}<th></th>{% endif %}</tr></thead>
+      <tbody>{% for c in columns %}<tr data-column="{{ c.name }}" data-type="{{ c.type }}" data-nullable="{% if c.nullable %}1{% else %}0{% endif %}" data-default="{{ c.default }}" data-identity="{{ c.identity }}" data-generated="{{ c.generated }}"><td class="muted" data-number>{{ forloop.counter }}</td><td>{{ c.name }}</td><td class="muted">{{ c.type }}</td>
         <td>{% if c.nullable %}yes{% else %}<span class="badge">not null</span>{% endif %}</td>
-        <td class="cell">{% if c.identity %}<span class="badge">identity{% if c.identity == "a" %} always{% endif %}</span>{% elif c.generated %}<span class="badge">generated</span> {{ c.default }}{% else %}{{ c.default }}{% endif %}</td></tr>{% endfor %}</tbody>
-    </table></div>
+        <td class="cell">{% if c.identity %}<span class="badge">identity{% if c.identity == "a" %} always{% endif %}</span>{% elif c.generated %}<span class="badge">generated</span> {{ c.default }}{% else %}{{ c.default }}{% endif %}</td>
+        {% if structure %}<td class="col-actions"><button type="button" class="btn" data-col-move="-1" title="Move up">▲</button><button type="button" class="btn" data-col-move="1" title="Move down">▼</button>
+          <button type="button" class="btn" data-table-dialog="edit-column">Edit</button><button type="button" class="btn" data-table-dialog="rename-column">Rename</button><button type="button" class="btn danger" data-table-dialog="drop-column">Drop</button></td>{% endif %}</tr>{% endfor %}</tbody>
+    </table></div></div>
   {% elif tab == "constraints" %}
     <div class="scroll"><table>
       <thead><tr><th>NAME</th><th>TYPE</th><th>DEFINITION</th></tr></thead>
@@ -248,4 +257,5 @@
   {% elif tab == "sql" %}
     <pre class="sql">{{ ddl }}</pre>
   {% endif %}
+  </div>
 {% endif %}
