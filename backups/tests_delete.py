@@ -76,7 +76,7 @@ class DeletePopupTests(BackupFixture, TestCase):
 
     def test_the_script_asks_for_the_exact_name_plays_the_warning_and_traps_focus(self):
         script = (BASE_DIR / "static" / "confirm.js").read_text(encoding="utf-8")
-        for needle in ("typed === word", "parts.go.disabled = !ok", 'play("warning")', '"Escape"', '"Tab"',
+        for needle in ("typed === word", "parts.go.disabled = !(pending && typed === word)", 'play("warning")', '"Escape"', '"Tab"',
                        'aria-modal', "HTMLFormElement.prototype.submit.call(form)", "textContent"):
             self.assertIn(needle, script)
         self.assertNotIn("innerHTML", script)                                         # names and messages are put in as text only
@@ -90,13 +90,15 @@ class DeletePopupTests(BackupFixture, TestCase):
 
     def test_a_live_line_tells_where_you_stand_without_spelling_the_name_out(self):
         script = (BASE_DIR / "static" / "confirm.js").read_text(encoding="utf-8")
+        helper = (BASE_DIR / "static" / "typedname.js").read_text(encoding="utf-8")        # the wording is shared with the drop-database popup
         for message in ("Type the name to enable", "Keep typing", "Remove the extra characters after the name.",
                         "Capital letters matter: the name must match exactly.", "That does not match. Check the spelling.", "Matches. Press"):
-            self.assertIn(message, script)
+            self.assertIn(message, helper)
+        self.assertIn("pgdasTypedName.describe", script)
         self.assertIn('setAttribute("role", "status")', script)                       # read out by screen readers as it changes
         self.assertIn('setAttribute("aria-live", "polite")', script)
-        for line in script.splitlines():                                              # no message includes the word being typed
-            if "text = " in line:
+        for line in helper.splitlines():                                              # no message includes the word being typed
+            if "text:" in line:
                 self.assertNotIn("+ word +", line.replace(" word.length", ""))
 
     def test_the_warning_sound_is_two_descending_blips_and_respects_the_mute_button(self):

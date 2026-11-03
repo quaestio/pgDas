@@ -11,7 +11,16 @@
   var goButton = document.getElementById("changeGo");
   var errorLine = document.getElementById("changeError");
   var csrf = (modal.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
-  var checked = null;        // what the person is being asked to confirm: {request, fingerprint, word, button}
+  var checked = null;        // what the person is being asked to confirm: {request, fingerprint, word, button, byName}
+  // Dropping a database is confirmed by typing its NAME (the server sends confirm_prompt): a plainer box than the capital-letter
+  // word field, a live line saying how the typing is going (static/typedname.js) and the warning sound. Other changes keep their word.
+  var dialog = modal.querySelector(".cyber-dialog");
+  var confirmLabel = confirmBox.querySelector("label"), labelHtml = confirmLabel.innerHTML;
+  var confirmHint = confirmBox.querySelector("p.muted");
+  var status = document.createElement("p");
+  status.id = "changeStatus"; status.className = "confirm-status idle"; status.hidden = true;
+  status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
+  confirmBox.appendChild(status);
 
   function tone(type) { if (window.pgdasSound) window.pgdasSound.play(type); }
 
@@ -39,7 +48,7 @@
   }
 
   function closeModal() {
-    modal.hidden = true; checked = null; confirmInput.value = ""; goButton.disabled = true; errorLine.hidden = true;
+    modal.hidden = true; checked = null; confirmInput.value = ""; goButton.disabled = true; errorLine.hidden = true; status.hidden = true;
   }
 
   function text(id, value) { document.getElementById(id).textContent = value; }
@@ -86,9 +95,29 @@
     });
   }
 
+  function setConfirmMode(byName, prompt) {
+    dialog.classList.toggle("confirm-dialog", byName);
+    confirmInput.classList.toggle("zap", !byName);
+    confirmInput.classList.toggle("confirm-name", byName);
+    confirmInput.classList.remove("match", "wrong");                         // nothing is left over from the previous popup
+    if (byName) { confirmInput.removeAttribute("maxlength"); confirmLabel.textContent = prompt; }
+    else { confirmInput.setAttribute("maxlength", "12"); confirmLabel.innerHTML = labelHtml; }
+    confirmHint.hidden = byName;
+    status.hidden = !byName;
+  }
+
+  function paintStatus() {
+    if (!checked || !checked.byName) return;
+    var result = window.pgdasTypedName.describe(confirmInput.value, checked.word, goButton.textContent);
+    status.textContent = result.text;
+    status.className = "confirm-status " + result.state;
+    confirmInput.classList.toggle("match", result.state === "ok");
+    confirmInput.classList.toggle("wrong", result.state === "wrong");
+  }
+
   function openModal(request, preview) {
     var nothing = !preview.button;                     // e.g. an UPDATE or DELETE that matches no rows
-    checked = {request: request, fingerprint: preview.fingerprint, word: preview.confirm_word, button: preview.button};
+    checked = {request: request, fingerprint: preview.fingerprint, word: preview.confirm_word, button: preview.button, byName: !!preview.confirm_prompt};
     text("changeTitle", preview.title);
     text("changeCount", preview.headline);
     text("changeLabel", preview.headline_label);
@@ -96,20 +125,22 @@
     document.getElementById("changeWarning").hidden = nothing;
     text("changeStatement", preview.statement);
     fillNotes(preview); fillObjects(preview); fillSample(preview);
+    setConfirmMode(checked.byName, preview.confirm_prompt);
     confirmBox.hidden = nothing || !preview.confirm_word;
-    if (preview.confirm_word) text("changeWord", preview.confirm_word);
+    if (preview.confirm_word && !checked.byName) text("changeWord", preview.confirm_word);
     goButton.hidden = nothing;
     goButton.textContent = preview.button || "";
     errorLine.hidden = true;
     confirmInput.value = "";
     goButton.disabled = !nothing && !!preview.confirm_word;     // with a word to type, the button waits for it
+    paintStatus();
     modal.hidden = false;
-    tone("error");
+    tone(checked.byName ? "warning" : "error");
     (nothing ? document.getElementById("changeCancel") : (preview.confirm_word ? confirmInput : goButton)).focus();
   }
 
   // With a word to type, the button works only when the box holds exactly that word: same letters, same case, nothing else.
-  confirmInput.addEventListener("input", function () { goButton.disabled = !checked || confirmInput.value !== checked.word; });
+  confirmInput.addEventListener("input", function () { goButton.disabled = !checked || confirmInput.value !== checked.word; paintStatus(); });
   confirmInput.addEventListener("keydown", function (event) {
     if (event.key === "Enter") { event.preventDefault(); if (!goButton.disabled) goButton.click(); }
   });

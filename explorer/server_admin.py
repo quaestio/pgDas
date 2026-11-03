@@ -9,7 +9,8 @@ same as for the other statements (changes.preview / changes.execute send these s
                                                                                 asks for the word CREATE / ALTER
   ALTER DATABASE                 the same                                       a button; RENAME / OWNER TO asks for ALTER
   DROP ROLE                      the same                                       type DROP
-  CREATE DATABASE, DROP DATABASE PostgreSQL cannot run these in a transaction,  CREATE: a button; DROP: type DROP
+  CREATE DATABASE, DROP DATABASE PostgreSQL cannot run these in a transaction,  CREATE: a button; DROP: type the
+                                                                                database's name
                                  so the popup describes them from the catalogs
                                  and they cannot be rolled back
 
@@ -32,6 +33,7 @@ _TARGET = re.compile(rf"^(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?P<name>{_NAME})", re.I)
 _ESCALATION = re.compile(r"\b(SUPERUSER|CREATEROLE|REPLICATION|BYPASSRLS)\b", re.I)
 _TABLESPACE_MOVE = re.compile(r"\bSET\s+TABLESPACE\b", re.I)
 DROP_WORD = "DROP"
+DATABASE_PROMPT = "Type the database name to confirm"          # what the popup says when the name is what must be typed (it never spells it out)
 
 
 def _bare(text):
@@ -121,7 +123,7 @@ def _parse_one(text):
         risky |= {re.sub(r"\s+", " ", w).upper() for w in changes._RISKY_ALTER.findall(plain)}
     result["risky_words"] = sorted(risky)
     if verb == "DROP":
-        result["word"] = DROP_WORD
+        result["word"] = result["name"] if result["object_type"] == "DATABASE" else DROP_WORD     # a database is confirmed by its name
     elif risky:
         result["word"] = changes.CONFIRM_WORDS["alter"] if verb == "ALTER" else "CREATE"
     return result
@@ -198,10 +200,10 @@ def _lines(found):
 
 
 # ------------------------------------------------------------------------------------------------------- the popup
-def _popup(parsed, found, notes, title, headline, label, button, word, warning, fingerprint, objects=None):
+def _popup(parsed, found, notes, title, headline, label, button, word, warning, fingerprint, objects=None, prompt=None):
     return {"kind": parsed["verb"].lower(), "statement": parsed["shown"], "count": len(found), "objects": objects if objects is not None else _lines(found),
             "notes": notes, "title": title, "headline": headline, "headline_label": label, "warning": warning,
-            "confirm_word": word, "button": button, "side_effects": [], "columns": [], "sample": [], "has_where": True,
+            "confirm_word": word, "confirm_prompt": prompt, "button": button, "side_effects": [], "columns": [], "sample": [], "has_where": True,
             "risky": bool(word), "fingerprint": fingerprint}
 
 
@@ -285,8 +287,8 @@ def _preview_database(server, parsed):
         notes.append({"text": f"{facts['connections']} connection{'s are' if facts['connections'] != 1 else ' is'} open to it. DROP fails "
                               "while others are connected, unless the statement uses WITH (FORCE), which disconnects them.", "bad": True})
     return _popup(parsed, found, notes, "DROP DATABASE?", pg.size_text(facts["size"]), f"of data in {name} will be permanently deleted.",
-                  "Drop database", DROP_WORD, "There is no rollback and the audit log does not keep the data. Take a backup first if you may need it.",
-                  {"exists": True})
+                  "Drop database", parsed["word"], "There is no rollback and the audit log does not keep the data. Take a backup first if you may need it.",
+                  {"exists": True}, prompt=DATABASE_PROMPT)
 
 
 def preview(server, database, text):
@@ -320,6 +322,8 @@ def preview(server, database, text):
 # --------------------------------------------------------------------------------------------------------- running
 def _check_word(parsed, confirm):
     if parsed["word"] and confirm != parsed["word"]:
+        if parsed["verb"] == "DROP" and parsed["object_type"] == "DATABASE":
+            raise PgError("Type the database name exactly to confirm (capital letters matter). Nothing was dropped.")
         raise PgError(f"Type {parsed['word']} in capital letters to confirm.")
 
 

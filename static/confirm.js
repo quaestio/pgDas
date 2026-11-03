@@ -66,20 +66,15 @@
     });
   }
 
-  // Tells the person where they stand without ever spelling the name out.
+  // Tells the person where they stand without ever spelling the name out (the wording is shared: static/typedname.js).
   function check() {
-    var typed = parts.input.value, word = pending ? pending.word : "", ok = !!pending && typed === word, text, state;
-    if (!typed) { text = "Type the name to enable \u201c" + parts.go.textContent + "\u201d."; state = "idle"; }
-    else if (ok) { text = "Matches. Press \u201c" + parts.go.textContent + "\u201d to continue."; state = "ok"; }
-    else if (word.indexOf(typed) === 0) { text = "Keep typing\u2026 (" + typed.length + " of " + word.length + " characters)"; state = "partial"; }
-    else if (typed.indexOf(word) === 0) { text = "Remove the extra characters after the name."; state = "wrong"; }
-    else if (typed.toLowerCase() === word.toLowerCase()) { text = "Capital letters matter: the name must match exactly."; state = "wrong"; }
-    else { text = "That does not match. Check the spelling."; state = "wrong"; }
-    parts.go.disabled = !ok;
-    parts.input.classList.toggle("match", ok);
-    parts.input.classList.toggle("wrong", state === "wrong");
-    parts.status.textContent = text;
-    parts.status.className = "confirm-status " + state;
+    var typed = parts.input.value, word = pending ? pending.word : "";
+    var result = window.pgdasTypedName.describe(typed, word, parts.go.textContent);
+    parts.go.disabled = !(pending && typed === word);
+    parts.input.classList.toggle("match", result.state === "ok");
+    parts.input.classList.toggle("wrong", result.state === "wrong");
+    parts.status.textContent = result.text;
+    parts.status.className = "confirm-status " + result.state;
   }
 
   function openDialog(form, trigger) {

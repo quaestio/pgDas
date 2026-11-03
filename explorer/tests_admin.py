@@ -28,7 +28,7 @@ class ParseTests(SimpleTestCase):
         cases = {
             "CREATE DATABASE Shop": ("CREATE", "DATABASE", "shop", False, None),
             'CREATE DATABASE "Shop 2"': ("CREATE", "DATABASE", "Shop 2", False, None),
-            "DROP DATABASE IF EXISTS shop": ("DROP", "DATABASE", "shop", False, "DROP"),
+            "DROP DATABASE IF EXISTS shop": ("DROP", "DATABASE", "shop", False, "shop"),       # a database is confirmed by its name
             "ALTER DATABASE shop SET timezone = 'UTC'": ("ALTER", "DATABASE", "shop", True, None),
             "ALTER DATABASE shop RENAME TO shop2": ("ALTER", "DATABASE", "shop", True, "ALTER"),
             "CREATE ROLE app LOGIN PASSWORD 'secret'": ("CREATE", "ROLE", "app", True, None),
@@ -235,19 +235,19 @@ class DatabaseTests(AdminFixture, TestCase):
         self.assertIn("(failed:", entry.detail)
         self.assertFalse(self.exists())
 
-    def test_drop_database_shows_its_size_and_needs_the_word_drop(self):
+    def test_drop_database_shows_its_size_and_needs_its_name(self):
         with admin_connect("postgres") as conn:
             conn.execute(f"CREATE DATABASE {DB}")
         sql = f"DROP DATABASE {DB}"
         data = self.preview(sql)
-        self.assertEqual((data["title"], data["button"], data["confirm_word"], data["fingerprint"]), ("DROP DATABASE?", "Drop database", "DROP", {"exists": True}))
+        self.assertEqual((data["title"], data["button"], data["confirm_word"], data["fingerprint"]), ("DROP DATABASE?", "Drop database", DB, {"exists": True}))
         self.assertTrue(any("is lost" in n["text"] and n["bad"] for n in data["notes"]))
-        for wrong in ("drop", "", None):
-            with self.subTest(confirm=wrong), self.assertRaisesRegex(pg.PgError, "Type DROP in capital letters"):
+        for wrong in ("drop", "DROP", "", None):
+            with self.subTest(confirm=wrong), self.assertRaisesRegex(pg.PgError, "Type the database name exactly"):
                 self.execute(sql, data["fingerprint"], wrong)
         self.assertTrue(self.exists())
         self.assertFalse(AuditEntry.objects.exists())
-        result = self.execute(sql, data["fingerprint"], "DROP")
+        result = self.execute(sql, data["fingerprint"], DB)
         self.assertFalse(self.exists())
         payload = AuditEntry.objects.get(pk=result["entry_id"]).payload
         self.assertEqual((payload["kind"], payload["object_type"]), ("drop", "DATABASE"))
@@ -261,13 +261,13 @@ class DatabaseTests(AdminFixture, TestCase):
             data = self.preview(plain)
             self.assertTrue(any("connection" in n["text"] and n["bad"] for n in data["notes"]))
             with self.assertRaisesRegex(pg.PgError, r'being accessed by other users.*Disconnect the other sessions.*WITH \(FORCE\)'):
-                self.execute(plain, data["fingerprint"], "DROP")
+                self.execute(plain, data["fingerprint"], DB)
             self.assertTrue(self.exists())
             self.assertFalse(AuditEntry.objects.get().ok)                                # the attempt is recorded as failed
             forced = f"DROP DATABASE {DB} WITH (FORCE)"
             data = self.preview(forced)
-            self.assertEqual((data["confirm_word"], data["button"]), ("DROP", "Drop database"))
-            self.execute(forced, data["fingerprint"], "DROP")
+            self.assertEqual((data["confirm_word"], data["button"]), (DB, "Drop database"))
+            self.execute(forced, data["fingerprint"], DB)
             self.assertFalse(self.exists())
 
     def test_the_list_counts_other_sessions(self):
@@ -404,7 +404,7 @@ class DialogTests(AdminFixture, TestCase):
         renamed = post(f'ALTER DATABASE "{DB}" RENAME TO "{DB}2"')
         self.assertEqual((renamed["ok"], renamed["confirm_word"]), (True, "ALTER"))
         dropped = post(f'DROP DATABASE "{DB}"')
-        self.assertEqual((dropped["ok"], dropped["confirm_word"], dropped["button"]), (True, "DROP", "Drop database"))
+        self.assertEqual((dropped["ok"], dropped["confirm_word"], dropped["button"]), (True, DB, "Drop database"))
 
     def test_the_old_prefill_route_is_gone(self):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]), {"new_database": DB, "db": self.db})
