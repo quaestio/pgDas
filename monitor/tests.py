@@ -167,3 +167,23 @@ class StopTests(MonitorFixture, TestCase):
         self.assertIn("permission denied", response.json()["error"])
         self.assertFalse(conn.closed)
         self.assertTrue(AuditEntry.objects.filter(action="session.end", ok=False).exists())
+
+
+class EmptyStateTests(MonitorFixture, TestCase):
+    """A quiet server must not look like a broken page: each empty list says why it is empty."""
+
+    def test_each_empty_list_has_its_own_explanation(self):
+        html = self.client.get(reverse("monitor")).content.decode()
+        for message in ("No other sessions are connected to this server right now.", "own connection, used to read this page, is not listed",
+                        "appears here within a few seconds", "No session is waiting for a lock right now.",
+                        "No query has been running for longer than the limit above."):
+            self.assertIn(message, html)
+        self.assertIn("function fill(id, rows, build, empty)", html)
+        self.assertIn('c.textContent = empty || "None."', html)
+
+    def test_a_server_with_no_other_session_really_has_an_empty_list_and_a_connected_one_appears(self):
+        data = queries.snapshot(self.server)
+        self.assertEqual([s for s in data["sessions"] if s["application"] == APP], [])
+        conn = self.session()
+        conn.execute("SELECT 1")
+        self.assertEqual(len(self.wait_for(self.mine)), 1)                                      # it shows up as soon as someone connects
