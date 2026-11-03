@@ -249,7 +249,7 @@
     </table></div></div>
   {% elif tab == "data" and data.grid_json %}
     <div data-grid="{{ data.grid_json }}">
-      <div class="grid-bar"><button type="button" class="btn" data-grid-add>+ Add row</button>
+      <div class="grid-bar"><button type="button" class="btn" data-grid-add>+ Add row</button><button type="button" class="btn" data-import-csv>Import CSV…</button>{% include "explorer/_export_links.html" %}
         <span class="muted">Double-click a cell to edit it. Tick rows to delete them. Nothing is saved until you press Save.</span>
         <span class="grid-actions"><span class="muted" data-grid-count></span>
           <button type="button" class="btn" data-grid-discard disabled>Discard</button>
@@ -268,7 +268,8 @@
       {% if data.has_next %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'1' }}">Next →</a>{% endif %}
     </div>
   {% elif tab == "data" and data.no_key %}
-    <p class="muted">This table has no primary key, so its rows cannot be edited here. Add a primary key to edit rows in the grid.</p>
+    <p class="muted">This table has no primary key, so its rows cannot be edited or imported here. Add a primary key to edit rows in the grid.</p>
+    <div class="grid-bar">{% include "explorer/_export_links.html" %}</div>
     <div class="scroll"><table>
       <thead><tr>{% for c in data.columns %}<th>{{ c.name }}<br><span class="muted" style="font-weight:400">{{ c.type }}</span></th>{% endfor %}</tr></thead>
       <tbody>{% for row in data.rows %}<tr>{% for value in row %}{% if value is None %}<td class="null">NULL</td>{% else %}<td class="cell">{{ value }}</td>{% endif %}{% endfor %}</tr>
@@ -280,6 +281,7 @@
       {% if data.has_next %}<a class="btn" href="#" data-detail="{{ base }}&tab=data&page={{ data.page|add:'1' }}">Next →</a>{% endif %}
     </div>
   {% elif tab == "data" %}
+    <div class="grid-bar">{% include "explorer/_export_links.html" %}</div>
     <div class="scroll"><table>
       <thead><tr>{% for c in data.columns %}<th>{{ c.name }}<br><span class="muted" style="font-weight:400">{{ c.type }}</span></th>{% endfor %}</tr></thead>
       <tbody>{% for row in data.rows %}<tr>{% for value in row %}{% if value is None %}<td class="null">NULL</td>{% else %}<td class="cell">{{ value }}</td>{% endif %}{% endfor %}</tr>

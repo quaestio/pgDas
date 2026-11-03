@@ -3,7 +3,8 @@ import re
 from urllib.parse import urlencode
 
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.conf import settings
+from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
@@ -11,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from audit.models import AuditEntry, record
 from servers.models import ServerConnection
 
-from . import changes, pg, row_edits, server_admin, tree
+from . import changes, exporter, pg, row_edits, server_admin, tree
 
 TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
@@ -219,6 +220,7 @@ def detail(request):
         elif kind in RELATION_NODES or kind in SUBNODE_TABS:
             with pg.connect(server, db) as conn:
                 context.update(_relation_context(conn, node, request))
+            context["can_export"] = context.get("tab") == "data" and _can_export(request.user, server, db)
             if context.get("relation_kind") == "table" and _can_structure(request.user, server):
                 context["structure"] = _structure_json(server, db, schema, node["table"])
         elif kind in ("function", "procedure"):
@@ -344,6 +346,57 @@ def rows_execute(request, pk):
         record(request.user, "rows.edit", server, f"Saving edits to {data.get('schema')}.{data.get('table')} failed: {error}"[:2000], ok=False)
         return _refuse(str(error), 400)
     return JsonResponse({"ok": True, **result}, json_dumps_params={"default": str})
+
+
+def _can_export(user, server, database):
+    """Whoever may read a server may download its tables."""
+    return user.is_authenticated
+
+
+@login_required
+@require_GET
+def table_export(request, pk):
+    """Download a table or view as CSV, JSON or SQL INSERT statements (at most MAX_EXPORT_ROWS rows), read-only and recorded."""
+    server = get_object_or_404(ServerConnection, pk=pk)
+    database, schema, table = request.GET.get("db", ""), request.GET.get("schema", ""), request.GET.get("table", "")
+    fmt = request.GET.get("format", "csv")
+    if fmt not in exporter.FORMATS or not (schema and table):
+        return HttpResponse("That export was not understood.", status=400, content_type="text/plain")
+    if not _can_export(request.user, server, database):
+        return HttpResponse("You are not allowed to export from this server.", status=403, content_type="text/plain")
+    limit = int(settings.MAX_EXPORT_ROWS)
+    try:
+        conn_manager = pg.connect(server, database or None)
+        conn = conn_manager.__enter__()
+    except pg.PgError as error:
+        return HttpResponse(str(error), status=502, content_type="text/plain")
+    try:
+        info = pg.relation_info(conn, schema, table, kinds=("r", "p", "v", "m"))
+        columns = [c for c in pg.table_columns(conn, schema, table)]
+        names = [c["name"] for c in columns]
+        ident = lambda n: '"' + n.replace('"', '""') + '"'
+        source = f"{ident(schema)}.{ident(table)}"
+        select = ", ".join((f"t.{ident(n)}" if fmt == "json" else f"t.{ident(n)}::text") for n in names)
+        total = conn.execute(f"SELECT count(*) FROM (SELECT 1 FROM {source} LIMIT {limit}) s").fetchone()[0]
+    except pg.PgError as error:
+        conn_manager.__exit__(None, None, None)
+        return HttpResponse(str(error), status=404, content_type="text/plain")
+    record(request.user, "table.export", server, f"Exported {schema}.{table} as {fmt.upper()} ({info['kind']})", rows=total,
+           payload={"database": database, "schema": schema, "table": table, "format": fmt, "count": total})
+
+    def rows():
+        try:
+            with conn.cursor(name="pgdas_export") as cursor:
+                cursor.itersize = 1000
+                cursor.execute(f"SELECT {select} FROM {source} t LIMIT {limit}")
+                yield from cursor
+        finally:
+            conn_manager.__exit__(None, None, None)
+
+    content_type, extension = exporter.FORMATS[fmt]
+    response = StreamingHttpResponse(exporter.stream(fmt, names, rows(), (schema, table), [c["type"] for c in columns]), content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="{table}.{extension}"'
+    return response
 
 
 @login_required

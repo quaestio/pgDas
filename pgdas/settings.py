@@ -153,6 +153,7 @@ EMAIL_TIMEOUT = 15
 # SQL runner safety limits.
 STATEMENT_TIMEOUT_MS = int(os.getenv("PGDAS_STATEMENT_TIMEOUT_MS", "30000"))
 MAX_ROWS = int(os.getenv("PGDAS_MAX_ROWS", "1000"))
+MAX_EXPORT_ROWS = int(os.getenv("PGDAS_MAX_EXPORT_ROWS", "100000"))   # a table export (CSV, JSON, SQL) stops after this many rows
 # A delete must fit in the audit log (every deleted row is saved there as JSON, so it can be re-inserted).
 MAX_DELETE_ROWS = int(os.getenv("PGDAS_MAX_DELETE_ROWS", "10000"))
 MAX_UNDO_ROWS = int(os.getenv("PGDAS_MAX_UNDO_ROWS", "10000"))      # an UPDATE touching more rows than this cannot be undone

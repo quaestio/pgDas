@@ -22,7 +22,7 @@ from audit.models import record
 from . import changes, pg, writes
 from .pg import PgError
 
-MAX_OPERATIONS = 1000
+MAX_OPERATIONS = 5000        # also the most rows one CSV import can add (static/table_io.js)
 SHOWN_LINES = 200
 
 

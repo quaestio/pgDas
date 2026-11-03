@@ -1,0 +1,4 @@
+{% comment %}Download this table as a file. The server stops after PGDAS_MAX_EXPORT_ROWS rows.{% endcomment %}{% if can_export %}<span class="export-links muted">Export:
+  <a class="btn" href="{% url 'table_export' server.pk %}?db={{ node.db|urlencode }}&schema={{ node.schema|urlencode }}&table={{ node.table|urlencode }}&format=csv" download>CSV</a>
+  <a class="btn" href="{% url 'table_export' server.pk %}?db={{ node.db|urlencode }}&schema={{ node.schema|urlencode }}&table={{ node.table|urlencode }}&format=json" download>JSON</a>
+  <a class="btn" href="{% url 'table_export' server.pk %}?db={{ node.db|urlencode }}&schema={{ node.schema|urlencode }}&table={{ node.table|urlencode }}&format=sql" download>SQL</a></span>{% endif %}
