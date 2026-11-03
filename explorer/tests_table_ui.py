@@ -76,6 +76,11 @@ class TableButtonsTests(AdminFixture, TestCase):
         for needle in ("REORDER COLUMNS (", "pgdasReview.start", "DROP TABLE ", "DROP COLUMN ", "RENAME COLUMN ", "ADD COLUMN ", "CREATE TABLE ", "SET NOT NULL", "DROP DEFAULT",
                        "USING ", "pgdas:changed", "data-order-apply"):
             self.assertIn(needle, script)
+        for official in ("bigint", "bigserial", "bit varying", "boolean", "box", "bytea", "character varying", "cidr", "circle", "date", "double precision", "inet",
+                         "integer", "interval", "json", "jsonb", "line", "lseg", "macaddr", "macaddr8", "money", "numeric", "path", "pg_lsn", "pg_snapshot", "point",
+                         "polygon", "real", "smallint", "smallserial", "serial", "text", "time with time zone", "timestamp with time zone", "tsquery", "tsvector",
+                         "uuid", "xml"):                                          # Table 8.1 of the PostgreSQL manual, "Data Types"
+            self.assertIn(f'["{official}', script)
         self.assertNotIn("innerHTML", script)
         self.assertNotRegex(script, r"\bconfirm\(")
         explorer = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")

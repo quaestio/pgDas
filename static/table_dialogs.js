@@ -6,8 +6,24 @@
 (function () {
   if (!window.pgdasReview) return;
   var toastEl = document.getElementById("pgToast"), toastTimer = null;
-  var TYPES = ["bigint", "bigserial", "integer", "serial", "smallint", "text", "varchar(255)", "boolean", "numeric(12,2)", "real", "double precision",
-               "date", "time", "timestamp", "timestamptz", "interval", "uuid", "jsonb", "json", "bytea", "inet"];
+  // The built-in column types of PostgreSQL (Table 8.1 "Data Types" in https://www.postgresql.org/docs/current/datatype.html): [what to type, what it is].
+  // Sizes and precisions can be added by hand, e.g. varchar(50), numeric(12,2), timestamp(3). Add [] for an array, e.g. text[].
+  var TYPES = [
+    ["bigint", "signed eight-byte integer (int8)"], ["bigserial", "autoincrementing eight-byte integer (serial8)"],
+    ["bit(1)", "fixed-length bit string"], ["bit varying", "variable-length bit string (varbit)"], ["boolean", "true / false (bool)"],
+    ["box", "rectangular box on a plane"], ["bytea", "binary data (\"byte array\")"], ["character(1)", "fixed-length character string (char)"],
+    ["character varying(255)", "variable-length character string (varchar)"], ["cidr", "IPv4 or IPv6 network address"], ["circle", "circle on a plane"],
+    ["date", "calendar date (year, month, day)"], ["double precision", "8-byte floating-point number (float8)"], ["inet", "IPv4 or IPv6 host address"],
+    ["integer", "signed four-byte integer (int, int4)"], ["interval", "time span"], ["json", "textual JSON data"], ["jsonb", "binary JSON data, decomposed"],
+    ["line", "infinite line on a plane"], ["lseg", "line segment on a plane"], ["macaddr", "MAC address"], ["macaddr8", "MAC address (EUI-64 format)"],
+    ["money", "currency amount"], ["numeric(12,2)", "exact number of selectable precision (decimal)"], ["path", "geometric path on a plane"],
+    ["pg_lsn", "PostgreSQL log sequence number"], ["pg_snapshot", "user-level transaction ID snapshot"], ["point", "geometric point on a plane"],
+    ["polygon", "closed geometric path on a plane"], ["real", "4-byte floating-point number (float4)"], ["smallint", "signed two-byte integer (int2)"],
+    ["smallserial", "autoincrementing two-byte integer (serial2)"], ["serial", "autoincrementing four-byte integer (serial4)"],
+    ["text", "variable-length character string"], ["time", "time of day, no time zone"], ["time with time zone", "time of day with time zone (timetz)"],
+    ["timestamp", "date and time, no time zone"], ["timestamp with time zone", "date and time with time zone (timestamptz)"],
+    ["tsquery", "text search query"], ["tsvector", "text search document"], ["uuid", "universally unique identifier"], ["xml", "XML data"],
+  ];
 
   function toast(message) {
     if (!toastEl) return;
@@ -272,7 +288,7 @@
     var form = el("div", {"class": "dlg-panel", "data-panel": "general"});
     var sqlPanel = el("div", {"class": "dlg-panel", "data-panel": "sql", hidden: "hidden"}, [el("pre", {"class": "sql dlg-sql", "data-sql": ""})]);
     var datalist = el("datalist", {id: "tdlgTypes"});
-    TYPES.forEach(function (t) { datalist.appendChild(el("option", {value: t})); });
+    TYPES.forEach(function (t) { datalist.appendChild(el("option", {value: t[0], label: t[1]})); });
     var root = el("div", {"class": "cyber-modal", "data-tdlg": ""}, [el("div", {"class": "cyber-dialog dlg tdlg", role: "dialog", "aria-modal": "true"}, [
       el("div", {"class": "modal-top"}, [el("span", {text: kind.title}), el("button", {type: "button", "data-dlg-close": "", "aria-label": "Close", text: "✕"})]),
       el("div", {"class": "dlg-tabs", role: "tablist"}, [
