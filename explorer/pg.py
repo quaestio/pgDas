@@ -584,6 +584,23 @@ def list_types(conn, schema, system=False):
     return [{"name": name, "kind": TYPE_KINDS[kind]} for name, kind in rows]
 
 
+def column_types(conn):
+    """The types a column in this database can have besides the built-in ones: enums, domains, composite and range types, and the
+    base types extensions add (citext, hstore, ...). [(name to type, what it is)], names schema-qualified when they are not on the search path."""
+    rows = conn.execute(
+        """SELECT format_type(t.oid, NULL),
+                  CASE t.typtype WHEN 'e' THEN 'enum' WHEN 'd' THEN 'domain over ' || format_type(t.typbasetype, t.typtypmod) WHEN 'c' THEN 'composite type'
+                                 WHEN 'r' THEN 'range type' ELSE 'type from extension ' || coalesce(e.extname, '?') END
+           FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace LEFT JOIN pg_class rel ON rel.oid = t.typrelid
+           LEFT JOIN pg_depend d ON d.classid = 'pg_type'::regclass AND d.objid = t.oid AND d.deptype = 'e'
+           LEFT JOIN pg_extension e ON e.oid = d.refobjid
+           WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname !~ '^pg_temp'
+             AND t.typcategory <> 'A'
+             AND ((t.typtype IN ('e', 'd', 'r')) OR (t.typtype = 'c' AND rel.relkind = 'c') OR (t.typtype = 'b' AND e.oid IS NOT NULL))
+           ORDER BY 1""").fetchall()
+    return [(name, kind) for name, kind in rows]
+
+
 def type_info(conn, schema, name):
     row = conn.execute(
         """SELECT t.oid::bigint, t.typtype::text, pg_get_userbyid(t.typowner), t.typrelid::bigint,

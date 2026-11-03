@@ -12,4 +12,5 @@ urlpatterns = [
     path("c/<int:pk>/rows/preview/", views.rows_preview, name="rows_preview"),
     path("c/<int:pk>/rows/", views.rows_execute, name="rows_execute"),
     path("c/<int:pk>/table/export/", views.table_export, name="table_export"),
+    path("c/<int:pk>/types/", views.column_types, name="column_types"),
 ]

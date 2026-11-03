@@ -36,7 +36,8 @@ class TableButtonsTests(AdminFixture, TestCase):
         for kind in ("tables", "schema"):
             with self.subTest(kind=kind):
                 html = self.page(self.staff_client, type=kind)
-                self.assertEqual(self.structure(html), {"server": self.server.pk, "db": DB, "schema": "public", "table": ""})
+                self.assertEqual(self.structure(html), {"server": self.server.pk, "db": DB, "schema": "public", "table": "",
+                                                        "types_url": reverse("column_types", args=[self.server.pk]) + f"?db={DB}"})
                 self.assertIn('data-table-dialog="new-table"', html)
                 self.assertNotIn('data-table-dialog="new-table"', self.page(self.plain, type=kind))
 
@@ -85,3 +86,54 @@ class TableButtonsTests(AdminFixture, TestCase):
         self.assertNotRegex(script, r"\bconfirm\(")
         explorer = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")
         self.assertIn("change.open", explorer)
+
+
+class DatabaseTypesTests(AdminFixture, TestCase):
+    def setUp(self):
+        super().setUp()
+        with admin_connect("postgres") as admin:
+            admin.execute(f"CREATE DATABASE {DB}")
+        with admin_connect(DB) as conn:
+            conn.execute("CREATE SCHEMA other; CREATE TYPE mood AS ENUM ('sad', 'ok'); CREATE DOMAIN posint AS integer CHECK (VALUE > 0);"
+                         "CREATE TYPE pair AS (a int, b text); CREATE TYPE span AS RANGE (subtype = int4); CREATE TYPE other.shade AS ENUM ('red');"
+                         "CREATE TABLE t (id int)")
+            try:
+                conn.execute("CREATE EXTENSION citext")
+                self.has_citext = True
+            except Exception:
+                self.has_citext = False
+        self.client = Client()
+        self.client.force_login(self.staff)
+
+    def types(self):
+        response = self.client.get(reverse("column_types", args=[self.server.pk]), {"db": DB})
+        self.assertEqual(response.status_code, 200)
+        return {t["name"]: t["kind"] for t in response.json()["types"]}
+
+    def test_enums_domains_composite_and_range_types_are_listed_with_what_they_are(self):
+        found = self.types()
+        self.assertEqual(found["mood"], "enum")
+        self.assertEqual(found["posint"], "domain over integer")
+        self.assertEqual(found["pair"], "composite type")
+        self.assertEqual(found["span"], "range type")
+        self.assertEqual(found["other.shade"], "enum")                                     # a type outside the search path is schema-qualified
+
+    def test_table_row_types_arrays_and_built_ins_are_not_listed(self):
+        found = self.types()
+        for name in ("t", "_mood", "mood[]", "integer", "text", "pg_catalog.int4", "information_schema.sql_identifier"):
+            self.assertNotIn(name, found)
+
+    def test_extension_types_are_listed_when_the_extension_is_installed(self):
+        if not self.has_citext:
+            self.skipTest("the citext extension is not available on this server")
+        self.assertEqual(self.types()["citext"], "type from extension citext")
+
+    def test_a_missing_database_gives_an_error_not_a_crash(self):
+        response = self.client.get(reverse("column_types", args=[self.server.pk]), {"db": "no_such_db_xyz"})
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("error", response.json())
+
+    def test_the_dialog_script_fetches_them_into_the_suggestions(self):
+        script = (BASE_DIR / "static" / "table_dialogs.js").read_text(encoding="utf-8")
+        for needle in ("addDatabaseTypes", "ctx.types_url", "typeCache"):
+            self.assertIn(needle, script)

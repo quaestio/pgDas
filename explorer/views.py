@@ -249,7 +249,21 @@ def _admin_json(server, roles, databases):
 
 def _structure_json(server, db, schema, table=""):
     """Where the table-structure buttons (New table, Rename, Drop, column actions) apply, as one JSON attribute."""
-    return json.dumps({"server": server.pk, "db": db, "schema": schema, "table": table})
+    return json.dumps({"server": server.pk, "db": db, "schema": schema, "table": table,
+                       "types_url": reverse("column_types", args=[server.pk]) + "?" + urlencode({"db": db})})
+
+
+@login_required
+@require_GET
+def column_types(request, pk):
+    """The enums, domains, composite / range types and extension types of one database, for the column type lists."""
+    server = get_object_or_404(ServerConnection, pk=pk)
+    try:
+        with pg.connect(server, request.GET.get("db") or None) as conn:
+            found = pg.column_types(conn)
+    except pg.PgError as error:
+        return JsonResponse({"error": str(error)}, status=502)
+    return JsonResponse({"types": [{"name": name, "kind": kind} for name, kind in found]})
 
 
 def _refuse(message, status=403):

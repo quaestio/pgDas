@@ -282,6 +282,20 @@
     }).then(function () { if (open === current) button.disabled = !!current.kind.problem(values(current.form), current.ctx); });
   }
 
+  // The types this database adds (enums, domains, composite and range types, extension types) join the suggestions once they arrive.
+  var typeCache = {};
+  function addDatabaseTypes(datalist, ctx) {
+    if (!ctx.types_url) return;
+    var add = function (found) {
+      found.forEach(function (t) { datalist.appendChild(el("option", {value: t.name, label: t.kind})); });
+    };
+    if (typeCache[ctx.types_url]) { add(typeCache[ctx.types_url]); return; }
+    fetch(ctx.types_url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
+      .then(function (r) { return r.ok ? r.json() : {types: []}; })
+      .then(function (data) { typeCache[ctx.types_url] = data.types || []; add(typeCache[ctx.types_url]); })
+      .catch(function () { /* the built-in types are still offered */ });
+  }
+
   function openDialog(kindName, ctx) {
     close();
     var kind = KINDS[kindName];
@@ -301,6 +315,7 @@
         el("button", {type: "button", "class": "btn primary", "data-dlg-save": "", disabled: "disabled", text: "Save"})]),
     ])]);
     open = {kind: kind, root: root, form: form, ctx: ctx};
+    addDatabaseTypes(datalist, ctx);
     kind.build(form, ctx);
     document.body.appendChild(root);
     refresh();
