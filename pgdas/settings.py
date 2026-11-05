@@ -22,6 +22,8 @@ if not SECRET_KEY:
 
 ALLOWED_HOSTS = env_list("PGDAS_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("PGDAS_CSRF_TRUSTED_ORIGINS")
+# Proxies (addresses or ranges) whose X-Forwarded-For header may be believed when working out a visitor's address (see access_control.network).
+TRUSTED_PROXIES = env_list("PGDAS_TRUSTED_PROXIES")
 
 INSTALLED_APPS = [
     "django.contrib.auth",

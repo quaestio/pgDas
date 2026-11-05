@@ -14,7 +14,20 @@ For this existing installation, an additive migration assigned existing users an
 
 ## Employees
 
-Super Users can add and edit employees in their organization. New accounts sign in using email. Name is the display name; there is no separate User ID input. Edit Employee does not expose password fields and ignores submitted password changes. Existing users use Change Password in the header. Legacy usernames continue to work until the account is saved with its email. Email changes do not change passwords. At least one active Super User must remain per organization.
+Super Users can add and edit employees in their organization. **Email is the only sign-in ID**: there is no username. An address is unique across the whole installation (capital letters do not count), so no two people, in any organization, share one. Name is the display name. Edit Employee does not expose password fields and ignores submitted password changes. Existing users use Change Password in the header. Email changes do not change passwords. At least one active Super User must remain per organization.
+
+An account that has no email address cannot sign in. `python manage.py accounts_without_email` lists them; a Super User gives each one an address under Employees > Edit. The migration that introduced this rule lower-cases every address, copies an address that was used as a username into the email field, and **stops and lists the accounts** if two of them would share an address; fix those and migrate again.
+
+## Organizations
+
+The first organization is created at `/setup/` together with its first Super User. Every organization always has at least one active Super User: the last one cannot be demoted, deactivated or deleted, and a new organization is created in one step with its first Super User. If an organization somehow has none, `python manage.py check` warns, and `python manage.py create_superuser --organization "<name>"` (run on the server host) adds one.
+
+Organizations are fully separate: a Super User sees nothing of another organization, including one they created. Under Employees > Organization settings a Super User sets:
+
+- **Restrict organization creation** (on by default, also for every new organization). On: this organization's Super Users cannot create organizations. Off: they can, with **Create another organization** (organization name plus its first Super User, saved together). One installation can therefore have organizations that may create others and organizations that may not.
+- **Allowed IP addresses** (optional): one address or range per line (`203.0.113.7`, `10.0.0.0/24`, IPv4 or IPv6, `#` for comments). Empty means no restriction. When set, **everyone except Super Users** can use PGDAS only from those addresses. It is checked on every request after sign-in: someone outside the list is signed out at once, sees "Access from this address is not allowed", and the refusal is recorded in the audit log with the address. **Super Users can always sign in from any address**, so a wrong list cannot lock everybody out.
+
+Behind a reverse proxy PGDAS sees the proxy's address. List the proxies in `PGDAS_TRUSTED_PROXIES` (comma separated addresses or ranges) and the `X-Forwarded-For` header is then believed, but only from them, and the visitor is the first address from the right that is not itself a trusted proxy, so a forged header does not help. Without that setting the header is ignored.
 
 ## Assignments
 

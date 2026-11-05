@@ -1,3 +1,3 @@
 {% extends "base.html" %}
 {% block title %}{{ title }} · PGDAS{% endblock %}
-{% block content %}<h1>{{ title }}</h1><section class="panel pad account-form"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn primary" type="submit">Save</button> <a class="btn" href="{% url 'server_list' %}">Cancel</a></form></section>{% endblock %}
+{% block content %}<h1>{{ title }}</h1>{% if note %}<p class="muted">{{ note }}</p>{% endif %}<section class="panel pad account-form"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn primary" type="submit">Save</button> <a class="btn" href="{% url 'server_list' %}">Cancel</a>{% if can_create_organizations %} <a class="btn" href="{% url 'organization_create' %}">Create another organization</a>{% endif %}</form></section>{% endblock %}

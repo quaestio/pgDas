@@ -90,8 +90,8 @@ class HomePageTests(WriteFixture, TestCase):
 
     def test_signing_in_lands_on_the_servers_page(self):
         self.assertEqual(settings.LOGIN_REDIRECT_URL, self.HOME)
-        user = get_user_model().objects.create_user("signin", password="pw-12345-abc")
-        response = Client().post(reverse("login"), {"username": user.username, "password": "pw-12345-abc"})
+        user = get_user_model().objects.create_user("signin", email="signin@example.test", password="pw-12345-abc")     # email is the sign-in ID
+        response = Client().post(reverse("login"), {"username": "signin@example.test", "password": "pw-12345-abc"})
         self.assertRedirects(response, self.HOME, fetch_redirect_response=False)
 
     def test_there_is_no_separate_dashboard_page_or_menu_item(self):

@@ -6,9 +6,10 @@
   <div class="login-card">
     <img class="login-logo" src="{% static 'img/pgdas-400.png' %}" srcset="{% static 'img/pgdas-400.png' %} 1x, {% static 'img/pgdas-800.png' %} 2x" width="300" height="150" alt="PGDAS — PostgreSQL Database Access System">
     <div class="login-kicker">SECURE ACCESS TERMINAL</div>
+    {% if messages %}<ul class="errorlist" role="alert">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
     <form method="post">{% csrf_token %}
       {{ form.non_field_errors }}
-      <label for="{{ form.username.id_for_label }}">USERNAME / EMAIL</label>
+      <label for="{{ form.username.id_for_label }}">EMAIL</label>
       {{ form.username }}{{ form.username.errors }}
       <label for="{{ form.password.id_for_label }}">PASSWORD</label>
       {{ form.password }}{{ form.password.errors }}

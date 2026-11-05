@@ -104,9 +104,9 @@ name or the login is not set. **Back it up** like any PostgreSQL database (`pg_d
 ```bash
 cp .env.example .env        # then set PGDAS_SECRET_KEY
 docker compose up -d --build
-docker compose exec pgdas python manage.py createsuperuser
+docker compose exec pgdas python manage.py installation_token    # prints the one-time setup token
 ```
-Open http://localhost:8000. PGDAS's own database lives in the `pgdas-db` volume and the backup files in `pgdas-data`. The port is bound to localhost; put an https
+Open http://localhost:8000/setup/, enter the token and create your organization with its first Super User (the email address is the sign-in ID). PGDAS's own database lives in the `pgdas-db` volume and the backup files in `pgdas-data`. The port is bound to localhost; put an https
 reverse proxy (Caddy, nginx) in front before exposing it, then set `PGDAS_ALLOWED_HOSTS`,
 `PGDAS_CSRF_TRUSTED_ORIGINS` and `PGDAS_SECURE_COOKIES=1`.
 
@@ -118,9 +118,11 @@ python -m venv .venv
 pip install -r requirements.txt
 cp .env.example .env         # set PGDAS_DEBUG=1 for local use, or PGDAS_SECRET_KEY for a server
 python manage.py migrate
-python manage.py createsuperuser
+python manage.py installation_token    # prints the one-time setup token
 waitress-serve --listen=127.0.0.1:8000 pgdas.wsgi:application
 ```
+Then open http://127.0.0.1:8000/setup/ and create your organization with its first Super User (the email address is the sign-in ID).
+
 Use the virtual environment's Python (the `.venv` above), not your system Python, or packages will be missing.
 
 ## Connecting to the databases you manage

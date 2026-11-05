@@ -11,6 +11,7 @@ urlpatterns = [
     path("employees/<int:pk>/permissions/", views.permissions, name="employee_permissions"),
     path("employees/<int:pk>/permissions/<int:grant_pk>/revoke/", views.revoke, name="employee_revoke"),
     path("organization/", views.organization_edit, name="organization_edit"),
+    path("organization/new/", views.organization_create, name="organization_create"),
     path("profile/", profile_views.profile, name="profile"),
     path("password/", auth_views.PasswordChangeView.as_view(template_name="accounts/form.html", success_url="/", extra_context={"title": "Change password"}), name="password_change"),
 ]

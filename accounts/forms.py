@@ -1,8 +1,19 @@
 from django import forms
 from django.contrib.auth import get_user_model
+from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from access_control.models import Membership, DatabaseGrant
+from access_control import network
+from access_control.models import DatabaseGrant, Membership, Organization
+
+
+class EmailAuthenticationForm(AuthenticationForm):
+    """The sign-in form: an email address and a password. (The field keeps the name "username" because Django's login view uses it.)"""
+    username = forms.EmailField(label="Email", max_length=254, widget=forms.EmailInput(attrs={"autofocus": True, "autocomplete": "email"}))
+    error_messages = {**AuthenticationForm.error_messages, "invalid_login": "Enter a correct email address and password."}
+
+    def clean_username(self):
+        return self.cleaned_data["username"].strip().lower()
 
 
 class EmployeeForm(forms.ModelForm):
@@ -62,6 +73,41 @@ class SetupForm(EmployeeForm):
         super().__init__(*args, **kwargs)
         self.fields.pop("role")
         self.fields.pop("is_active")
+
+
+class NewOrganizationForm(SetupForm):
+    """Another organization, created together with its first Super User (an organization always has at least one)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields.pop("installation_token")
+        self.fields["organization"].label = "Organization name"
+        self.fields["name"].label = "First Super User: name"
+        self.fields["email"].label = "First Super User: email"
+        self.fields["designation"].label = "First Super User: designation"
+        self.order_fields(["organization", "name", "designation", "email", "password", "password_confirm"])
+
+
+class OrganizationSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Organization
+        fields = ["name", "restrict_creation", "allowed_ips"]
+        labels = {"name": "Organization name", "restrict_creation": "Restrict organization creation",
+                  "allowed_ips": "Allowed IP addresses (optional)"}
+        help_texts = {
+            "restrict_creation": "On: Super Users of this organization cannot create other organizations. Off: they can.",
+            "allowed_ips": "One address or range per line, for example 203.0.113.7 or 10.0.0.0/24 (IPv4 or IPv6). Leave empty for no "
+                           "restriction. When set, everyone except Super Users can use PGDAS only from these addresses; Super Users can "
+                           "always sign in from any address.",
+        }
+        widgets = {"allowed_ips": forms.Textarea(attrs={"rows": 5, "spellcheck": "false"})}
+
+    def clean_allowed_ips(self):
+        text = self.cleaned_data.get("allowed_ips", "")
+        networks, bad = network.parse_networks(text)
+        if bad:
+            raise ValidationError("These are not valid addresses or ranges: " + ", ".join(bad))
+        return network.normalise(text)
 
 
 class GrantForm(forms.ModelForm):

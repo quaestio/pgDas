@@ -18,7 +18,8 @@ from access_control.policy import membership_for, require, visible_servers, GRAN
 from access_control.services import assign_database, revoke_database
 from audit.models import record
 from servers import crypto
-from .forms import EmployeeForm, SetupForm, GrantForm
+from access_control import network
+from .forms import EmployeeForm, GrantForm, NewOrganizationForm, OrganizationSettingsForm, SetupForm
 
 
 def administrator(request):
@@ -186,15 +187,45 @@ def revoke(request, pk, grant_pk):
 
 @login_required
 def organization_edit(request):
-    from django import forms
     admin = administrator(request)
-    class OrganizationForm(forms.ModelForm):
-        class Meta:
-            model = Organization
-            fields = ["name"]
-    form = OrganizationForm(request.POST or None, instance=admin.organization)
+    organization = admin.organization
+    before = {"name": organization.name, "restrict_creation": organization.restrict_creation, "allowed_ips": organization.allowed_ips}
+    form = OrganizationSettingsForm(request.POST or None, instance=organization)
     if request.method == "POST" and form.is_valid():
         form.save()
-        record(request.user, "organization.edit", None, "Organization name updated")
+        changed = {key: {"from": before[key], "to": getattr(organization, key)} for key in before if before[key] != getattr(organization, key)}
+        record(request.user, "organization.edit", None, "Organization settings updated: " + (", ".join(changed) or "nothing changed"),
+               payload={"organization": organization.pk, "changed": changed})
+        messages.success(request, "Organization settings saved.")
         return redirect("employee_list")
-    return render(request, "accounts/form.html", {"form": form, "title": "Organization settings"})
+    note = (f"Your address now is {network.client_ip(request) or 'unknown'}. Super Users (you included) can sign in from any address; "
+            "the list applies to everyone else, on every request after they sign in.")
+    return render(request, "accounts/form.html", {"form": form, "title": "Organization settings", "note": note,
+                                                  "can_create_organizations": not organization.restrict_creation})
+
+
+@login_required
+def organization_create(request):
+    """Create another organization with its first Super User, in one step. Only a Super User whose own organization allows it."""
+    admin = administrator(request)
+    if admin.organization.restrict_creation:
+        raise PermissionDenied("Creating organizations is restricted for your organization. A Super User can change that in Organization settings.")
+    form = NewOrganizationForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        with transaction.atomic():
+            organization = Organization.objects.create(name=form.cleaned_data["organization"])          # restricted by default
+            user = form.save(commit=False)
+            user.first_name, user.last_name = form.cleaned_data["name"], ""
+            user.is_active = True
+            user.is_superuser = user.is_staff = True
+            user.set_password(form.cleaned_data["password"])
+            user.save()
+            Membership.objects.create(user=user, organization=organization, role="super_user")
+            record(request.user, "organization.create", None, f"Organization {organization.name!r} created with its first Super User",
+                   payload={"organization": organization.pk, "super_user": user.pk})
+        messages.success(request, f"Organization {organization.name} was created. Its first Super User ({user.email}) can sign in now. "
+                                  "You will not see anything of that organization.")
+        return redirect("organization_edit")
+    return render(request, "accounts/form.html", {"form": form, "title": "Create organization",
+                                                  "note": "The new organization starts with one Super User, who then adds its people and servers. "
+                                                          "Nothing of it is visible to you afterwards."})

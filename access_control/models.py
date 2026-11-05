@@ -6,6 +6,11 @@ from django.db import models
 class Organization(models.Model):
     name = models.CharField(max_length=150)
     active = models.BooleanField(default=True)
+    # Whether this organization's Super Users may create other organizations. On by default: creation never spreads by accident.
+    restrict_creation = models.BooleanField(default=True)
+    # Addresses (one per line; a single address or a range such as 10.0.0.0/24) from which everyone except Super Users may use PGDAS.
+    # Empty = no restriction. Checked on every request after sign-in.
+    allowed_ips = models.TextField(blank=True)
 
     def __str__(self):
         return self.name

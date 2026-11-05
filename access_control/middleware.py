@@ -1,10 +1,11 @@
+from django.contrib import auth, messages
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, JsonResponse
 from django.shortcuts import redirect, get_object_or_404
 from django.utils.deprecation import MiddlewareMixin
 from .models import Installation
 from .policy import membership_for, require
-from . import runtime
+from . import network, runtime
 
 
 class AccessMiddleware(MiddlewareMixin):
@@ -30,6 +31,16 @@ class AccessMiddleware(MiddlewareMixin):
         raise error
 
     JSON_NAMES = {"backup_databases", "backup_schemas"}
+
+    def _address_refused(self, request, address):
+        from audit.models import record
+        record(request.user, "access.address_refused", None, f"{address or 'unknown address'} is not in the allowed list of the organization", ok=False)
+        auth.logout(request)
+        text = "Access from this address is not allowed for your account. Ask a Super User of your organization."
+        if self._wants_json(request):
+            return JsonResponse({"ok": False, "error": text, "signed_out": True}, status=403)
+        messages.error(request, text)
+        return redirect("login")
 
     def _wants_json(self, request):
         return (request.path.startswith(self.JSON_PREFIXES) or request.resolver_match.url_name in self.JSON_NAMES or request.content_type == "application/json"
@@ -57,6 +68,12 @@ class AccessMiddleware(MiddlewareMixin):
         # Legacy UI guards now reflect the PGDAS role, not Django's staff bit.
         request.user.is_staff = member.role == "super_user"
         request.pgdas_member = member
+        # An organization may list the addresses its people use PGDAS from. Super Users are never held to the list, so a wrong
+        # list cannot lock everyone out. Everyone else is signed out the moment a request comes from an address outside it.
+        if member.role != "super_user" and member.organization.allowed_ips.strip():
+            address = network.client_ip(request)
+            if not network.allowed(member.organization.allowed_ips, address):
+                return self._address_refused(request, address)
         if name in {"dashboard", "dashboard_data"} and not runtime.is_admin():
             return redirect("server_list") if name == "dashboard" else JsonResponse({"ok": False, "error": "Server-wide dashboard is restricted to Super Users."}, status=403)
         admin_names = {"server_add", "server_edit", "server_delete", "server_test", "monitor", "monitor_data", "monitor_stop",
