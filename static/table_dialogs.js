@@ -213,16 +213,39 @@
   var KINDS = {
     "new-table": {
       title: "CREATE — TABLE", done: "Table created.",
-      tabs: [["general", "General"], ["columns", "Columns"], ["constraints", "Constraints"], ["advanced", "Advanced"], ["security", "Security"], ["sql", "SQL"]],
+      tabs: [["general", "General"], ["columns", "Columns"], ["advanced", "Advanced"], ["constraints", "Constraints"], ["parameters", "Parameters"], ["security", "Security"], ["sql", "SQL"]],
       build: function (form, ctx, panels) {
         form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
         form.appendChild(row("Table", textInput("name")));
         form.appendChild(row("Owner", el("select", {"data-field": "owner", "data-roles": "owner"})));
+        form.appendChild(row("Tablespace", el("select", {"data-field": "tablespace", "data-roles": "tablespace"})));
         form.appendChild(row("Comment", el("textarea", {"data-field": "comment", rows: "3", maxlength: "2000", placeholder: "optional: what this table is for"})));
         fillRoles();
-        panels.advanced.appendChild(checkbox("unlogged", "Unlogged (faster to write, but emptied after a crash and not copied to standby servers)"));
-        panels.advanced.appendChild(row("Fill factor", el("input", {type: "number", "data-field": "fillfactor", min: "10", max: "100", placeholder: "10 – 100, empty = default (100)"})));
-        panels.advanced.appendChild(el("p", {"class": "dlg-hint", text: "A lower fill factor leaves room in each page for updates, which can make a table that is updated a lot faster. Leave it empty if unsure."}));
+        var adv = panels.advanced;
+        adv.appendChild(checkbox("unlogged", "Unlogged (faster to write, but emptied after a crash and not copied to standby servers)"));
+        adv.appendChild(checkbox("rls", "Row-level security (RLS) enabled: rows are visible only through policies you create later"));
+        adv.appendChild(checkbox("forcerls", "Force RLS, also for the table's owner"));
+        adv.appendChild(row("Fill factor", el("input", {type: "number", "data-field": "fillfactor", min: "10", max: "100", placeholder: "10 – 100, empty = default (100)"})));
+        adv.appendChild(row("Toast tuple target", el("input", {type: "number", "data-field": "toast_tuple_target", min: "128", max: "8160", placeholder: "128 – 8160 bytes, empty = default (2032)"})));
+        adv.appendChild(row("Parallel workers", el("input", {type: "number", "data-field": "parallel_workers", min: "0", max: "1024", placeholder: "empty = let PostgreSQL decide"})));
+        adv.appendChild(el("p", {"class": "dlg-hint", text: "A lower fill factor leaves room in each page for updates, which can make a table that is updated a lot faster. Leave these empty if unsure."}));
+        adv.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Like: copy the columns of another table"})]));
+        adv.appendChild(row("Relation", el("select", {"data-field": "like", "data-tables": "like"})));
+        var likeBoxes = el("div", {"class": "dlg-like"});
+        LIKE_OPTIONS.forEach(function (name) {
+          likeBoxes.appendChild(el("label", {"class": "dlg-check"}, [el("input", {type: "checkbox", "data-like-opt": name}), document.createTextNode(" With " + name.toLowerCase() + "?")]));
+        });
+        adv.appendChild(likeBoxes);
+        panels.columns.appendChild(row("Inherited from table(s)", el("select", {multiple: "multiple", size: "3", "data-inherits": "", "data-tables": "inherits"})));
+        panels.columns.appendChild(el("p", {"class": "dlg-hint", text: "An inherited table passes its columns to this one. Hold Ctrl to pick several. The columns below are added to the inherited ones."}));
+        var par = panels.parameters;
+        par.appendChild(el("p", {"class": "dlg-hint", text: "Custom auto-vacuum settings for this table. Leave a box empty to use the server's setting (shown on the right)."}));
+        par.appendChild(row("Autovacuum enabled?", el("select", {"data-field": "av_enabled"}, [el("option", {value: "", text: "Not set"}), el("option", {value: "true", text: "Yes"}), el("option", {value: "false", text: "No"})])));
+        AUTOVACUUM.forEach(function (p) {
+          par.appendChild(row(p[1], el("div", {"class": "dlg-with-default"}, [el("input", {type: "text", "data-field": "av:" + p[0], inputmode: "decimal", autocomplete: "off"}),
+            el("span", {"class": "muted", text: "default " + p[2]})])));
+        });
+        fillTables(ctx);
         panels.security.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Privileges"}),
           el("button", {type: "button", "class": "btn", "data-priv-add": "", text: "＋ Add"})]));
         panels.security.appendChild(el("p", {"class": "dlg-hint", text: "Who may do what with the new table. Leave it empty to keep PostgreSQL's defaults (only the owner). Each row becomes a GRANT run right after the table is created."}));
@@ -238,9 +261,15 @@
         v.cols = columns(open.panels.columns);
         open.constraints.setColumns(v.cols.map(function (c) { return c.name.trim(); }).filter(Boolean));     // the constraints choose among these
         v.constraints = open.constraints.read();
-        var advanced = open.panels.advanced;
-        v.unlogged = advanced.querySelector("[data-field=unlogged]").checked;
-        v.fillfactor = advanced.querySelector("[data-field=fillfactor]").value.trim();
+        var adv = open.panels.advanced, par = open.panels.parameters;
+        var read = function (panel, name) { var e = panel.querySelector('[data-field="' + name + '"]'); return e.type === "checkbox" ? e.checked : e.value.trim(); };
+        v.unlogged = read(adv, "unlogged"); v.rls = read(adv, "rls"); v.forcerls = read(adv, "forcerls");
+        v.fillfactor = read(adv, "fillfactor"); v.toast = read(adv, "toast_tuple_target"); v.workers = read(adv, "parallel_workers");
+        v.like = read(adv, "like");
+        v.likeOptions = Array.prototype.filter.call(adv.querySelectorAll("[data-like-opt]"), function (b) { return b.checked; }).map(function (b) { return b.getAttribute("data-like-opt"); });
+        v.inherits = Array.prototype.filter.call(open.panels.columns.querySelectorAll("[data-inherits] option"), function (o) { return o.selected; }).map(function (o) { return o.value; });
+        v.avEnabled = read(par, "av_enabled");
+        v.av = AUTOVACUUM.map(function (p) { return [p[0], read(par, "av:" + p[0])]; }).filter(function (p) { return p[1] !== ""; });
         v.grants = privRows(open.panels.security);
         return v;
       },
@@ -254,8 +283,13 @@
           if (seen[n]) return "Column " + n + " is listed twice.";
           seen[n] = true;
         }
-        if (!v.cols.length) return "Add at least one column.";
+        if (!v.cols.length && !v.like && !v.inherits.length) return "Add at least one column (or copy them with Like, or inherit them).";
         if (v.fillfactor !== "" && !(/^\d+$/.test(v.fillfactor) && +v.fillfactor >= 10 && +v.fillfactor <= 100)) return "Advanced: the fill factor must be a whole number from 10 to 100.";
+        if (v.toast !== "" && !(/^\d+$/.test(v.toast) && +v.toast >= 128 && +v.toast <= 8160)) return "Advanced: the toast tuple target must be a whole number from 128 to 8160.";
+        if (v.workers !== "" && !(/^\d+$/.test(v.workers) && +v.workers <= 1024)) return "Advanced: parallel workers must be a whole number from 0 to 1024.";
+        var badValue = v.av.filter(function (p) { return !/^-?\d+(\.\d+)?$/.test(p[1]); })[0];
+        if (badValue) return "Parameters: " + badValue[0] + " must be a number.";
+        if (v.forcerls && !v.rls) return "Advanced: Force RLS needs row-level security to be enabled.";
         if (v.grants.some(function (g) { return g.privs.length && !g.to; })) return "Security: choose a role for every row that has privileges.";
         var constraintProblem = window.pgdasConstraints.problem(v.constraints);
         if (constraintProblem) return constraintProblem;
@@ -265,13 +299,28 @@
         return "";
       },
       sql: function (v, ctx) {
-        var lines = v.cols.map(function (c) { return "    " + columnSql(c); });
+        var lines = [];
+        if (v.like) {
+          var source = v.like.split("\u0001");
+          lines.push("    LIKE " + ident(source[0]) + "." + ident(source[1]) + v.likeOptions.map(function (o) { return " INCLUDING " + o; }).join(""));
+        }
+        v.cols.forEach(function (c) { lines.push("    " + columnSql(c)); });
         var keys = v.cols.filter(function (c) { return c.pk; }).map(function (c) { return ident(c.name.trim()); });
         if (keys.length) lines.push("    PRIMARY KEY (" + keys.join(", ") + ")");
         v.constraints.forEach(function (c) { lines.push("    " + window.pgdasConstraints.sql(c)); });
         var target = ident(ctx.schema) + "." + ident(v.name.trim());
+        var options = [];
+        if (v.fillfactor !== "") options.push("fillfactor = " + parseInt(v.fillfactor, 10));
+        if (v.toast !== "") options.push("toast_tuple_target = " + parseInt(v.toast, 10));
+        if (v.workers !== "") options.push("parallel_workers = " + parseInt(v.workers, 10));
+        if (v.avEnabled) options.push("autovacuum_enabled = " + v.avEnabled);
+        v.av.forEach(function (p) { options.push(p[0] + " = " + p[1]); });
+        var inherits = v.inherits.map(function (t) { var s = t.split("\u0001"); return ident(s[0]) + "." + ident(s[1]); });
         var statements = ["CREATE " + (v.unlogged ? "UNLOGGED " : "") + "TABLE " + target + " (\n" + lines.join(",\n") + "\n)" +
-                          (v.fillfactor !== "" ? " WITH (fillfactor = " + parseInt(v.fillfactor, 10) + ")" : "")];
+                          (inherits.length ? " INHERITS (" + inherits.join(", ") + ")" : "") + (options.length ? " WITH (" + options.join(", ") + ")" : "") +
+                          (v.tablespace ? " TABLESPACE " + ident(v.tablespace) : "")];
+        if (v.rls) statements.push("ALTER TABLE " + target + " ENABLE ROW LEVEL SECURITY");
+        if (v.forcerls) statements.push("ALTER TABLE " + target + " FORCE ROW LEVEL SECURITY");
         if (v.owner) statements.push("ALTER TABLE " + target + " OWNER TO " + ident(v.owner));
         if (v.comment.trim()) statements.push("COMMENT ON TABLE " + target + " IS " + literal(v.comment.trim()));
         v.grants.filter(function (g) { return g.to && g.privs.length; }).forEach(function (g) {
@@ -477,16 +526,46 @@
 
   // The types this database adds (enums, domains, composite and range types, extension types) join the suggestions once they arrive.
   var typeCache = {};
-  var roleCache = {}, extraRoles = [];
+  var roleCache = {}, spaceCache = {}, extraRoles = [], extraSpaces = [];
+  var LIKE_OPTIONS = ["DEFAULTS", "CONSTRAINTS", "INDEXES", "STORAGE", "COMMENTS", "GENERATED", "IDENTITY", "STATISTICS"];
+  // [reloption, label, the server's default]: the Parameters tab (Table 'Storage Parameters' of the PostgreSQL manual)
+  var AUTOVACUUM = [["autovacuum_analyze_scale_factor", "ANALYZE scale factor", "0.1"], ["autovacuum_analyze_threshold", "ANALYZE base threshold", "50"],
+                    ["autovacuum_freeze_max_age", "FREEZE maximum age", "200000000"], ["autovacuum_vacuum_cost_delay", "VACUUM cost delay", "2"],
+                    ["autovacuum_vacuum_cost_limit", "VACUUM cost limit", "-1"], ["autovacuum_vacuum_scale_factor", "VACUUM scale factor", "0.2"],
+                    ["autovacuum_vacuum_threshold", "VACUUM base threshold", "50"], ["autovacuum_freeze_min_age", "FREEZE minimum age", "50000000"],
+                    ["autovacuum_freeze_table_age", "FREEZE table age", "150000000"]];
+  var tablesCache = {};
+  // The tables of the database fill the Like list and the Inherited-from list.
+  function fillTables(ctx) {
+    if (!ctx.tables_url) return;
+    var paint = function (tables) {
+      if (!open) return;
+      open.root.querySelectorAll("select[data-tables]").forEach(function (select) {
+        var kept = Array.prototype.filter.call(select.options, function (o) { return o.selected; }).map(function (o) { return o.value; });
+        select.textContent = "";
+        if (select.getAttribute("data-tables") === "like") select.appendChild(el("option", {value: "", text: "no table: start with the columns below"}));
+        tables.forEach(function (t) {
+          var option = el("option", {value: t.schema + "\u0001" + t.name, text: t.schema + "." + t.name});
+          option.selected = kept.indexOf(option.value) >= 0;
+          select.appendChild(option);
+        });
+      });
+    };
+    if (tablesCache[ctx.tables_url]) { paint(tablesCache[ctx.tables_url]); return; }
+    fetch(ctx.tables_url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
+      .then(function (r) { return r.ok ? r.json() : {tables: []}; })
+      .then(function (data) { tablesCache[ctx.tables_url] = data.tables || []; paint(tablesCache[ctx.tables_url]); })
+      .catch(function () { /* no tables to pick from */ });
+  }
   function addDatabaseTypes(ctx) {
-    extraTypes = []; extraRoles = [];
+    extraTypes = []; extraRoles = []; extraSpaces = [];
     if (!ctx.types_url) return;
-    if (typeCache[ctx.types_url]) { extraTypes = typeCache[ctx.types_url]; extraRoles = roleCache[ctx.types_url] || []; return; }
+    if (typeCache[ctx.types_url]) { extraTypes = typeCache[ctx.types_url]; extraRoles = roleCache[ctx.types_url] || []; extraSpaces = spaceCache[ctx.types_url] || []; return; }
     fetch(ctx.types_url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
-      .then(function (r) { return r.ok ? r.json() : {types: [], roles: []}; })
+      .then(function (r) { return r.ok ? r.json() : {types: [], roles: [], tablespaces: []}; })
       .then(function (data) {
-        typeCache[ctx.types_url] = data.types || []; roleCache[ctx.types_url] = data.roles || [];
-        extraTypes = typeCache[ctx.types_url]; extraRoles = roleCache[ctx.types_url];
+        typeCache[ctx.types_url] = data.types || []; roleCache[ctx.types_url] = data.roles || []; spaceCache[ctx.types_url] = data.tablespaces || [];
+        extraTypes = typeCache[ctx.types_url]; extraRoles = roleCache[ctx.types_url]; extraSpaces = spaceCache[ctx.types_url];
         fillRoles();
       })
       .catch(function () { /* the built-in types are still offered */ });
@@ -496,8 +575,14 @@
   function fillRoles() {
     if (!open) return;
     open.root.querySelectorAll("select[data-roles]").forEach(function (select) {
-      var kept = select.value, owner = select.getAttribute("data-roles") === "owner";
+      var kept = select.value, kind = select.getAttribute("data-roles"), owner = kind === "owner";
       select.textContent = "";
+      if (kind === "tablespace") {
+        select.appendChild(el("option", {value: "", text: "the database's default"}));
+        extraSpaces.forEach(function (name) { select.appendChild(el("option", {value: name, text: name})); });
+        select.value = kept;
+        return;
+      }
       select.appendChild(el("option", {value: "", text: owner ? "the login PGDAS uses" : "choose a role…"}));
       if (!owner) select.appendChild(el("option", {value: "PUBLIC", text: "PUBLIC (everyone)"}));
       extraRoles.forEach(function (name) { select.appendChild(el("option", {value: name, text: name})); });

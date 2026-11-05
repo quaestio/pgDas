@@ -114,3 +114,46 @@ class DialogWiringTests(ScriptFixture):
                        "ALL PRIVILEGES", "data-priv-add", "fillRoles", "the login PGDAS uses"):
             self.assertIn(needle, script)
         self.assertNotIn("innerHTML", script)
+
+
+class MoreOptionsTests(ScriptFixture):
+    def setUp(self):
+        super().setUp()
+        with admin_connect(DB) as conn:
+            conn.execute("CREATE TABLE base (id serial PRIMARY KEY, note text DEFAULT 'n'); COMMENT ON COLUMN base.note IS 'about'")
+
+    def columns(self, table):
+        return [r[0] for r in self.query("SELECT attname FROM pg_attribute WHERE attrelid = %s::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum", table)]
+
+    def test_like_storage_parameters_tablespace_and_row_level_security(self):
+        script = ('CREATE TABLE "public"."copy" (\n    LIKE "public"."base" INCLUDING DEFAULTS INCLUDING COMMENTS,\n    "n" int\n) '
+                  "WITH (fillfactor = 70, toast_tuple_target = 256, parallel_workers = 2, autovacuum_enabled = false, autovacuum_vacuum_scale_factor = 0.05) "
+                  'TABLESPACE "pg_default";\nALTER TABLE "public"."copy" ENABLE ROW LEVEL SECURITY;\nALTER TABLE "public"."copy" FORCE ROW LEVEL SECURITY')
+        _, response = self.go(script)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.columns("copy"), ["id", "note", "n"])
+        options = self.query("SELECT reloptions::text FROM pg_class WHERE oid = 'copy'::regclass")[0][0]
+        for part in ("fillfactor=70", "toast_tuple_target=256", "parallel_workers=2", "autovacuum_enabled=false", "autovacuum_vacuum_scale_factor=0.05"):
+            self.assertIn(part, options)
+        self.assertEqual(self.query("SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid = 'copy'::regclass"), [(True, True)])
+        self.assertEqual(self.query("SELECT col_description('copy'::regclass, 2)"), [("about",)])
+
+    def test_inherits_adds_the_parents_columns(self):
+        _, response = self.go('CREATE TABLE "public"."kid" (\n    "x" int\n) INHERITS ("public"."base")')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.columns("kid"), ["id", "note", "x"])
+        self.assertEqual(self.query("SELECT count(*) FROM pg_inherits WHERE inhrelid = 'kid'::regclass AND inhparent = 'base'::regclass"), [(1,)])
+
+    def test_row_level_security_for_another_table_is_not_allowed_as_a_follow_up(self):
+        response = self.send("write_preview", CREATE + ';\nALTER TABLE "public"."base" ENABLE ROW LEVEL SECURITY')
+        self.assertIn(response.status_code, (400, 403))
+        self.assertEqual(self.query("SELECT relrowsecurity FROM pg_class WHERE oid = 'base'::regclass"), [(False,)])
+
+    def test_the_lookup_lists_tablespaces_and_the_dialog_builds_the_new_clauses(self):
+        data = self.client.get(reverse("column_types", args=[self.server.pk]), {"db": DB}).json()
+        self.assertIn("pg_default", data["tablespaces"])
+        script = (BASE_DIR / "static" / "table_dialogs.js").read_text(encoding="utf-8")
+        for needle in ('["parameters", "Parameters"]', "INHERITS (", '" TABLESPACE "', "ENABLE ROW LEVEL SECURITY", "FORCE ROW LEVEL SECURITY", "toast_tuple_target",
+                       "parallel_workers", "autovacuum_vacuum_scale_factor", " INCLUDING ", "LIKE_OPTIONS", "fillTables"):
+            self.assertIn(needle, script)
+        self.assertNotIn("innerHTML", script)

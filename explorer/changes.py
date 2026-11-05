@@ -555,6 +555,7 @@ def _target_names(object_type, rest):
 
 # A new table may be followed by statements that finish setting it up: its owner, its comments and its privileges, and nothing else.
 _SCRIPT_OWNER = re.compile(rf"^ALTER\s+TABLE\s+(?P<table>{_TABLE_REF})\s+OWNER\s+TO\s+{_IDENT}$", re.I)
+_SCRIPT_RLS = re.compile(rf"^ALTER\s+TABLE\s+(?P<table>{_TABLE_REF})\s+(?:ENABLE|FORCE)\s+ROW\s+LEVEL\s+SECURITY$", re.I)
 _SCRIPT_COMMENT = re.compile(rf"^COMMENT\s+ON\s+(?:TABLE\s+(?P<table>{_TABLE_REF})|COLUMN\s+(?P<column_table>{_TABLE_REF})\s*\.\s*{_IDENT})\s+IS\s+"
                              r"(?:'(?:[^']|'')*'|NULL)$", re.I | re.S)
 _SCRIPT_GRANT = re.compile(rf"^GRANT\s+(?P<privileges>[A-Z, ]+?)\s+ON\s+TABLE\s+(?P<table>{_TABLE_REF})\s+TO\s+(?:{_IDENT}|PUBLIC)"
@@ -583,7 +584,7 @@ def _parse_table_script(statements):
         raise PgError("Several statements can be run together only to create one table and set it up (owner, comments, privileges).")
     created = _plain_name(first["names"][0])
     for extra in statements[1:]:
-        owner, comment, grant = _SCRIPT_OWNER.match(extra), _SCRIPT_COMMENT.match(extra), _SCRIPT_GRANT.match(extra)
+        owner, comment, grant = _SCRIPT_OWNER.match(extra) or _SCRIPT_RLS.match(extra), _SCRIPT_COMMENT.match(extra), _SCRIPT_GRANT.match(extra)
         if owner or grant:
             target = (owner or grant).group("table")
         elif comment:

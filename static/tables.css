@@ -48,3 +48,10 @@ table.grid td[data-col] { cursor: cell; }
 .cons-row [data-cons-fk] label { display: flex; gap: 6px; align-items: center; font-size: 12px; }
 .cons-row [data-cons-fk][hidden], .cons-row [data-cons-check][hidden], .cons-row [data-cons-columns][hidden] { display: none; }
 .cons-row [data-cons-check] input { width: 100%; box-sizing: border-box; }
+
+/* New table: Advanced (Like) and Parameters tabs. */
+.dlg-like { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 18px; margin: 4px 0 8px; }
+.dlg-with-default { display: flex; align-items: center; gap: 12px; }
+.dlg-with-default input { flex: 1; min-width: 0; }
+.dlg-with-default .muted { white-space: nowrap; font-size: 12px; min-width: 130px; }
+select[multiple][data-inherits] { width: 100%; }
