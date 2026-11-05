@@ -561,6 +561,12 @@ _SCRIPT_COMMENT = re.compile(rf"^COMMENT\s+ON\s+(?:TABLE\s+(?P<table>{_TABLE_REF
 _SCRIPT_GRANT = re.compile(rf"^GRANT\s+(?P<privileges>[A-Z, ]+?)\s+ON\s+TABLE\s+(?P<table>{_TABLE_REF})\s+TO\s+(?:{_IDENT}|PUBLIC)"
                            r"(?:\s+WITH\s+GRANT\s+OPTION)?$", re.I)
 _TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "ALL", "ALL PRIVILEGES"}
+# Child partitions of a new partitioned table. Bounds are plain literals (text, numbers, MINVALUE, MAXVALUE, NULL, TRUE, FALSE), never expressions.
+_BOUND = r"(?:'(?:[^']|'')*'|-?\d+(?:\.\d+)?|MINVALUE|MAXVALUE|NULL|TRUE|FALSE)"
+_BOUND_LIST = rf"\(\s*{_BOUND}(?:\s*,\s*{_BOUND})*\s*\)"
+_SCRIPT_PARTITION = re.compile(
+    rf"^CREATE\s+TABLE\s+(?P<child>{_TABLE_REF})\s+PARTITION\s+OF\s+(?P<table>{_TABLE_REF})\s+"
+    rf"(?:DEFAULT|FOR\s+VALUES\s+(?:FROM\s*{_BOUND_LIST}\s*TO\s*{_BOUND_LIST}|IN\s*{_BOUND_LIST}|WITH\s*\(\s*MODULUS\s+\d+\s*,\s*REMAINDER\s+\d+\s*\)))$", re.I)
 
 
 def table_script_statements(text):
@@ -568,7 +574,8 @@ def table_script_statements(text):
     statements = [sqlparse.format(s, strip_comments=True).strip().rstrip(";").strip() for s in sqlparse.split(text or "") if s.strip(" \t\r\n;")]
     statements = [s for s in statements if s]
     first_words = [s.split(None, 1)[0].upper() for s in statements]
-    if len(statements) > 1 and first_words[0] == "CREATE" and all(word in ("ALTER", "COMMENT", "GRANT") for word in first_words[1:]):
+    follow_up = lambda s, word: word in ("ALTER", "COMMENT", "GRANT") or (word == "CREATE" and re.match(r"^CREATE\s+TABLE\b.*\bPARTITION\s+OF\b", s, re.I | re.S))
+    if len(statements) > 1 and first_words[0] == "CREATE" and all(follow_up(s, w) for s, w in zip(statements[1:], first_words[1:])):
         return statements
     return []                    # anything else keeps the old rule: one statement at a time
 
@@ -584,6 +591,12 @@ def _parse_table_script(statements):
         raise PgError("Several statements can be run together only to create one table and set it up (owner, comments, privileges).")
     created = _plain_name(first["names"][0])
     for extra in statements[1:]:
+        if extra.split(None, 1)[0].upper() == "CREATE":                      # a child partition of the new table
+            child = _SCRIPT_PARTITION.match(extra)
+            if not child or _plain_name(child.group("table")) != created or _plain_name(child.group("child")) == created:
+                raise PgError("A new partitioned table can be followed by CREATE TABLE … PARTITION OF for that same table, "
+                              "with plain values (text, numbers, MINVALUE, MAXVALUE) in FROM … TO …, IN (…) or WITH (MODULUS …, REMAINDER …).")
+            continue
         owner, comment, grant = _SCRIPT_OWNER.match(extra) or _SCRIPT_RLS.match(extra), _SCRIPT_COMMENT.match(extra), _SCRIPT_GRANT.match(extra)
         if owner or grant:
             target = (owner or grant).group("table")
@@ -592,7 +605,8 @@ def _parse_table_script(statements):
         else:
             target = None
         if not target or _plain_name(target) != created:
-            raise PgError("A new table can be followed only by ALTER TABLE … OWNER TO, COMMENT ON and GRANT … ON TABLE for that same table.")
+            raise PgError("A new table can be followed only by ALTER TABLE … OWNER TO, COMMENT ON and GRANT … ON TABLE for that same table "
+                          "(and CREATE TABLE … PARTITION OF, when it is partitioned).")
         if grant and any(word.strip().upper() not in _TABLE_PRIVILEGES for word in grant.group("privileges").split(",")):
             raise PgError("GRANT after CREATE TABLE can give SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER or ALL.")
     return {**first, "statement": ";\n".join(statements), "script": statements}

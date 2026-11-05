@@ -157,3 +157,68 @@ class MoreOptionsTests(ScriptFixture):
                        "parallel_workers", "autovacuum_vacuum_scale_factor", " INCLUDING ", "LIKE_OPTIONS", "fillTables"):
             self.assertIn(needle, script)
         self.assertNotIn("innerHTML", script)
+
+
+class PartitionTests(ScriptFixture):
+    def parts(self, parent):
+        return sorted(r[0] for r in self.query("SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid WHERE i.inhparent = %s::regclass", parent))
+
+    def test_a_range_partitioned_table_with_partitions_and_a_default(self):
+        script = ('CREATE TABLE "public"."sales" (\n    "id" bigint,\n    "saledate" date NOT NULL\n) PARTITION BY RANGE ("saledate");\n'
+                  'CREATE TABLE "public"."sales_2024" PARTITION OF "public"."sales" FOR VALUES FROM (\'2024-01-01\') TO (\'2025-01-01\');\n'
+                  'CREATE TABLE "public"."sales_2025" PARTITION OF "public"."sales" FOR VALUES FROM (\'2025-01-01\') TO (MAXVALUE);\n'
+                  'CREATE TABLE "public"."sales_other" PARTITION OF "public"."sales" DEFAULT;\n'
+                  'COMMENT ON TABLE "public"."sales" IS \'by year\'')
+        data, response = self.go(script)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.parts("sales"), ["sales_2024", "sales_2025", "sales_other"])
+        self.assertEqual(self.query("SELECT relkind::text FROM pg_class WHERE oid = 'sales'::regclass"), [("p",)])
+        with admin_connect(DB) as conn:
+            conn.execute("INSERT INTO sales VALUES (1, '2024-06-01'), (2, '2025-02-02'), (3, '1999-01-01')")
+        self.assertEqual(self.query("SELECT count(*) FROM sales_2024"), [(1,)])
+        self.assertEqual(self.query("SELECT count(*) FROM sales_other"), [(1,)])
+        self.assertTrue(any("partitioned table public.sales" in o["text"] for o in data["objects"]))
+
+    def test_list_and_hash_partitions(self):
+        _, response = self.go('CREATE TABLE "public"."regions" ("code" text, "n" int) PARTITION BY LIST ("code");\n'
+                              'CREATE TABLE "public"."regions_n" PARTITION OF "public"."regions" FOR VALUES IN (\'north\', \'it\'\'s\');\n'
+                              'CREATE TABLE "public"."regions_rest" PARTITION OF "public"."regions" DEFAULT')
+        self.assertEqual(response.status_code, 200, response.content)
+        _, response = self.go('CREATE TABLE "public"."hashed" ("id" int) PARTITION BY HASH ("id");\n'
+                              'CREATE TABLE "public"."hashed_0" PARTITION OF "public"."hashed" FOR VALUES WITH (MODULUS 2, REMAINDER 0);\n'
+                              'CREATE TABLE "public"."hashed_1" PARTITION OF "public"."hashed" FOR VALUES WITH (MODULUS 2, REMAINDER 1)')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.parts("hashed"), ["hashed_0", "hashed_1"])
+
+    def test_a_partition_key_expression_works(self):
+        _, response = self.go('CREATE TABLE "public"."byyear" ("saledate" date) PARTITION BY RANGE ((extract(year from "saledate")));\n'
+                              'CREATE TABLE "public"."byyear_24" PARTITION OF "public"."byyear" FOR VALUES FROM (2024) TO (2025)')
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def test_only_plain_values_and_only_this_tables_partitions_are_accepted(self):
+        parent = 'CREATE TABLE "public"."sales" ("d" date) PARTITION BY RANGE ("d")'
+        for child, message in (('CREATE TABLE "public"."c" PARTITION OF "public"."sales" FOR VALUES FROM (now()) TO (\'2030-01-01\')', "plain values"),
+                               ('CREATE TABLE "public"."c" PARTITION OF "public"."sales" FOR VALUES FROM ((SELECT 1)) TO (2)', "plain values"),
+                               ('CREATE TABLE "public"."c" PARTITION OF "public"."elsewhere" DEFAULT', "plain values"),
+                               ('CREATE TABLE "public"."sales" PARTITION OF "public"."sales" DEFAULT', "plain values"),
+                               ('CREATE TABLE "public"."c" (a int)', "one CREATE statement")):
+            with self.subTest(child=child):
+                response = self.send("write_preview", parent + ";\n" + child)
+                self.assertIn(response.status_code, (400, 403), response.content)
+                self.assertTrue(message in response.json()["error"] or "one statement" in response.json()["error"], response.json())
+        self.assertEqual(self.query("SELECT count(*) FROM pg_class WHERE relname IN ('sales', 'c')"), [(0,)])
+
+    def test_overlapping_partitions_are_reported_by_postgresql_and_create_nothing(self):
+        response = self.send("write_preview", 'CREATE TABLE "public"."sales" ("d" date) PARTITION BY RANGE ("d");\n'
+                             'CREATE TABLE "public"."a" PARTITION OF "public"."sales" FOR VALUES FROM (\'2024-01-01\') TO (\'2025-01-01\');\n'
+                             'CREATE TABLE "public"."b" PARTITION OF "public"."sales" FOR VALUES FROM (\'2024-06-01\') TO (\'2026-01-01\')')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("overlap", response.json()["error"])
+        self.assertEqual(self.query("SELECT count(*) FROM pg_class WHERE relname = 'sales'"), [(0,)])
+
+    def test_the_dialog_has_the_partitions_tab_and_builds_the_statements(self):
+        script = (BASE_DIR / "static" / "table_dialogs.js").read_text(encoding="utf-8")
+        for needle in ('["partitions", "Partitions"]', "PARTITION BY ", " PARTITION OF ", "FOR VALUES FROM (", "FOR VALUES IN (", "FOR VALUES WITH (MODULUS ", "DEFAULT",
+                       "partitionsProblem", "data-part-add", "data-pk-add", "list partitioning takes exactly one key", "Partitioned table?"):
+            self.assertIn(needle, script)
+        self.assertNotIn("innerHTML", script)

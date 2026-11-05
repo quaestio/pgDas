@@ -55,3 +55,10 @@ table.grid td[data-col] { cursor: cell; }
 .dlg-with-default input { flex: 1; min-width: 0; }
 .dlg-with-default .muted { white-space: nowrap; font-size: 12px; min-width: 130px; }
 select[multiple][data-inherits] { width: 100%; }
+
+/* New table: the Partitions tab. */
+.dlg-pkey { display: grid; grid-template-columns: 130px 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.dlg-pkey [data-pk-col], .dlg-pkey [data-pk-expr] { grid-column: 2; }
+.dlg-part { display: grid; grid-template-columns: minmax(130px, 1.2fr) auto repeat(2, minmax(110px, 1fr)) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.dlg-part [hidden], .dlg-pkey [hidden] { display: none; }
+@media (max-width: 720px) { .dlg-part { grid-template-columns: 1fr 1fr; } .dlg-pkey { grid-template-columns: 1fr auto; } .dlg-pkey [data-pk-col], .dlg-pkey [data-pk-expr] { grid-column: 1; } }

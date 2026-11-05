@@ -213,14 +213,16 @@
   var KINDS = {
     "new-table": {
       title: "CREATE — TABLE", done: "Table created.",
-      tabs: [["general", "General"], ["columns", "Columns"], ["advanced", "Advanced"], ["constraints", "Constraints"], ["parameters", "Parameters"], ["security", "Security"], ["sql", "SQL"]],
+      tabs: [["general", "General"], ["columns", "Columns"], ["advanced", "Advanced"], ["constraints", "Constraints"], ["partitions", "Partitions"], ["parameters", "Parameters"], ["security", "Security"], ["sql", "SQL"]],
       build: function (form, ctx, panels) {
         form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
         form.appendChild(row("Table", textInput("name")));
         form.appendChild(row("Owner", el("select", {"data-field": "owner", "data-roles": "owner"})));
         form.appendChild(row("Tablespace", el("select", {"data-field": "tablespace", "data-roles": "tablespace"})));
         form.appendChild(row("Comment", el("textarea", {"data-field": "comment", rows: "3", maxlength: "2000", placeholder: "optional: what this table is for"})));
+        form.appendChild(checkbox("partitioned", "Partitioned table? (its rows are stored in partitions chosen by the values of key columns: see the Partitions tab)"));
         fillRoles();
+        buildPartitions(panels.partitions);
         var adv = panels.advanced;
         adv.appendChild(checkbox("unlogged", "Unlogged (faster to write, but emptied after a crash and not copied to standby servers)"));
         adv.appendChild(checkbox("rls", "Row-level security (RLS) enabled: rows are visible only through policies you create later"));
@@ -271,6 +273,10 @@
         v.avEnabled = read(par, "av_enabled");
         v.av = AUTOVACUUM.map(function (p) { return [p[0], read(par, "av:" + p[0])]; }).filter(function (p) { return p[1] !== ""; });
         v.grants = privRows(open.panels.security);
+        setPartitionColumns(open.panels.partitions, v.cols.map(function (c) { return c.name.trim(); }).filter(Boolean));
+        v.ptype = open.panels.partitions.querySelector("[data-ptype]").value;
+        v.pkeys = partitionKeys(open.panels.partitions);
+        v.parts = partitionRows(open.panels.partitions);
         return v;
       },
       problem: function (v) {
@@ -290,6 +296,8 @@
         var badValue = v.av.filter(function (p) { return !/^-?\d+(\.\d+)?$/.test(p[1]); })[0];
         if (badValue) return "Parameters: " + badValue[0] + " must be a number.";
         if (v.forcerls && !v.rls) return "Advanced: Force RLS needs row-level security to be enabled.";
+        var partitionProblem = v.partitioned ? partitionsProblem(v) : "";
+        if (partitionProblem) return partitionProblem;
         if (v.grants.some(function (g) { return g.privs.length && !g.to; })) return "Security: choose a role for every row that has privileges.";
         var constraintProblem = window.pgdasConstraints.problem(v.constraints);
         if (constraintProblem) return constraintProblem;
@@ -317,8 +325,14 @@
         v.av.forEach(function (p) { options.push(p[0] + " = " + p[1]); });
         var inherits = v.inherits.map(function (t) { var s = t.split("\u0001"); return ident(s[0]) + "." + ident(s[1]); });
         var statements = ["CREATE " + (v.unlogged ? "UNLOGGED " : "") + "TABLE " + target + " (\n" + lines.join(",\n") + "\n)" +
-                          (inherits.length ? " INHERITS (" + inherits.join(", ") + ")" : "") + (options.length ? " WITH (" + options.join(", ") + ")" : "") +
-                          (v.tablespace ? " TABLESPACE " + ident(v.tablespace) : "")];
+                          (inherits.length ? " INHERITS (" + inherits.join(", ") + ")" : "") +
+                          (v.partitioned ? " PARTITION BY " + v.ptype + " (" + v.pkeys.map(function (k) { return k.expression ? "(" + k.value + ")" : ident(k.value); }).join(", ") + ")" : "") +
+                          (options.length ? " WITH (" + options.join(", ") + ")" : "") + (v.tablespace ? " TABLESPACE " + ident(v.tablespace) : "")];
+        if (v.partitioned) v.parts.forEach(function (p) {
+          var bound = p.isDefault ? "DEFAULT" : v.ptype === "RANGE" ? "FOR VALUES FROM (" + p.from + ") TO (" + p.to + ")" : v.ptype === "LIST" ? "FOR VALUES IN (" + p.list + ")" :
+            "FOR VALUES WITH (MODULUS " + parseInt(p.modulus, 10) + ", REMAINDER " + parseInt(p.remainder, 10) + ")";
+          statements.push("CREATE TABLE " + ident(ctx.schema) + "." + ident(p.name) + " PARTITION OF " + target + " " + bound);
+        });
         if (v.rls) statements.push("ALTER TABLE " + target + " ENABLE ROW LEVEL SECURITY");
         if (v.forcerls) statements.push("ALTER TABLE " + target + " FORCE ROW LEVEL SECURITY");
         if (v.owner) statements.push("ALTER TABLE " + target + " OWNER TO " + ident(v.owner));
@@ -608,6 +622,114 @@
               privs: Array.prototype.filter.call(row.querySelectorAll("[data-priv]"), function (b) { return b.checked; }).map(function (b) { return b.getAttribute("data-priv"); })};
     });
   }
+  // ---- the Partitions tab: how the rows are split (type + key columns or expressions) and the partitions themselves -------------
+  function buildPartitions(panel) {
+    var type = el("select", {"data-ptype": ""}, ["RANGE", "LIST", "HASH"].map(function (t) { return el("option", {value: t, text: t.charAt(0) + t.slice(1).toLowerCase()}); }));
+    panel.appendChild(el("p", {"class": "dlg-hint", text: "Used only when “Partitioned table?” is ticked on the General tab. A partitioned table stores no rows itself: each row goes to the partition whose values match."}));
+    panel.appendChild(row("Partition type", type));
+    panel.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Partition keys"}), el("button", {type: "button", "class": "btn", "data-pk-add": "", text: "＋ Add key"})]));
+    panel.appendChild(el("p", {"class": "dlg-hint", text: "A key is a column or an expression, e.g. extract(year from saledate). List partitioning takes exactly one key."}));
+    panel.appendChild(el("div", {"data-pkeys": ""}));
+    panel.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Partitions"}), el("button", {type: "button", "class": "btn", "data-part-add": "", text: "＋ Add partition"})]));
+    panel.appendChild(el("p", {"class": "dlg-hint", "data-part-help": ""}));
+    panel.appendChild(el("div", {"data-parts": ""}));
+    updatePartitionPanel(panel);
+    addPartitionKey(panel);                            // most partitioned tables have one key
+  }
+
+  var PART_HELP = {
+    RANGE: "From is included, To is excluded. Write values as SQL literals, quoted when text or dates: '2024-01-01'. One value per key, separated by commas. MINVALUE and MAXVALUE are allowed.",
+    LIST: "In: the values this partition takes, as SQL literals separated by commas: 'north', 'south' or 1, 2, 3.",
+    HASH: "Each partition takes the rows whose key hash modulo the modulus equals its remainder. Give every partition the same modulus and the remainders 0 … modulus − 1.",
+  };
+
+  function addPartitionKey(panel) {
+    var kind = el("select", {"data-pk-kind": ""}, [el("option", {value: "column", text: "Column"}), el("option", {value: "expression", text: "Expression"})]);
+    panel.querySelector("[data-pkeys]").appendChild(el("div", {"class": "dlg-pkey", "data-pkey-row": ""}, [
+      kind, el("select", {"data-pk-col": ""}), el("input", {type: "text", "data-pk-expr": "", placeholder: "expression, e.g. extract(year from saledate)", autocomplete: "off", spellcheck: "false"}),
+      el("button", {type: "button", "class": "btn", "data-pk-remove": "", title: "Remove this key", text: "✕"})]));
+    updatePartitionPanel(panel);
+  }
+
+  function addPartition(panel) {
+    var input = function (field, placeholder, extra) { return el("input", Object.assign({type: "text", "data-part": field, placeholder: placeholder, autocomplete: "off", spellcheck: "false"}, extra || {})); };
+    var wrap = function (type, node) { node.setAttribute("data-for", type); return node; };
+    panel.querySelector("[data-parts]").appendChild(el("div", {"class": "dlg-part", "data-part-row": ""}, [
+      input("name", "partition name"),
+      el("label", {"class": "dlg-check", "data-for": "RANGE LIST"}, [el("input", {type: "checkbox", "data-part": "default"}), document.createTextNode(" default")]),
+      wrap("RANGE", input("from", "From, e.g. '2024-01-01'")), wrap("RANGE", input("to", "To, e.g. '2025-01-01'")),
+      wrap("LIST", input("list", "In, e.g. 'north', 'south'")),
+      wrap("HASH", input("modulus", "Modulus", {inputmode: "numeric"})), wrap("HASH", input("remainder", "Remainder", {inputmode: "numeric"})),
+      el("button", {type: "button", "class": "btn", "data-part-remove": "", title: "Remove this partition", text: "✕"})]));
+    updatePartitionPanel(panel);
+  }
+
+  // Show only what the chosen partition type needs; an expression key has a text box, a column key a list.
+  function updatePartitionPanel(panel) {
+    var type = panel.querySelector("[data-ptype]").value;
+    panel.querySelector("[data-part-help]").textContent = PART_HELP[type];
+    panel.querySelectorAll("[data-for]").forEach(function (node) { node.hidden = node.getAttribute("data-for").split(" ").indexOf(type) < 0; });
+    panel.querySelectorAll("[data-part-row]").forEach(function (row) {
+      var isDefault = row.querySelector('[data-part="default"]').checked;
+      row.querySelectorAll("[data-part=from], [data-part=to], [data-part=list]").forEach(function (box) { box.disabled = isDefault; });
+    });
+    panel.querySelectorAll("[data-pkey-row]").forEach(function (row) {
+      var expression = row.querySelector("[data-pk-kind]").value === "expression";
+      row.querySelector("[data-pk-col]").hidden = expression; row.querySelector("[data-pk-expr]").hidden = !expression;
+    });
+  }
+
+  function setPartitionColumns(panel, names) {     // the key columns are chosen among the columns defined on the Columns tab
+    panel.querySelectorAll("[data-pk-col]").forEach(function (select) {
+      var have = Array.prototype.map.call(select.options, function (o) { return o.value; });
+      if (have.join("\u0001") === names.join("\u0001")) return;
+      var kept = select.value;
+      select.textContent = "";
+      names.forEach(function (name) { select.appendChild(el("option", {value: name, text: name})); });
+      select.value = names.indexOf(kept) >= 0 ? kept : (names[0] || "");
+    });
+  }
+
+  function partitionKeys(panel) {
+    return Array.prototype.map.call(panel.querySelectorAll("[data-pkey-row]"), function (row) {
+      var expression = row.querySelector("[data-pk-kind]").value === "expression";
+      return {expression: expression, value: (expression ? row.querySelector("[data-pk-expr]").value : row.querySelector("[data-pk-col]").value).trim()};
+    });
+  }
+
+  function partitionRows(panel) {
+    return Array.prototype.map.call(panel.querySelectorAll("[data-part-row]"), function (row) {
+      var get = function (field) { var node = row.querySelector('[data-part="' + field + '"]'); return node.type === "checkbox" ? node.checked : node.value.trim(); };
+      return {name: get("name"), isDefault: get("default"), from: get("from"), to: get("to"), list: get("list"), modulus: get("modulus"), remainder: get("remainder")};
+    });
+  }
+
+  function partitionsProblem(v) {
+    if (v.inherits.length) return "Partitions: a partitioned table cannot inherit from other tables.";
+    if (v.unlogged) return "Partitions: a partitioned table cannot be unlogged.";
+    if (!v.pkeys.length) return "Partitions: add at least one partition key.";
+    if (v.pkeys.some(function (k) { return !k.value; })) return "Partitions: every key needs a column or an expression.";
+    if (v.ptype === "LIST" && v.pkeys.length !== 1) return "Partitions: list partitioning takes exactly one key.";
+    var names = {}, defaults = 0, modulus = null;
+    for (var i = 0; i < v.parts.length; i++) {
+      var p = v.parts[i], label = "Partitions: partition " + (i + 1) + (p.name ? " (" + p.name + ")" : "");
+      if (!p.name) return label + " has no name.";
+      if (p.name === v.name.trim()) return label + " has the same name as the table.";
+      if (names[p.name]) return label + " is listed twice.";
+      names[p.name] = true;
+      if (p.isDefault && v.ptype !== "HASH") { if (++defaults > 1) return "Partitions: only one partition can be the default."; continue; }
+      if (v.ptype === "RANGE" && (!p.from || !p.to)) return label + " needs From and To values.";
+      if (v.ptype === "LIST" && !p.list) return label + " needs the values it takes (In).";
+      if (v.ptype === "HASH") {
+        if (!/^\d+$/.test(p.modulus) || +p.modulus < 1) return label + " needs a modulus of 1 or more.";
+        if (!/^\d+$/.test(p.remainder) || +p.remainder >= +p.modulus) return label + " needs a remainder from 0 to modulus − 1.";
+        if (modulus !== null && modulus !== +p.modulus && +p.modulus % modulus !== 0 && modulus % +p.modulus !== 0) return "Partitions: hash moduli must divide one another (e.g. 2, 4, 8).";
+        modulus = +p.modulus;
+      }
+    }
+    return "";
+  }
+
   function syncPrivRow(row, changed) {            // ALL ticks or clears the others; ticking the others by hand updates ALL
     var all = row.querySelector('[data-priv="ALL"]');
     var others = PRIVILEGES.map(function (n) { return row.querySelector('[data-priv="' + n + '"]'); });
@@ -736,6 +858,14 @@
     if (event.target.closest("[data-dlg-close]") && open.root.contains(event.target)) { close(); return; }
     if (event.target.closest("[data-dlg-save]") && open.root.contains(event.target)) { save(); return; }
     if (event.target.closest("[data-col-add]") && open.root.contains(event.target)) { addColumn(open.panels.columns || open.form); refresh(); return; }
+    if (open.panels && open.panels.partitions && open.root.contains(event.target)) {
+      var partitions = open.panels.partitions;
+      if (event.target.closest("[data-pk-add]")) { addPartitionKey(partitions); refresh(); return; }
+      if (event.target.closest("[data-part-add]")) { addPartition(partitions); refresh(); return; }
+      var removeKey = event.target.closest("[data-pk-remove]"), removePart = event.target.closest("[data-part-remove]");
+      if (removeKey) { removeKey.closest("[data-pkey-row]").remove(); refresh(); return; }
+      if (removePart) { removePart.closest("[data-part-row]").remove(); refresh(); return; }
+    }
     if (event.target.closest("[data-priv-add]") && open.root.contains(event.target)) { addPrivRow(open.panels.security); refresh(); return; }
     var removePriv = event.target.closest("[data-priv-remove]");
     if (removePriv && open.root.contains(removePriv)) { removePriv.closest("[data-priv-row]").remove(); refresh(); return; }
@@ -748,6 +878,7 @@
     if (!open || !open.root.contains(event.target)) return;
     var privRow = event.target.closest("[data-priv-row]");
     if (privRow && event.target.hasAttribute("data-priv")) syncPrivRow(privRow, event.target);
+    if (open.panels && open.panels.partitions) updatePartitionPanel(open.panels.partitions);
     refresh();
   });
   document.addEventListener("keydown", function (event) {
