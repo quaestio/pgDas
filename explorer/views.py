@@ -18,11 +18,11 @@ from django.core.exceptions import PermissionDenied
 
 from . import changes, exporter, pg, row_edits, server_admin, table_rebuild, tree
 
-TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
+TAB_LABELS = {"properties": "Properties", "partitions": "Partitions", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
 TABLE_TABS = ["properties", "columns", "constraints", "indexes", "triggers", "data", "sql"]
 # Which tabs each kind of relation offers.
-TABS_BY_KIND = {"table": TABLE_TABS, "partitioned table": TABLE_TABS,
+TABS_BY_KIND = {"table": TABLE_TABS, "partitioned table": ["properties", "partitions"] + TABLE_TABS[1:],
                 "view": ["properties", "columns", "data", "sql"],
                 "materialized view": ["properties", "columns", "indexes", "data", "sql"],
                 "sequence": ["properties", "sql"]}
@@ -30,7 +30,7 @@ NODE_TYPE_OF_KIND = {"table": "table", "partitioned table": "table", "view": "vi
                      "materialized view": "matview", "sequence": "sequence"}
 RELATION_NODES = {"table", "view", "matview", "sequence"}
 # The folder or item under a relation selects the matching tab of that relation.
-SUBNODE_TABS = {"columns": "columns", "column": "columns", "constraints": "constraints", "constraint": "constraints",
+SUBNODE_TABS = {"partitions": "partitions", "columns": "columns", "column": "columns", "constraints": "constraints", "constraint": "constraints",
                 "indexes": "indexes", "index": "indexes", "triggers": "triggers", "trigger": "triggers"}
 FOLDERS = {"tables": ("Tables", ("table", "partitioned table")), "views": ("Views", ("view",)),
            "matviews": ("Materialized Views", ("materialized view",)), "sequences": ("Sequences", ("sequence",))}
@@ -75,6 +75,9 @@ def _relation_context(conn, node, request):
                "base": _base(node, type=NODE_TYPE_OF_KIND[info["kind"]], table=name)}
     if tab == "properties" and info["relkind"] == "S":
         context["sequence"] = pg.sequence_info(conn, schema, name)
+    elif tab == "partitions":
+        context["partitions"] = pg.table_partitions(conn, schema, name)
+        context["partition_json"] = json.dumps({"strategy": info["strategy"], "key": info["partition_key"]})
     elif tab == "columns":
         context["columns"] = pg.table_columns(conn, schema, name)
         context["column_names"] = json.dumps([c["name"] for c in context["columns"]])
@@ -230,7 +233,7 @@ def detail(request):
             with pg.connect(server, db) as conn:
                 context.update(_relation_context(conn, node, request))
             context["can_export"] = context.get("tab") == "data" and _can_export(request.user, server, db)
-            if context.get("relation_kind") == "table" and _can_structure(request.user, server):
+            if context.get("relation_kind") in ("table", "partitioned table") and _can_structure(request.user, server):
                 context["structure"] = _structure_json(server, db, schema, node["table"])
         elif kind in ("function", "procedure"):
             with pg.connect(server, db) as conn:

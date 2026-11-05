@@ -130,8 +130,15 @@ def children(node):
 
     place = dict(where, table=table)
     if kind == "table":
-        return [make_node(label, folder, rel="table", **place) for label, folder in
-                (("Columns", "columns"), ("Constraints", "constraints"), ("Indexes", "indexes"), ("Triggers", "triggers"))]
+        folders = [("Columns", "columns"), ("Constraints", "constraints"), ("Indexes", "indexes"), ("Triggers", "triggers")]
+        with pg.connect(server, db) as conn:
+            if pg.relation_info(conn, schema, table)["relkind"] == "p":
+                folders.insert(0, ("Partitions", "partitions"))
+        return [make_node(label, folder, rel="table", **place) for label, folder in folders]
+    if kind == "partitions":
+        with pg.connect(server, db) as conn:
+            return [make_node(p["name"], "table", hint=p["bound"], table=p["name"], server=sid, db=db, schema=p["schema"])
+                    for p in pg.table_partitions(conn, schema, table)]
     if kind == "view":
         return [make_node("Columns", "columns", rel="view", **place)]
     if kind == "matview":

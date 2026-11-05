@@ -396,8 +396,36 @@ def relation_info(conn, schema, name, kinds=("r", "p", "v", "m", "S")):
     if row is None:
         raise PgError(f"{schema}.{name} was not found.")
     owner, kind, estimate, size, comment, populated = row
-    return {"owner": owner, "kind": KINDS[kind], "relkind": kind, "estimate": estimate, "size_text": size_text(size),
-            "comment": comment or "", "populated": populated}
+    info = {"owner": owner, "kind": KINDS[kind], "relkind": kind, "estimate": estimate, "size_text": size_text(size),
+            "comment": comment or "", "populated": populated, "partition_key": "", "strategy": "", "parent": None, "bound": ""}
+    if kind in ("r", "p"):
+        place = conn.execute(
+            """SELECT pg_get_partkeydef(c.oid), pt.partstrat::text, pn.nspname, pc.relname, pg_get_expr(c.relpartbound, c.oid)
+               FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+               LEFT JOIN pg_partitioned_table pt ON pt.partrelid = c.oid
+               LEFT JOIN pg_inherits i ON i.inhrelid = c.oid AND c.relispartition
+               LEFT JOIN pg_class pc ON pc.oid = i.inhparent LEFT JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+               WHERE n.nspname = %s AND c.relname = %s""", (schema, name)).fetchone()
+        if place:
+            key, strategy, parent_schema, parent_name, bound = place
+            info["partition_key"] = key or ""
+            info["strategy"] = {"r": "range", "l": "list", "h": "hash"}.get(strategy, "")
+            info["parent"] = {"schema": parent_schema, "name": parent_name} if parent_name else None
+            info["bound"] = bound or ""
+    return info
+
+
+def table_partitions(conn, schema, name):
+    """The partitions directly under a partitioned table, with their bounds."""
+    rows = conn.execute(
+        """SELECT cn.nspname, c.relname, pg_get_expr(c.relpartbound, c.oid), c.relkind::text,
+                  CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END, pg_total_relation_size(c.oid), pg_get_partkeydef(c.oid)
+           FROM pg_inherits i JOIN pg_class p ON p.oid = i.inhparent JOIN pg_namespace pn ON pn.oid = p.relnamespace
+           JOIN pg_class c ON c.oid = i.inhrelid JOIN pg_namespace cn ON cn.oid = c.relnamespace
+           WHERE pn.nspname = %s AND p.relname = %s AND c.relispartition
+           ORDER BY (pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT'), pg_get_expr(c.relpartbound, c.oid), c.relname""", (schema, name)).fetchall()
+    return [{"schema": s, "name": n, "bound": bound, "default": bound == "DEFAULT", "partitioned": kind == "p", "key": key or "",
+             "estimate": estimate, "size_text": size_text(size)} for s, n, bound, kind, estimate, size, key in rows]
 
 
 def table_info(conn, schema, table):

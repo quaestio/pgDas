@@ -668,6 +668,9 @@ SELECT 'relation', n.nspname || '.' || c.relname,
        || E'\\x1d' || CASE WHEN c.relkind IN ('v', 'm') THEN md5(pg_get_viewdef(c.oid, true)) ELSE '' END
        || E'\\x1d' || coalesce((SELECT concat_ws(',', s.seqincrement, s.seqmin, s.seqmax, s.seqstart, s.seqcycle)
                                 FROM pg_sequence s WHERE s.seqrelid = c.oid), '')
+       || E'\\x1d' || coalesce((SELECT pn.nspname || '.' || pc.relname || ' ' || pg_get_expr(c.relpartbound, c.oid)
+                                FROM pg_inherits i JOIN pg_class pc ON pc.oid = i.inhparent JOIN pg_namespace pn ON pn.oid = pc.relnamespace
+                                WHERE i.inhrelid = c.oid AND c.relispartition), '')
 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'p', 'v', 'm', 'S', 'f') AND {_USER_SCHEMA} AND {pg.NOT_IN_EXTENSION.format(oid="c.oid", catalog="pg_class")}
 UNION ALL
@@ -734,6 +737,8 @@ def _describe_relation_change(before, after):
         parts.append("definition changed")
     if old[4] != new[4]:
         parts.append("sequence settings changed")
+    if old[5] != new[5]:
+        parts.append(f"now a partition of {new[5]}" if new[5] else f"no longer a partition of {old[5].split(' ', 1)[0]}")
     return "; ".join(parts) or "changed"
 
 

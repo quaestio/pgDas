@@ -452,7 +452,65 @@
       sql: function (v, ctx) { return "ALTER INDEX " + ident(ctx.schema) + "." + ident(ctx.index) + " RENAME TO " + ident(v.name.trim()); },
       after: function () { return {redraw: true}; },
     },
+    "add-partition": {
+      title: "CREATE — PARTITION", done: "Partition created.",
+      build: function (form, ctx) {
+        form.appendChild(row("Partitioned table", el("input", {type: "text", value: ctx.schema + "." + ctx.table, readonly: "readonly"})));
+        form.appendChild(row("Partition name", textInput("name", "e.g. " + ctx.table + "_2025")));
+        boundFields(form, ctx);
+      },
+      problem: function (v, ctx) { return !v.name.trim() ? "'Partition name' cannot be empty." : boundProblem(v, ctx); },
+      sql: function (v, ctx) { return "CREATE TABLE " + ident(ctx.schema) + "." + ident(v.name.trim()) + " PARTITION OF " + qualified(ctx) + " " + boundSql(v, ctx); },
+      after: function (v, ctx) { return {redraw: true, node: {type: "partitions", server: ctx.server, db: ctx.db, schema: ctx.schema, table: ctx.table}}; },
+    },
+    "attach-partition": {
+      title: "ATTACH — PARTITION", done: "Table attached as a partition.",
+      build: function (form, ctx) {
+        form.appendChild(row("Partitioned table", el("input", {type: "text", value: ctx.schema + "." + ctx.table, readonly: "readonly"})));
+        var pick = el("select", {"data-field": "child", "data-tables": "attach"}, [el("option", {value: "", text: "loading the tables…"})]);
+        form.appendChild(row("Table to attach", pick));
+        boundFields(form, ctx);
+        form.appendChild(el("p", {"class": "dlg-hint", text: "The table must have the same columns as the partitioned table. PostgreSQL checks every row against the bound while attaching, which locks the table while it runs."}));
+        fillTables(ctx);
+      },
+      problem: function (v, ctx) { return !v.child ? "Choose the table to attach." : boundProblem(v, ctx); },
+      sql: function (v, ctx) {
+        var child = v.child.split("\u0001");
+        return "ALTER TABLE " + qualified(ctx) + " ATTACH PARTITION " + ident(child[0]) + "." + ident(child[1]) + " " + boundSql(v, ctx);
+      },
+      after: function (v, ctx) { return {redraw: true, node: {type: "partitions", server: ctx.server, db: ctx.db, schema: ctx.schema, table: ctx.table}}; },
+    },
   };
+
+  // The bound of a partition of an existing table: the fields depend on how that table is partitioned (ctx.strategy).
+  function boundFields(form, ctx) {
+    var help = {range: "From is included, To is excluded. One SQL literal per key, separated by commas: '2025-01-01'. MINVALUE and MAXVALUE are allowed.",
+                list: "The values this partition takes, as SQL literals separated by commas: 'north', 'south' or 1, 2, 3.",
+                hash: "Rows whose key hash modulo the modulus equals the remainder."}[ctx.strategy] || "";
+    if (ctx.strategy !== "hash") form.appendChild(checkbox("isdefault", "Default partition (takes every row no other partition takes)"));
+    if (ctx.strategy === "range") { form.appendChild(row("From", textInput("from", "e.g. '2025-01-01'"))); form.appendChild(row("To", textInput("to", "e.g. '2026-01-01'"))); }
+    else if (ctx.strategy === "list") form.appendChild(row("In", textInput("list", "e.g. 'north', 'south'")));
+    else if (ctx.strategy === "hash") { form.appendChild(row("Modulus", textInput("modulus", "e.g. 4"))); form.appendChild(row("Remainder", textInput("remainder", "e.g. 0"))); }
+    form.appendChild(el("p", {"class": "dlg-hint", text: help}));
+  }
+
+  function boundProblem(v, ctx) {
+    if (v.isdefault) return "";
+    if (ctx.strategy === "range") return !v.from.trim() || !v.to.trim() ? "Give both the From and the To values." : "";
+    if (ctx.strategy === "list") return !v.list.trim() ? "Give the values this partition takes." : "";
+    if (ctx.strategy === "hash") {
+      if (!/^\d+$/.test(v.modulus.trim()) || +v.modulus < 1) return "The modulus must be a whole number of 1 or more.";
+      if (!/^\d+$/.test(v.remainder.trim()) || +v.remainder >= +v.modulus) return "The remainder must be from 0 to modulus − 1.";
+    }
+    return ctx.strategy ? "" : "This table's partitioning is not known.";
+  }
+
+  function boundSql(v, ctx) {
+    if (v.isdefault) return "DEFAULT";
+    if (ctx.strategy === "range") return "FOR VALUES FROM (" + v.from.trim() + ") TO (" + v.to.trim() + ")";
+    if (ctx.strategy === "list") return "FOR VALUES IN (" + v.list.trim() + ")";
+    return "FOR VALUES WITH (MODULUS " + parseInt(v.modulus, 10) + ", REMAINDER " + parseInt(v.remainder, 10) + ")";
+  }
 
   function folder(ctx) { return {type: "tables", server: ctx.server, db: ctx.db, schema: ctx.schema}; }
 
@@ -558,7 +616,9 @@
         var kept = Array.prototype.filter.call(select.options, function (o) { return o.selected; }).map(function (o) { return o.value; });
         select.textContent = "";
         if (select.getAttribute("data-tables") === "like") select.appendChild(el("option", {value: "", text: "no table: start with the columns below"}));
+        if (select.getAttribute("data-tables") === "attach") select.appendChild(el("option", {value: "", text: "choose a table…"}));
         tables.forEach(function (t) {
+          if (select.getAttribute("data-tables") === "attach" && t.schema === ctx.schema && t.name === ctx.table) return;     // not the table itself
           var option = el("option", {value: t.schema + "\u0001" + t.name, text: t.schema + "." + t.name});
           option.selected = kept.indexOf(option.value) >= 0;
           select.appendChild(option);
@@ -828,11 +888,24 @@
     body.querySelectorAll("tr.moved").forEach(function (l) { l.classList.remove("moved"); });
   }
 
+  function detachPartition(button) {          // the review popup asks for the word ALTER: a detached partition is no longer found through its parent
+    var ctx = structure(button);
+    if (!ctx) return;
+    var child = button.getAttribute("data-partition-detach"), parent = button.getAttribute("data-partition-detach-from");
+    var parts = function (name) { var i = name.indexOf("."); return ident(name.slice(0, i)) + "." + ident(name.slice(i + 1)); };
+    var sql = parent ? "ALTER TABLE " + parts(parent) + " DETACH PARTITION " + qualified(ctx) : "ALTER TABLE " + qualified(ctx) + " DETACH PARTITION " + parts(child);
+    review(ctx, sql, {redraw: true, node: {type: "partitions", server: ctx.server, db: ctx.db, schema: ctx.schema, table: parent ? parent.slice(parent.indexOf(".") + 1) : ctx.table}}, "Partition detached.");
+  }
+
   document.addEventListener("click", function (event) {
+    var detach = event.target.closest("[data-partition-detach], [data-partition-detach-from]");
+    if (detach) { detachPartition(detach); return; }
     var trigger = event.target.closest("[data-table-dialog]");
     if (trigger) {
       var ctx = structure(trigger);
       if (!ctx) return;
+      var partitionTab = trigger.closest("[data-partitions-tab]");
+      ctx.strategy = partitionTab ? JSON.parse(partitionTab.getAttribute("data-partitions-tab")).strategy : "";
       var what = trigger.getAttribute("data-table-dialog");
       ctx.column = columnOf(trigger);
       var indexRow = trigger.closest("tr[data-index]"), indexTab = trigger.closest("[data-index-tab]");

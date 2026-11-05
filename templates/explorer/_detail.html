@@ -207,8 +207,25 @@
         {% if relation_kind == "view" %}{% else %}<dt>Rows (estimate)</dt><dd>{{ info.estimate|default_if_none:"not analyzed yet" }}</dd><dt>Total size</dt><dd>{{ info.size_text }}</dd>{% endif %}
         {% if relation_kind == "materialized view" %}<dt>Populated</dt><dd>{{ info.populated|yesno:"yes,no" }}</dd>{% endif %}
       {% endif %}
+      {% if info.partition_key %}<dt>Partitioned by</dt><dd>{{ info.partition_key }}</dd>{% endif %}
+      {% if info.parent %}<dt>Partition of</dt><dd>{{ info.parent.schema }}.{{ info.parent.name }}</dd><dt>Bound</dt><dd>{{ info.bound }}</dd>{% endif %}
       {% if info.comment %}<dt>Comment</dt><dd>{{ info.comment }}</dd>{% endif %}
     </dl>
+    {% if structure and info.parent %}<p style="margin-top:14px"><button type="button" class="btn danger" data-partition-detach-from="{{ info.parent.schema }}.{{ info.parent.name }}">Detach from {{ info.parent.name }}…</button>
+      <span class="muted">The table keeps its rows and becomes an ordinary table.</span></p>{% endif %}
+  {% elif tab == "partitions" %}
+    <div {% if structure %}data-partitions-tab="{{ partition_json }}"{% endif %}>
+    <p class="muted">Partitioned by <strong>{{ info.partition_key }}</strong>. Each row of this table is stored in the partition whose bound matches it.</p>
+    {% if structure %}<div class="column-tools"><button type="button" class="btn primary" data-table-dialog="add-partition">+ New partition</button>
+      <button type="button" class="btn" data-table-dialog="attach-partition">Attach existing table…</button></div>{% endif %}
+    <div class="scroll"><table>
+      <thead><tr><th>PARTITION</th><th>BOUND</th><th>ROWS (ESTIMATE)</th><th>SIZE</th>{% if structure %}<th></th>{% endif %}</tr></thead>
+      <tbody>{% for p in partitions %}<tr data-partition="{{ p.schema }}.{{ p.name }}"><td>{{ p.schema }}.{{ p.name }}{% if p.partitioned %} <span class="badge">partitioned by {{ p.key }}</span>{% endif %}</td>
+        <td class="cell">{% if p.default %}<span class="badge">default</span>{% else %}{{ p.bound }}{% endif %}</td>
+        <td class="muted">{{ p.estimate|default_if_none:"not analyzed yet" }}</td><td class="muted">{{ p.size_text }}</td>
+        {% if structure %}<td class="col-actions"><button type="button" class="btn danger" data-partition-detach="{{ p.schema }}.{{ p.name }}">Detach…</button></td>{% endif %}</tr>
+      {% empty %}<tr><td colspan="5" class="muted">No partitions yet. Rows cannot be inserted until a partition (or a default partition) exists for them.</td></tr>{% endfor %}</tbody>
+    </table></div></div>
   {% elif tab == "triggers" %}
     <div class="scroll"><table>
       <thead><tr><th>NAME</th><th>WHEN</th><th>EVENTS</th><th>LEVEL</th><th>FUNCTION</th><th>STATE</th></tr></thead>
@@ -220,7 +237,7 @@
   {% elif tab == "columns" %}
     <div {% if structure %}data-columns-tab="{{ column_names }}"{% endif %}>
     {% if structure %}<div class="column-tools"><button type="button" class="btn primary" data-table-dialog="add-column">+ Add column</button>
-      <span class="muted">Use ▲ ▼ to change the order, then apply it.</span></div>
+      {% if relation_kind == "table" %}<span class="muted">Use ▲ ▼ to change the order, then apply it.</span>{% endif %}</div>
       <div class="order-bar" data-order-bar hidden><span>The order of the columns has changed. Applying it rebuilds the table.</span>
         <button type="button" class="btn danger" data-order-apply>Apply new order…</button> <button type="button" class="btn" data-order-undo>Undo</button></div>{% endif %}
     <div class="scroll"><table>
@@ -228,8 +245,8 @@
       <tbody>{% for c in columns %}<tr data-column="{{ c.name }}" data-type="{{ c.type }}" data-nullable="{% if c.nullable %}1{% else %}0{% endif %}" data-default="{{ c.default }}" data-identity="{{ c.identity }}" data-generated="{{ c.generated }}"><td class="muted" data-number>{{ forloop.counter }}</td><td>{{ c.name }}</td><td class="muted">{{ c.type }}</td>
         <td>{% if c.nullable %}yes{% else %}<span class="badge">not null</span>{% endif %}</td>
         <td class="cell">{% if c.identity %}<span class="badge">identity{% if c.identity == "a" %} always{% endif %}</span>{% elif c.generated %}<span class="badge">generated</span> {{ c.default }}{% else %}{{ c.default }}{% endif %}</td>
-        {% if structure %}<td class="col-actions"><button type="button" class="btn" data-col-move="-1" title="Move up">▲</button><button type="button" class="btn" data-col-move="1" title="Move down">▼</button>
-          <button type="button" class="btn" data-table-dialog="edit-column">Edit</button><button type="button" class="btn" data-table-dialog="rename-column">Rename</button><button type="button" class="btn danger" data-table-dialog="drop-column">Drop</button></td>{% endif %}</tr>{% endfor %}</tbody>
+        {% if structure %}<td class="col-actions">{% if relation_kind == "table" %}<button type="button" class="btn" data-col-move="-1" title="Move up">▲</button><button type="button" class="btn" data-col-move="1" title="Move down">▼</button>
+          {% endif %}<button type="button" class="btn" data-table-dialog="edit-column">Edit</button><button type="button" class="btn" data-table-dialog="rename-column">Rename</button><button type="button" class="btn danger" data-table-dialog="drop-column">Drop</button></td>{% endif %}</tr>{% endfor %}</tbody>
     </table></div></div>
   {% elif tab == "constraints" %}
     <div {% if structure and relation_kind == "table" %}data-cons-tab="{{ column_names }}"{% endif %}>
