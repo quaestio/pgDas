@@ -288,9 +288,10 @@ def column_types(request, pk):
     try:
         with pg.connect(server, database or None) as conn:
             found = pg.column_types(conn)
+            roles = [r["name"] for r in pg.list_roles(conn)]                      # for the owner and privileges of a new table
     except pg.PgError as error:
         return JsonResponse({"error": str(error)}, status=502)
-    return JsonResponse({"types": [{"name": name, "kind": kind} for name, kind in found]})
+    return JsonResponse({"types": [{"name": name, "kind": kind} for name, kind in found], "roles": roles})
 
 
 def _refuse(message, status=403):
@@ -316,6 +317,12 @@ def _write_request(request, pk):
             require(request.user, "read", server=server, database=database)
             if not runtime.is_admin(request.user):
                 raise PermissionDenied("Changing the order of the columns rebuilds the table and requires a Super User.")
+        elif kind == "create" and changes.table_script_statements(str(data.get("sql") or "")):
+            # A new table with its owner, comments and privileges: several statements, so the one-statement policy parser cannot read them.
+            # Setting an owner and privileges is for Super Users; the engine accepts only CREATE TABLE plus those statements for that table.
+            require(request.user, "read", server=server, database=database)
+            if not runtime.is_admin(request.user):
+                raise PermissionDenied("Setting an owner, comments or privileges while creating a table requires a Super User.")
         else:
             authorize(request.user, server, database, str(data.get("sql") or ""), write=True)
         request.pgdas_database = database

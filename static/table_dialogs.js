@@ -59,6 +59,7 @@
 
   function ident(name) { return '"' + name.replace(/"/g, '""') + '"'; }
   function qualified(ctx) { return ident(ctx.schema) + "." + ident(ctx.table); }
+  function literal(text) { return "'" + text.replace(/'/g, "''") + "'"; }
 
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
@@ -212,10 +213,20 @@
   var KINDS = {
     "new-table": {
       title: "CREATE — TABLE", done: "Table created.",
-      tabs: [["general", "General"], ["columns", "Columns"], ["constraints", "Constraints"], ["sql", "SQL"]],
+      tabs: [["general", "General"], ["columns", "Columns"], ["constraints", "Constraints"], ["advanced", "Advanced"], ["security", "Security"], ["sql", "SQL"]],
       build: function (form, ctx, panels) {
         form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
         form.appendChild(row("Table", textInput("name")));
+        form.appendChild(row("Owner", el("select", {"data-field": "owner", "data-roles": "owner"})));
+        form.appendChild(row("Comment", el("textarea", {"data-field": "comment", rows: "3", maxlength: "2000", placeholder: "optional: what this table is for"})));
+        fillRoles();
+        panels.advanced.appendChild(checkbox("unlogged", "Unlogged (faster to write, but emptied after a crash and not copied to standby servers)"));
+        panels.advanced.appendChild(row("Fill factor", el("input", {type: "number", "data-field": "fillfactor", min: "10", max: "100", placeholder: "10 – 100, empty = default (100)"})));
+        panels.advanced.appendChild(el("p", {"class": "dlg-hint", text: "A lower fill factor leaves room in each page for updates, which can make a table that is updated a lot faster. Leave it empty if unsure."}));
+        panels.security.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Privileges"}),
+          el("button", {type: "button", "class": "btn", "data-priv-add": "", text: "＋ Add"})]));
+        panels.security.appendChild(el("p", {"class": "dlg-hint", text: "Who may do what with the new table. Leave it empty to keep PostgreSQL's defaults (only the owner). Each row becomes a GRANT run right after the table is created."}));
+        panels.security.appendChild(el("div", {"data-privs": ""}));
         panels.columns.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Columns"}),
           el("button", {type: "button", "class": "btn", "data-col-add": "", text: "＋ Add column"})]));
         panels.columns.appendChild(el("div", {"data-cols": ""}));
@@ -227,6 +238,10 @@
         v.cols = columns(open.panels.columns);
         open.constraints.setColumns(v.cols.map(function (c) { return c.name.trim(); }).filter(Boolean));     // the constraints choose among these
         v.constraints = open.constraints.read();
+        var advanced = open.panels.advanced;
+        v.unlogged = advanced.querySelector("[data-field=unlogged]").checked;
+        v.fillfactor = advanced.querySelector("[data-field=fillfactor]").value.trim();
+        v.grants = privRows(open.panels.security);
         return v;
       },
       problem: function (v) {
@@ -240,6 +255,8 @@
           seen[n] = true;
         }
         if (!v.cols.length) return "Add at least one column.";
+        if (v.fillfactor !== "" && !(/^\d+$/.test(v.fillfactor) && +v.fillfactor >= 10 && +v.fillfactor <= 100)) return "Advanced: the fill factor must be a whole number from 10 to 100.";
+        if (v.grants.some(function (g) { return g.privs.length && !g.to; })) return "Security: choose a role for every row that has privileges.";
         var constraintProblem = window.pgdasConstraints.problem(v.constraints);
         if (constraintProblem) return constraintProblem;
         if (v.cols.some(function (c) { return c.pk; }) && v.constraints.some(function (c) { return c.type === "PRIMARY KEY"; })) {
@@ -252,7 +269,16 @@
         var keys = v.cols.filter(function (c) { return c.pk; }).map(function (c) { return ident(c.name.trim()); });
         if (keys.length) lines.push("    PRIMARY KEY (" + keys.join(", ") + ")");
         v.constraints.forEach(function (c) { lines.push("    " + window.pgdasConstraints.sql(c)); });
-        return "CREATE TABLE " + ident(ctx.schema) + "." + ident(v.name.trim()) + " (\n" + lines.join(",\n") + "\n)";
+        var target = ident(ctx.schema) + "." + ident(v.name.trim());
+        var statements = ["CREATE " + (v.unlogged ? "UNLOGGED " : "") + "TABLE " + target + " (\n" + lines.join(",\n") + "\n)" +
+                          (v.fillfactor !== "" ? " WITH (fillfactor = " + parseInt(v.fillfactor, 10) + ")" : "")];
+        if (v.owner) statements.push("ALTER TABLE " + target + " OWNER TO " + ident(v.owner));
+        if (v.comment.trim()) statements.push("COMMENT ON TABLE " + target + " IS " + literal(v.comment.trim()));
+        v.grants.filter(function (g) { return g.to && g.privs.length; }).forEach(function (g) {
+          var privs = g.privs.indexOf("ALL") >= 0 ? "ALL PRIVILEGES" : g.privs.join(", ");
+          statements.push("GRANT " + privs + " ON TABLE " + target + " TO " + (g.to === "PUBLIC" ? "PUBLIC" : ident(g.to)) + (g.option ? " WITH GRANT OPTION" : ""));
+        });
+        return statements.join(";\n");
       },
       after: function (v, ctx) {
         return {node: folder(ctx), open: {type: "table", server: ctx.server, db: ctx.db, schema: ctx.schema, table: v.name.trim()}};
@@ -451,14 +477,57 @@
 
   // The types this database adds (enums, domains, composite and range types, extension types) join the suggestions once they arrive.
   var typeCache = {};
+  var roleCache = {}, extraRoles = [];
   function addDatabaseTypes(ctx) {
-    extraTypes = [];
+    extraTypes = []; extraRoles = [];
     if (!ctx.types_url) return;
-    if (typeCache[ctx.types_url]) { extraTypes = typeCache[ctx.types_url]; return; }
+    if (typeCache[ctx.types_url]) { extraTypes = typeCache[ctx.types_url]; extraRoles = roleCache[ctx.types_url] || []; return; }
     fetch(ctx.types_url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
-      .then(function (r) { return r.ok ? r.json() : {types: []}; })
-      .then(function (data) { typeCache[ctx.types_url] = data.types || []; extraTypes = typeCache[ctx.types_url]; })
+      .then(function (r) { return r.ok ? r.json() : {types: [], roles: []}; })
+      .then(function (data) {
+        typeCache[ctx.types_url] = data.types || []; roleCache[ctx.types_url] = data.roles || [];
+        extraTypes = typeCache[ctx.types_url]; extraRoles = roleCache[ctx.types_url];
+        fillRoles();
+      })
       .catch(function () { /* the built-in types are still offered */ });
+  }
+
+  // ---- roles: the owner of a new table and the rows of its Security tab ------------------------------------------------
+  function fillRoles() {
+    if (!open) return;
+    open.root.querySelectorAll("select[data-roles]").forEach(function (select) {
+      var kept = select.value, owner = select.getAttribute("data-roles") === "owner";
+      select.textContent = "";
+      select.appendChild(el("option", {value: "", text: owner ? "the login PGDAS uses" : "choose a role…"}));
+      if (!owner) select.appendChild(el("option", {value: "PUBLIC", text: "PUBLIC (everyone)"}));
+      extraRoles.forEach(function (name) { select.appendChild(el("option", {value: name, text: name})); });
+      select.value = kept;
+    });
+  }
+
+  var PRIVILEGES = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"];
+  function addPrivRow(panel) {
+    var boxes = el("div", {"class": "dlg-grant-boxes"});
+    ["ALL"].concat(PRIVILEGES).forEach(function (name) {
+      boxes.appendChild(el("label", {"class": "dlg-grant-line"}, [el("input", {type: "checkbox", "data-priv": name}), document.createTextNode(" " + name)]));
+    });
+    boxes.appendChild(el("label", {"class": "dlg-grant-line muted"}, [el("input", {type: "checkbox", "data-priv-option": ""}), document.createTextNode(" WITH GRANT OPTION")]));
+    panel.querySelector("[data-privs]").appendChild(el("div", {"class": "dlg-grant", "data-priv-row": ""}, [
+      el("select", {"data-roles": "grantee", "data-grantee": ""}), boxes,
+      el("button", {type: "button", "class": "btn", "data-priv-remove": "", title: "Remove this row", text: "✕"})]));
+    fillRoles();
+  }
+  function privRows(panel) {
+    return Array.prototype.map.call(panel.querySelectorAll("[data-priv-row]"), function (row) {
+      return {to: row.querySelector("[data-grantee]").value, option: row.querySelector("[data-priv-option]").checked,
+              privs: Array.prototype.filter.call(row.querySelectorAll("[data-priv]"), function (b) { return b.checked; }).map(function (b) { return b.getAttribute("data-priv"); })};
+    });
+  }
+  function syncPrivRow(row, changed) {            // ALL ticks or clears the others; ticking the others by hand updates ALL
+    var all = row.querySelector('[data-priv="ALL"]');
+    var others = PRIVILEGES.map(function (n) { return row.querySelector('[data-priv="' + n + '"]'); });
+    if (changed === all) others.forEach(function (b) { b.checked = all.checked; });
+    else all.checked = others.every(function (b) { return b.checked; });
   }
 
   function openDialog(kindName, ctx) {
@@ -582,12 +651,20 @@
     if (event.target.closest("[data-dlg-close]") && open.root.contains(event.target)) { close(); return; }
     if (event.target.closest("[data-dlg-save]") && open.root.contains(event.target)) { save(); return; }
     if (event.target.closest("[data-col-add]") && open.root.contains(event.target)) { addColumn(open.panels.columns || open.form); refresh(); return; }
+    if (event.target.closest("[data-priv-add]") && open.root.contains(event.target)) { addPrivRow(open.panels.security); refresh(); return; }
+    var removePriv = event.target.closest("[data-priv-remove]");
+    if (removePriv && open.root.contains(removePriv)) { removePriv.closest("[data-priv-row]").remove(); refresh(); return; }
     var removeColumn = event.target.closest("[data-col-remove]");
     if (removeColumn && open.root.contains(removeColumn)) { removeColumn.closest("[data-col]").remove(); refresh(); return; }
     if (event.target === open.root) close();
   });
   document.addEventListener("input", function (event) { if (open && open.root.contains(event.target)) refresh(); });
-  document.addEventListener("change", function (event) { if (open && open.root.contains(event.target)) refresh(); });
+  document.addEventListener("change", function (event) {
+    if (!open || !open.root.contains(event.target)) return;
+    var privRow = event.target.closest("[data-priv-row]");
+    if (privRow && event.target.hasAttribute("data-priv")) syncPrivRow(privRow, event.target);
+    refresh();
+  });
   document.addEventListener("keydown", function (event) {
     var reviewBox = document.getElementById("changeModal");
     if (event.key === "Escape" && open && (!reviewBox || reviewBox.hidden)) close();

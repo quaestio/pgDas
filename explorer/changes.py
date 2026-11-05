@@ -553,7 +553,54 @@ def _target_names(object_type, rest):
     return [_normalise(match["name"])] if match else []
 
 
+# A new table may be followed by statements that finish setting it up: its owner, its comments and its privileges, and nothing else.
+_SCRIPT_OWNER = re.compile(rf"^ALTER\s+TABLE\s+(?P<table>{_TABLE_REF})\s+OWNER\s+TO\s+{_IDENT}$", re.I)
+_SCRIPT_COMMENT = re.compile(rf"^COMMENT\s+ON\s+(?:TABLE\s+(?P<table>{_TABLE_REF})|COLUMN\s+(?P<column_table>{_TABLE_REF})\s*\.\s*{_IDENT})\s+IS\s+"
+                             r"(?:'(?:[^']|'')*'|NULL)$", re.I | re.S)
+_SCRIPT_GRANT = re.compile(rf"^GRANT\s+(?P<privileges>[A-Z, ]+?)\s+ON\s+TABLE\s+(?P<table>{_TABLE_REF})\s+TO\s+(?:{_IDENT}|PUBLIC)"
+                           r"(?:\s+WITH\s+GRANT\s+OPTION)?$", re.I)
+_TABLE_PRIVILEGES = {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "ALL", "ALL PRIVILEGES"}
+
+
+def table_script_statements(text):
+    """The statements of `text` when it is more than one (comments and empty ones dropped), else []."""
+    statements = [sqlparse.format(s, strip_comments=True).strip().rstrip(";").strip() for s in sqlparse.split(text or "") if s.strip(" \t\r\n;")]
+    statements = [s for s in statements if s]
+    first_words = [s.split(None, 1)[0].upper() for s in statements]
+    if len(statements) > 1 and first_words[0] == "CREATE" and all(word in ("ALTER", "COMMENT", "GRANT") for word in first_words[1:]):
+        return statements
+    return []                    # anything else keeps the old rule: one statement at a time
+
+
+def _plain_name(ref):
+    """schema.table without quotes or spaces, for comparing two spellings of the same name."""
+    return re.sub(r'"', "", re.sub(r"\s*\.\s*", ".", ref))
+
+
+def _parse_table_script(statements):
+    first = parse_create(statements[0])
+    if first["object_type"] != "TABLE" or not first["names"]:
+        raise PgError("Several statements can be run together only to create one table and set it up (owner, comments, privileges).")
+    created = _plain_name(first["names"][0])
+    for extra in statements[1:]:
+        owner, comment, grant = _SCRIPT_OWNER.match(extra), _SCRIPT_COMMENT.match(extra), _SCRIPT_GRANT.match(extra)
+        if owner or grant:
+            target = (owner or grant).group("table")
+        elif comment:
+            target = comment.group("table") or comment.group("column_table")
+        else:
+            target = None
+        if not target or _plain_name(target) != created:
+            raise PgError("A new table can be followed only by ALTER TABLE … OWNER TO, COMMENT ON and GRANT … ON TABLE for that same table.")
+        if grant and any(word.strip().upper() not in _TABLE_PRIVILEGES for word in grant.group("privileges").split(",")):
+            raise PgError("GRANT after CREATE TABLE can give SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER or ALL.")
+    return {**first, "statement": ";\n".join(statements), "script": statements}
+
+
 def parse_create(text):
+    script = table_script_statements(text)
+    if script:
+        return _parse_table_script(script)
     cleaned, _ = prepare_statement(text, "CREATE", allow_returning=True)
     if _CREATE_REFUSED.match(cleaned):
         raise PgError("CREATE TABLESPACE, SERVER and similar server-level objects are not available here; run those in psql.")
@@ -720,7 +767,8 @@ def _ddl_and_diff(conn, parsed):
     """Run the CREATE/ALTER and return (what changed, the definitions it replaced)."""
     before_definitions = _definitions_before(conn, parsed["names"])
     before = _snapshot(conn)
-    _run(conn, parsed["statement"])
+    for statement in parsed.get("script") or [parsed["statement"]]:     # a new table may come with its owner, comments and privileges
+        _run(conn, statement)
     return _diff(before, _snapshot(conn), conn), before_definitions
 
 
@@ -766,6 +814,8 @@ def _preview_ddl(server, database, text, verb):
         if parsed["or_replace"] and replaced:
             notes.append({"text": "OR REPLACE overwrites the existing definition of " + ", ".join(c["name"] for c in replaced) +
                                   ". The old definition is kept in the audit log for views, not for functions.", "bad": True})
+        for extra in (parsed.get("script") or [])[1:]:
+            notes.append({"text": "Then: " + extra, "bad": False})
         loaded = [c for c in changes if c["action"] == "create" and c["rows"]]
         for c in loaded:
             notes.append({"text": f"{c['name']} is filled with {c['rows']:,} row{'s' if c['rows'] != 1 else ''} from the query.", "bad": False})

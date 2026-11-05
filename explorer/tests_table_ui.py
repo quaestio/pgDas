@@ -76,7 +76,7 @@ class TableButtonsTests(AdminFixture, TestCase):
         self.assertIn('href="/static/tables.css"', staff_home)
         self.assertNotIn("table_dialogs.js", plain_home)
         script = (BASE_DIR / "static" / "table_dialogs.js").read_text(encoding="utf-8")
-        for needle in ("REORDER COLUMNS (", "pgdasReview.start", "DROP TABLE ", "DROP COLUMN ", "RENAME COLUMN ", "ADD COLUMN ", "CREATE TABLE ", "SET NOT NULL", "DROP DEFAULT",
+        for needle in ("REORDER COLUMNS (", "pgdasReview.start", "DROP TABLE ", "DROP COLUMN ", "RENAME COLUMN ", "ADD COLUMN ", "TABLE \" + target", "SET NOT NULL", "DROP DEFAULT",
                        "USING ", "pgdas:changed", "data-order-apply"):
             self.assertIn(needle, script)
         for official in ("bigint", "bigserial", "bit varying", "boolean", "box", "bytea", "character varying", "cidr", "circle", "date", "double precision", "inet",
