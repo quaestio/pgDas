@@ -1,3 +1,4 @@
+from access_control import runtime
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -16,7 +17,7 @@ PERIODS = (1, 7, 30, 90)
 @login_required
 @staff_required
 def watch_page(request):
-    return render(request, "watch/page.html", {"servers": ServerConnection.objects.all(), "periods": PERIODS})
+    return render(request, "watch/page.html", {"servers": runtime.servers(), "periods": PERIODS})
 
 
 @login_required

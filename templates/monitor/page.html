@@ -132,7 +132,7 @@
       cell(tr, s.state + (s.wait ? " (" + s.wait + ")" : ""), s.state.indexOf("idle in transaction") === 0 ? "bad-text" : "");
       cell(tr, s.state === "active" ? dur(s.running) : (s.in_transaction != null ? "txn " + dur(s.in_transaction) : "")); cell(tr, "").appendChild(sql(s.query));
       stopButtons(tr.insertCell(), s.pid, s.state === "active");
-    }, "No other sessions are connected to this server right now. PGDAS\u2019s own connection, used to read this page, is not listed. Anything that connects (pgAdmin, an application, psql) appears here within a few seconds.");
+    }, "No other sessions are connected to this server right now. PGDAS\u2019s own connection, used to read this page, is not listed. Anything that connects (a database tool, an application, psql) appears here within a few seconds.");
     var table = $("mnStmtTable"); table.hidden = !d.statements; $("mnStmtNote").textContent = d.statements ? "The most expensive statements since the statistics were last reset, from pg_stat_statements." : (d.statements_note || "");
     if (d.statements) fill("mnStmts", d.statements, function (tr, s) { cell(tr, s.calls); cell(tr, s.total); cell(tr, s.mean); cell(tr, s.max); cell(tr, s.rows); cell(tr, "").appendChild(sql(s.query)); });
     $("mnStatus").className = "muted"; $("mnStatus").textContent = "Updated " + new Date().toLocaleTimeString();

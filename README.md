@@ -4,7 +4,7 @@
 
 A web admin for PostgreSQL. Browse servers, databases, roles, schemas, tables, views, functions and more; run SQL; create
 and drop databases and users; and keep an audit log of everything people do. Built with Django; nothing to install but
-PGDAS itself, which keeps its own data in a single SQLite file.
+PGDAS itself and a PostgreSQL database of its own for its users, saved servers and audit log.
 
 **Status: in development.** Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
 timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
@@ -12,12 +12,10 @@ popup and recorded in the audit log (see "Changing data"). Backups are done (see
 roadmap).
 
 **Upgrading from the earlier name (PgDeck):** the Python package is now `pgdas`, the settings are `PGDAS_*` instead of
-`PGDECK_*`, the data file is `data/pgdas.sqlite3` instead of `data/pgdeck.sqlite3` (move it, with any `-wal` and `-shm`
-files next to it, while PGDAS is stopped) and the Docker volume is `pgdas-data`. Rename the variables in your `.env`;
-`PGDECK_*` names are no longer read.
+`PGDECK_*`, and the Docker volume is `pgdas-data`. Rename the variables in your `.env`; `PGDECK_*` names are no longer read.
 
 ## Features
-- One Object Browser in the sidebar, laid out like pgAdmin's:
+- One Object Browser in the sidebar, laid out as a tree:
   - **Server:** Databases, Roles (login and group roles, with their memberships), Tablespaces.
   - **Database:** Catalogs (`pg_catalog`, `information_schema`), Extensions, Event Triggers, Publications, Schemas.
   - **Schema:** Tables, Views, Materialized Views, Functions, Procedures, Sequences, Types / Domains. Tables also show
@@ -64,9 +62,9 @@ other statement, and anything typed with scripting switched off, still runs read
   would take along. The audit record keeps the `CREATE` statement of dropped tables for reference. `DROP TABLESPACE`
   and `DROP OWNED` are not available here.
 - **CREATE / ALTER:** the statement is tried in the rolled-back transaction and the popup lists exactly what would be created or changed (tables, columns, indexes, constraints, sequences...). A plain `CREATE` or `ALTER` needs just a button; an `ALTER` that drops, renames, changes a type or owner, or takes another object with it asks you to type **`ALTER`**. The audit record keeps the changes and the previous `CREATE` of an altered table or view. `CREATE TABLESPACE`, temporary objects and `CONCURRENTLY` are not available.
-- **Databases, users and grants:** roles and grants are tried in the rolled-back transaction and the popup lists the roles, memberships and privileges that change. `CREATE DATABASE` and `DROP DATABASE` cannot run inside a transaction, so they are described from the catalogs and cannot be rolled back (`DROP DATABASE` shows the size and open connections, and asks you to type the database's name: the prompt says "Type the database name to confirm" without spelling it out, a line under the box says how the typing is going, the button stays disabled until the name matches exactly, and a two-blip warning sound plays; this is the same for a `DROP DATABASE` typed in the SQL runner). In the Object Browser, the **Databases** list has **Create database** (a tabbed dialog like pgAdmin's: General, Definition, SQL) and **Rename** and **Delete** on every row, plus **Details**, which opens the database in the tree; the **Roles** list has **Create login / group role** (General, Definition, Privileges, Membership, SQL). Every dialog shows the SQL it will run and, on Save, the same review popup as the SQL runner. **Passwords are never kept:** the popup, the audit log and the history show `PASSWORD '********'`. The role saved for the server needs the matching PostgreSQL rights (`CREATEDB`, `CREATEROLE`, grant option).
+- **Databases, users and grants:** roles and grants are tried in the rolled-back transaction and the popup lists the roles, memberships and privileges that change. `CREATE DATABASE` and `DROP DATABASE` cannot run inside a transaction, so they are described from the catalogs and cannot be rolled back (`DROP DATABASE` shows the size and open connections, and asks you to type the database's name: the prompt says "Type the database name to confirm" without spelling it out, a line under the box says how the typing is going, the button stays disabled until the name matches exactly, and a two-blip warning sound plays; this is the same for a `DROP DATABASE` typed in the SQL runner). In the Object Browser, the **Databases** list has **Create database** (a tabbed dialog: General, Definition, SQL) and **Rename** and **Delete** on every row, plus **Details**, which opens the database in the tree; the **Roles** list has **Create login / group role** (General, Definition, Privileges, Membership, SQL). Every dialog shows the SQL it will run and, on Save, the same review popup as the SQL runner. **Passwords are never kept:** the popup, the audit log and the history show `PASSWORD '********'`. The role saved for the server needs the matching PostgreSQL rights (`CREATEDB`, `CREATEROLE`, grant option).
 - **Permissions are PostgreSQL's.** Whoever has the host, user and password of a role can do what that role may do, so PGDAS adds no rules of its own on top for staff. Anything the role is not allowed is refused with PostgreSQL's own reason (for example `permission denied for table x`, `must be owner of table x`, `permission denied to create role`). `CREATE DATABASE` and `DROP DATABASE` cannot be tried out in a rolled-back transaction, so the role's rights are checked up front and the refusal comes before any popup asks for a typed word. When PostgreSQL only warns (for example `no privileges were granted` for a `GRANT` the role may not make), the popup shows that warning.
-- **Security tab on Create database.** Like pgAdmin's: add rows of grantee (a role or PUBLIC) with CREATE, TEMPORARY, CONNECT or ALL, each optionally WITH GRANT OPTION. The SQL tab shows them as GRANT statements after the CREATE DATABASE, and the review popup lists them. The roles are checked first; if PostgreSQL refuses a GRANT after the database exists, the database stays and you are told which statement failed. In the SQL runner the same works as `CREATE DATABASE x; GRANT ... ON DATABASE x ...;` (only GRANT or REVOKE on that same database may follow).
+- **Security tab on Create database.** Add rows of grantee (a role or PUBLIC) with CREATE, TEMPORARY, CONNECT or ALL, each optionally WITH GRANT OPTION. The SQL tab shows them as GRANT statements after the CREATE DATABASE, and the review popup lists them. The roles are checked first; if PostgreSQL refuses a GRANT after the database exists, the database stays and you are told which statement failed. In the SQL runner the same works as `CREATE DATABASE x; GRANT ... ON DATABASE x ...;` (only GRANT or REVOKE on that same database may follow).
 - Each takes **one plain statement at a time** (no `WITH`, no `RETURNING` on UPDATE/DELETE) and, for row changes,
   ordinary tables only.
 
@@ -92,27 +90,29 @@ Re-insert fails, and changes nothing, if a row with the same key now exists or a
 login only the rights it needs (for example `DELETE` on the tables staff may clear): PGDAS can only do what that login may.
 
 ## Where PGDAS keeps its own data
-PGDAS needs **no database server of its own**. Its users, saved servers, audit log and sessions are stored in one
-SQLite file, `data/pgdas.sqlite3` (change it with `PGDAS_SQLITE_PATH`). The file and its folder are created on
-first start. **Back it up** by copying the file while PGDAS is stopped, or with `sqlite3 data/pgdas.sqlite3 ".backup copy.sqlite3"`.
-SQLite allows one writer at a time, which is plenty for a team browsing and querying; it is not meant for dozens of
-people writing at the same moment.
-
-The PostgreSQL servers you *browse* are separate: you add them in the app.
-
+PGDAS keeps its users, saved servers, audit log and sessions in a **PostgreSQL database of its own**, separate from the
+servers you browse (you add those in the app). Create it once, with a login that owns it:
+```sql
+CREATE ROLE pgdas_app LOGIN PASSWORD '...' CREATEDB;   -- CREATEDB only if you want to run the tests
+CREATE DATABASE pgdas_identity OWNER pgdas_app;
+```
+and set `PGDAS_APP_DB_NAME`, `PGDAS_APP_DB_USER`, `PGDAS_APP_DB_PASSWORD`, `PGDAS_APP_DB_HOST`, `PGDAS_APP_DB_PORT` and
+`PGDAS_APP_DB_SSLMODE` in `.env` (see `.env.example`). PGDAS refuses to start, and says which setting is missing, if the
+name or the login is not set. **Back it up** like any PostgreSQL database (`pg_dump pgdas_identity`). Use verified TLS
+(`PGDAS_APP_DB_SSLMODE=verify-full`) when the database is on another machine.
 ## Quick start with Docker (server or local)
-``bash
+```bash
 cp .env.example .env        # then set PGDAS_SECRET_KEY
 docker compose up -d --build
 docker compose exec pgdas python manage.py createsuperuser
-``
-Open http://localhost:8000. The data lives in the `pgdas-data` volume. The port is bound to localhost; put an https
+```
+Open http://localhost:8000. PGDAS's own database lives in the `pgdas-db` volume and the backup files in `pgdas-data`. The port is bound to localhost; put an https
 reverse proxy (Caddy, nginx) in front before exposing it, then set `PGDAS_ALLOWED_HOSTS`,
 `PGDAS_CSRF_TRUSTED_ORIGINS` and `PGDAS_SECURE_COOKIES=1`.
 
 ## Quick start without Docker (Windows, macOS, Linux)
-Requires Python 3.12+. No database to set up.
-``bash
+Requires Python 3.12+ and a PostgreSQL database of its own for PGDAS (see above).
+```bash
 python -m venv .venv
 .venv/Scripts/activate       # Linux/macOS: source .venv/bin/activate
 pip install -r requirements.txt
@@ -120,7 +120,7 @@ cp .env.example .env         # set PGDAS_DEBUG=1 for local use, or PGDAS_SECRET_
 python manage.py migrate
 python manage.py createsuperuser
 waitress-serve --listen=127.0.0.1:8000 pgdas.wsgi:application
-``
+```
 Use the virtual environment's Python (the `.venv` above), not your system Python, or packages will be missing.
 
 ## Connecting to the databases you manage
@@ -135,21 +135,22 @@ remote servers.
 - Never expose PGDAS on the public internet without https and access restrictions (VPN or IP allow-list).
 - `PGDAS_SECRET_KEY` signs sessions and, unless you set `PGDAS_ENCRYPTION_KEY`, derives the key that encrypts saved
   passwords. Changing it makes saved passwords unreadable; edit each server and re-enter its password.
-- `data/pgdas.sqlite3` holds password hashes and encrypted server passwords: keep it out of git (it is ignored),
-  out of shared folders, and readable only by the account that runs PGDAS.
+- The `pgdas_identity` database holds password hashes and encrypted server passwords: give its login to nobody else,
+  keep `.env` out of git (it is ignored) and out of shared folders, and back the database up to a protected place.
 - Read-only is enforced by PostgreSQL (`BEGIN READ ONLY`), not by filtering SQL text.
 
 ## Tests
-PGDAS's own data uses SQLite, so most tests need nothing. The explorer tests browse a real PostgreSQL server and
+The tests run on PostgreSQL: Django creates and drops a temporary `test_<name>` copy of PGDAS's own database, so `PGDAS_APP_DB_USER`
+needs the `CREATEDB` right. The explorer tests also browse a real PostgreSQL server and
 create and drop a scratch database `pgdas_test_target` on it, so they need a login that can create databases:
-``bash
+```bash
 # in .env, or as environment variables
 PGDAS_TEST_PG_HOST=localhost
 PGDAS_TEST_PG_PORT=5432
 PGDAS_TEST_PG_USER=postgres
 PGDAS_TEST_PG_PASSWORD=...
 python manage.py test
-``
+```
 Without a reachable PostgreSQL those tests are skipped and say why.
 
 ## Backups
@@ -225,3 +226,7 @@ samples) sends the alerts, so you hear about a problem without watching the page
 
 ## License
 MIT — see [LICENSE](LICENSE).
+
+## Organization accounts and database permissions
+
+PGDAS now uses custom application accounts, first-install organization setup, employee management, and explicit database/action assignments. Read [the installation, migration and permission guide](docs/permissions.md) before upgrading or adding employees. PGDAS keeps its own data in a separate PostgreSQL application database. Existing accounts are retained. PostgreSQL execution privileges remain an independent requirement.

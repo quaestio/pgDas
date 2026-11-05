@@ -19,7 +19,7 @@
   {% else %}<p class="muted">Add a server first.</p>{% endif %}
 </section>
 
-<section class="panel pad">
+{% if user.is_staff %}<section class="panel pad">
   <h2>Schedules</h2>
   <p class="muted">Backups that are due are made when <code>python manage.py run_backups</code> runs (from Task Scheduler or cron, or keep it going with <code>--loop</code>). Only scheduled backups are pruned to the newest few.</p>
   {% if servers %}
@@ -44,7 +44,7 @@
   {% endif %}
 </section>
 
-<section class="panel pad scroll">
+{% endif %}<section class="panel pad scroll">
   <h2>Backups</h2>
   <table>
     <thead><tr><th>WHEN (UTC)</th><th>SERVER</th><th>DATABASE</th><th>KIND</th><th>SIZE</th><th>RESULT</th><th></th></tr></thead>
@@ -59,16 +59,16 @@
           {% if b.available %}
           <div class="record-actions">
             <a class="btn" href="{% url 'backup_download' b.pk %}">Download</a>
-            <details><summary class="btn">Restore…</summary>
+            {% if user.is_staff %}<details><summary class="btn">Restore…</summary>
               <form method="post" action="{% url 'backup_restore' b.pk %}" class="row-form">{% csrf_token %}
                 <input type="text" name="new_name" placeholder="new database name" required aria-label="New database name">
                 <input type="text" name="confirm" placeholder="type {{ restore_word }}" required autocomplete="off" aria-label="Type {{ restore_word }} to confirm">
                 <button class="btn danger" type="submit">Restore</button>
               </form>
-            </details>
+            </details>{% endif %}
           </div>
           {% endif %}
-          {% if b.status != "running" %}
+          {% if user.is_staff and b.status != "running" %}
           <form method="post" action="{% url 'backup_delete' b.pk %}" data-typed-confirm="{{ b.database }}" data-confirm-title="DELETE BACKUP" data-confirm-button="Delete backup" data-confirm-prompt="Type the database name to confirm"
                 data-confirm-message="{% if b.available %}This permanently deletes the backup file of {{ b.database }}.{% else %}This removes the record of a failed backup of {{ b.database }}; there is no file.{% endif %}"
                 data-confirm-detail="{{ b.server_name }} · {{ b.created_at|date:'Y-m-d H:i' }} UTC{% if b.available %} · {{ b.size|filesizeformat }}{% endif %}"

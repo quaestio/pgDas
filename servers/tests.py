@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -33,8 +34,8 @@ class ServerViewTests(TestCase):
         server = ServerConnection.objects.create(name="x", host="h", username="u")
         self.client.force_login(self.viewer)
         for url in (reverse("server_add"), reverse("server_edit", args=[server.pk]), reverse("server_delete", args=[server.pk])):
-            self.assertEqual(self.client.get(url).status_code, 302, url)
-            self.assertEqual(self.client.post(url, FORM).status_code, 302, url)
+            self.assertEqual(self.client.get(url).status_code, 403, url)           # a Viewer may not manage servers (Super Users only)
+            self.assertEqual(self.client.post(url, FORM).status_code, 403, url)
         self.assertEqual(ServerConnection.objects.count(), 1)
 
     def test_staff_adds_server_password_is_encrypted_and_audited(self):
@@ -94,11 +95,17 @@ class ServerViewTests(TestCase):
         self.assertNotContains(page, "s3cret-value")
         self.assertNotContains(page, server.password_encrypted)
 
-    def test_audit_log_is_staff_only(self):
+    def test_the_audit_log_shows_everyone_to_super_users_and_only_their_own_records_to_others(self):
+        from audit.models import record
+        record(self.staff, "sql.run", None, "SELECT staff_only_record", ok=True)
+        record(self.viewer, "sql.run", None, "SELECT viewer_own_record", ok=True)
         self.client.force_login(self.viewer)
-        self.assertEqual(self.client.get(reverse("audit_list")).status_code, 302)
+        page = self.client.get(reverse("audit_list"))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, "staff_only_record")                    # only a Super User sees the organization's whole history
         self.client.force_login(self.staff)
-        self.assertEqual(self.client.get(reverse("audit_list")).status_code, 200)
+        page = self.client.get(reverse("audit_list"))
+        self.assertContains(page, "staff_only_record")
 
     def test_audit_page_lists_each_entry_with_its_details(self):
         # Regression: a template variable named "page" once hid the paginator and rendered blank rows.
@@ -111,12 +118,12 @@ class ServerViewTests(TestCase):
         self.assertContains(page, "DELETE FROM audit_check")
         self.assertContains(page, "failed")
         self.assertContains(page, "Page 1 of 1")
-        self.assertEqual(page.content.decode().count("<tr>"), 3)  # header + two entries
+        self.assertEqual(len(page.context["page"].object_list), 2)
 
     def test_navigation_highlights_the_current_section(self):
         self.client.force_login(self.staff)
-        self.assertContains(self.client.get(reverse("audit_list")), 'href="/audit/" class="active"')
-        self.assertNotContains(self.client.get(reverse("server_list")), 'href="/audit/" class="active"')
+        self.assertContains(self.client.get(reverse("audit_list")), 'class="rail-item active" href="/audit/"')
+        self.assertNotContains(self.client.get(reverse("server_list")), 'class="rail-item active" href="/audit/"')
 
     def test_delete_keeps_audit_history(self):
         self.client.force_login(self.staff)

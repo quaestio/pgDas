@@ -1,7 +1,8 @@
 """Databases, users (roles) and grants from the SQL runner: parsing, the popup facts, the confirmation words, no passwords kept."""
 import json
 
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry, record, redact_secrets
@@ -306,8 +307,7 @@ class SwitchTests(AdminFixture, TestCase):
             with self.subTest(sql=sql):
                 response = plain.post(reverse("write_preview", args=[self.server.pk]), json.dumps({"sql": sql, "db": self.db}),
                                       content_type="application/json")
-                self.assertEqual(response.status_code, 403)
-                self.assertIn("Only staff", response.json()["error"])
+                self.assertIn(response.status_code, (403, 404))                  # not their server: nothing was run
         self.assertFalse(self.role_exists())
 
     def test_the_endpoint_previews_and_executes(self):
@@ -349,10 +349,10 @@ class DialogTests(AdminFixture, TestCase):
         self.assertIn(TARGET["NAME"], data["databases"])
 
     def test_other_users_only_get_details(self):
-        page = self.database_list(self.other_user())
-        self.assertContains(page, "data-open-database=")
-        for text in ("Create database", "Rename", "Delete", "data-admin"):
-            self.assertNotContains(page, text)
+        page = self.database_list(self.other_user())               # a person with no role on this server is not shown it at all
+        self.assertEqual(page.status_code, 404)
+        for text in ("data-open-database=", "Create database", "Rename", "Delete", "data-admin"):
+            self.assertNotContains(page, text, status_code=404)
 
     def test_the_roles_list_has_create_role(self):
         page = self.client.get(reverse("detail"), {"type": "roles", "server": self.server.pk})
@@ -374,8 +374,10 @@ class DialogTests(AdminFixture, TestCase):
         plain = self.other_user()
         for name in ("server_list",):
             page = plain.get(reverse(name))
-            for text in ("dlgCreateDb", "changeModal", "admin_dialogs.js", "review.js"):
+            for text in ("dlgCreateDb", "admin_dialogs.js"):                  # the admin dialogs are for Super Users only ...
                 self.assertNotContains(page, text)
+            for text in ("changeModal", "review.js"):                         # ... the review popup is on every page: Editors use it for their own changes
+                self.assertContains(page, text)
 
     def test_the_scripts_build_quoted_sql_and_go_through_the_review_popup(self):
         script = open("static/admin_dialogs.js", encoding="utf-8").read()

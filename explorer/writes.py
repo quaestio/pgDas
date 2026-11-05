@@ -162,6 +162,10 @@ def execute_delete(server, database, text, expected_count, expected_side_effects
         effects = _side_effects(conn, schema, table)
         if not rows:
             raise PgError("No rows match, so there is nothing to delete.")
+        from access_control import runtime
+        from access_control.sql_policy import authorize_effects
+        if runtime.user():
+            authorize_effects(user, server, database, effects)
         if len(rows) != expected_count or effects != expected_side_effects:
             raise PgError(f"The data changed since you checked: {expected_count} rows were expected and "
                           f"{len(rows)} match now. Nothing was deleted. Run the statement again to check.")

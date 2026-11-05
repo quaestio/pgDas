@@ -1,3 +1,4 @@
+from access_control import runtime
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, render
@@ -41,7 +42,7 @@ def monitor_feature_change(request):
 @login_required
 @staff_required
 def monitor_page(request):
-    return render(request, "monitor/page.html", {"servers": ServerConnection.objects.all()})
+    return render(request, "monitor/page.html", {"servers": runtime.servers()})
 
 
 @login_required

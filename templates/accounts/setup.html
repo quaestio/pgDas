@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}First installation · PGDAS{% endblock %}
+{% block anonymous %}<main class="content"><h1>Set up PGDAS</h1><p>Create your organization and its first Super User.</p><p class="muted">On the server host, run <code>python manage.py installation_token</code> to obtain the installation token. Setup closes permanently after completion.</p><section class="panel pad account-form"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn primary" type="submit">Create organization and Super User</button></form></section></main>{% endblock %}

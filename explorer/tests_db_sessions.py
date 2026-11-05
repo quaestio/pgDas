@@ -4,7 +4,8 @@ from pathlib import Path
 
 import psycopg
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry

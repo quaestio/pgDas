@@ -2,7 +2,8 @@
 import datetime
 import json
 
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -139,4 +140,4 @@ class ReorderTests(RebuildFixture):
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
         response = plain.post(reverse("write_preview", args=[self.server.pk]),
                               json.dumps({"sql": REORDER.format("people", '"name", "id", "email", "age", "note"'), "db": DB}), content_type="application/json")
-        self.assertEqual(response.status_code, 403)
+        self.assertIn(response.status_code, (403, 404))

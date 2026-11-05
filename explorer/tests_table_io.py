@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry

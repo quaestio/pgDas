@@ -1,6 +1,7 @@
 """The 'My recent statements' list on the SQL page: your own statements on this server, newest first, each one once."""
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import record
@@ -30,7 +31,7 @@ class HistoryTests(WriteFixture, TestCase):
         self.assertContains(self.client.get(self.url), "failed")
 
     def test_only_my_own_statements_on_this_server(self):
-        other = get_user_model().objects.create_user("pat", password="pw-12345-abc")
+        other = get_user_model().objects.create_user("pat", password="pw-12345-abc", is_staff=True)       # another Super User of the same organization
         record(other, "sql.run", self.server, "SELECT 'pats secret'")
         record(self.staff, "sql.run", None, "SELECT 'other server'")
         record(self.staff, "server.edit", self.server, "not a statement")

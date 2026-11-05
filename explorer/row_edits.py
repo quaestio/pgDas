@@ -142,7 +142,7 @@ def _apply(conn, data):
         statements.append(f"DELETE FROM {_ident(schema)}.{_ident(table)} WHERE " + " AND ".join(f"{_ident(c)} = {_literal(item['key'][c])}" for c in pk))
 
     changed_columns = [name for name in columns if name not in locked and any(old.get(name) != new.get(name) for old, new in zip(old_rows, new_rows))]
-    return {"schema": schema, "table": table, "pk": pk, "old": old_rows, "new": new_rows, "inserted": inserted, "deleted": deleted,
+    return {"schema": schema, "table": table, "pk": pk, "order": list(columns), "old": old_rows, "new": new_rows, "inserted": inserted, "deleted": deleted,
             "columns": changed_columns, "lines": lines, "statements": statements,
             "digest": hashlib.sha256(json.dumps([old_rows, deleted], sort_keys=True, default=str).encode()).hexdigest()}
 
@@ -183,7 +183,7 @@ def execute(server, database, data, fingerprint, confirm, user):
             raise PgError(f"Type {writes.CONFIRM_WORD} in capital letters to confirm.")
         total = len(result["old"]) + len(result["inserted"]) + len(result["deleted"])
         payload = {"kind": "rows", "database": changes._current_database(conn), "schema": result["schema"], "table": result["table"], "count": total,
-                   "pk": result["pk"], "columns": result["columns"], "old": result["old"], "new": result["new"],
+                   "pk": result["pk"], "columns": result["columns"], "order": result["order"], "old": result["old"], "new": result["new"],
                    "inserted": result["inserted"], "deleted": result["deleted"]}
         detail = ";\n".join(result["statements"])
         entry = changes._commit_after_recording(conn, server, user, "rows.edit", detail, total, payload, "changed")

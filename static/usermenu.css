@@ -1,0 +1,35 @@
+/* The person menu in the header: avatar, name and designation, opening a dropdown (Profile, Change Password, Logout).
+   The circle is the theme's own .avatar; this adds the trigger, the panel and a larger size for the card and the profile page. */
+.user-menu { position: relative; }
+.user-trigger { display: flex; align-items: center; gap: 10px; padding: 4px 12px 4px 5px; background: #03264a; color: #fff; font: inherit;
+  border: 1px solid #12507a; cursor: pointer; text-align: left; transition: background .15s, border-color .15s, box-shadow .15s; }
+.user-trigger:hover, .user-trigger:focus-visible, .user-menu.open .user-trigger { background: #04335f; border-color: var(--accent); box-shadow: 0 0 12px #00bfff33; outline: none; }
+.user-text { display: flex; flex-direction: column; min-width: 0; max-width: 200px; line-height: 1.25; }
+.user-text strong, .user-card strong { font-size: 13px; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-text small, .user-card small { font-size: 11px; color: #84bbd9; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-caret { font-size: 11px; color: var(--accent); transition: transform .15s; }
+.user-menu.open .user-caret { transform: rotate(180deg); }
+.avatar.big { width: 46px; height: 46px; font-size: 17px; flex: none; }
+.user-panel { position: absolute; right: 0; top: calc(100% + 8px); width: 250px; z-index: 30; background: #03152b; border: 1px solid #12507a;
+  box-shadow: 0 10px 30px #000a, 0 0 18px #00bfff22; }
+.user-panel:not([hidden]) { animation: user-panel-in .14s ease-out; }
+@keyframes user-panel-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.user-card { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid #12507a; min-width: 0; }
+.user-card > div { display: flex; flex-direction: column; min-width: 0; }
+.user-panel a, .user-panel button { display: block; width: 100%; box-sizing: border-box; padding: 11px 16px; background: none; border: 0; color: #cfe8f7;
+  font: inherit; font-size: 13px; text-align: left; text-decoration: none; cursor: pointer; }
+.user-panel a:hover, .user-panel button:hover, .user-panel a:focus-visible, .user-panel button:focus-visible { background: #03335d; color: #fff; outline: none; }
+.user-panel form { margin: 0; border-top: 1px solid #12507a; }
+.user-panel form button { color: #ff9aa8; }
+.user-panel form button:hover, .user-panel form button:focus-visible { background: #3a1522; color: #ffc2cb; }
+@media (max-width: 640px) { .user-text, .user-caret { display: none; } .user-trigger { padding: 4px; } }
+@media (prefers-reduced-motion: reduce) { .user-panel:not([hidden]) { animation: none; } .user-caret { transition: none; } }
+
+/* Profile page */
+.profile-head { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; }
+.profile-head h2 { margin: 0; }
+.profile-head p { margin: 2px 0 0; }
+.profile-form { margin-top: 18px; max-width: 420px; display: flex; flex-direction: column; gap: 8px; }
+.profile-form label { font-size: 11px; letter-spacing: .5px; color: var(--muted, #7fa6c4); }
+.profile-form input[type=text] { height: 38px; box-sizing: border-box; padding: 0 12px; width: 100%; }
+.profile-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }

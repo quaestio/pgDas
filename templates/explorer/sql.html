@@ -26,6 +26,8 @@
     <p class="muted" style="margin-top:10px">Runs read-only: PostgreSQL rejects any statement that would change data. Results are capped and time-limited, and every run is recorded in the audit log.</p>
     {% endif %}
     <button class="btn primary" type="submit" id="runButton">Run</button>
+    {% if can_export %}<button class="btn" type="submit" formaction="{% url 'sql_export' server.pk %}" id="exportButton">Export (read query)</button>
+    <select name="format" aria-label="Export format"><option value="csv">CSV</option><option value="json">JSON</option></select>{% endif %}
   </form>
 </section>
 {% if history %}

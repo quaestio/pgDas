@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -99,7 +100,7 @@ class ReindexTests(IndexFixture):
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
         response = plain.post(reverse("write_preview", args=[self.server.pk]), json.dumps({"sql": 'REINDEX TABLE "public"."people"', "db": DB}), content_type="application/json")
-        self.assertEqual(response.status_code, 403)
+        self.assertIn(response.status_code, (403, 404))
 
 
 class IndexTabTests(IndexFixture):
@@ -115,12 +116,13 @@ class IndexTabTests(IndexFixture):
         primary = re.search(r'<tr data-index="people_pkey">.*?</tr>', html, re.S).group(0)
         self.assertNotIn("drop-index", primary)                                         # the key's index is dropped as a constraint, not here
 
-    def test_others_get_a_plain_list(self):
+    def test_people_without_a_role_on_this_server_get_no_page_and_no_buttons(self):
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
-        html = self.page(plain)
-        self.assertNotIn("data-table-dialog", html)
-        self.assertIn("people_name", html)
+        response = plain.get(reverse("detail"), {"type": "table", "server": self.server.pk, "db": DB, "schema": "public", "table": "people", "tab": "indexes"})
+        self.assertEqual(response.status_code, 404)
+        self.assertNotContains(response, "data-table-dialog", status_code=404)
+        self.assertNotContains(response, "people_name", status_code=404)
 
     def test_the_script_builds_each_statement(self):
         script = (BASE_DIR / "static" / "table_dialogs.js").read_text(encoding="utf-8")

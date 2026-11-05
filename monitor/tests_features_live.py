@@ -1,7 +1,8 @@
 """The monitoring settings against a real PostgreSQL: reading them, and installing / removing the extension in the scratch database.
 ALTER SYSTEM (the server-wide settings) is deliberately not run here: it would change the test server's own configuration."""
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 from psycopg import sql
 
@@ -60,4 +61,4 @@ class LiveFeatureTests(WriteFixture, TestCase):
         self.assertEqual(client.get(reverse("monitor_features"), {"server": self.server.pk}).json()["database"], self.db)
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
-        self.assertEqual(plain.get(reverse("monitor_features"), {"server": self.server.pk}).status_code, 302)
+        self.assertEqual(plain.get(reverse("monitor_features"), {"server": self.server.pk}).status_code, 403)

@@ -42,27 +42,40 @@ def parse_node(params):
 def get_server(node):
     """The saved server a node belongs to, or None when the id is missing or unknown."""
     try:
-        return ServerConnection.objects.filter(pk=int(node["server"])).first()
+        from access_control.runtime import servers
+        return servers().filter(pk=int(node["server"])).first()
     except (TypeError, ValueError):
         return None
 
 
 def children(node):
+    from access_control import runtime
+    from access_control.policy import require, filter_databases
     kind = node["type"]
     if kind == "servers":
         # No host:port hint here: the sidebar is narrow and the server's details pane already shows it.
-        return [make_node(s.name, "server", server=s.pk) for s in ServerConnection.objects.all()]
+        return [make_node(s.name, "server", server=s.pk) for s in runtime.servers()]
     server = get_server(node)
     if server is None:
         raise pg.PgError("That server is not saved in PGDAS.")
     db, schema, table, system = node["db"], node["schema"], node["table"], node["system"]
     sid = server.pk
+    if runtime.user() and kind not in {"server", "databases"}:
+        if kind in {"roles", "role", "tablespaces", "tablespace"}:
+            require(runtime.user(), "postgres_roles_manage", server=server)
+        else:
+            require(runtime.user(), "read", server=server, database=db)
     if kind == "server":
+        if runtime.user() and not runtime.is_admin():
+            return [make_node("Databases", "databases", server=sid)]
         return [make_node("Databases", "databases", server=sid), make_node("Roles", "roles", server=sid),
                 make_node("Tablespaces", "tablespaces", server=sid)]
     if kind == "databases":
         with pg.connect(server) as conn:
-            return [make_node(d["name"], "database", hint=d["size_text"], server=sid, db=d["name"]) for d in pg.list_databases(conn)]
+            databases = pg.list_databases(conn)
+            if runtime.user():
+                databases = filter_databases(runtime.user(), server, databases)
+            return [make_node(d["name"], "database", hint=d["size_text"], server=sid, db=d["name"]) for d in databases]
     if kind == "roles":
         with pg.connect(server) as conn:
             return [make_node(r["name"], "role", expandable=False, hint=r["kind"], name=r["name"], server=sid)

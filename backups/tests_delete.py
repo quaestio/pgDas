@@ -1,7 +1,7 @@
 """Deleting a backup: a popup that asks for the database name (instead of the browser's OK box), and the server insisting on it."""
 from pathlib import Path
 
-from django.test import TestCase
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry

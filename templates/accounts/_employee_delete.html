@@ -1,0 +1,7 @@
+<h2 id="employeeDialogTitle">Delete employee</h2>
+{% if error %}<p class="bad-text" role="alert">{{ error }}</p>{% endif %}
+<p>Delete <strong>{{ employee.display_name }}</strong> ({{ employee.email }})?</p>
+<p class="muted">The employee will be removed from this list, their login disabled, and database assignments revoked. Audit history will be retained.</p>
+<form method="post">{% csrf_token %}<input type="hidden" name="confirm" value="delete">
+<div class="employee-dialog-actions"><button class="btn danger" type="submit">Delete employee</button><button class="btn" type="button" data-employee-close>Cancel</button></div>
+</form>

@@ -3,7 +3,8 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase
+from django.test import Client, SimpleTestCase
+from pgdas.testing import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -152,4 +153,4 @@ class OptionFormTests(BackupFixture, TestCase):
         self.assertIn("error", self.client.get(reverse("backup_schemas"), {"server": self.server.pk, "database": "pgdas_no_such_db"}).json())
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
-        self.assertEqual(plain.get(reverse("backup_schemas"), {"server": self.server.pk, "database": self.db}).status_code, 302)
+        self.assertEqual(plain.get(reverse("backup_schemas"), {"server": self.server.pk, "database": self.db}).status_code, 404)   # a server they cannot see

@@ -9,6 +9,8 @@ from explorer import pg
 
 from .forms import ServerForm
 from .models import ServerConnection
+from access_control import runtime
+from access_control.models import OrganizationServer
 
 staff_required = user_passes_test(lambda user: user.is_staff)
 
@@ -17,9 +19,9 @@ staff_required = user_passes_test(lambda user: user.is_staff)
 def server_list(request):
     """Home page: the Object Browser. Servers is its top node; saved servers sit beneath it."""
     return render(request, "explorer/explorer.html", {
-        "server_count": ServerConnection.objects.count(),
-        "user_count": get_user_model().objects.filter(is_active=True).count(),
-        "sql_runs": AuditEntry.objects.filter(action="sql.run").count(),
+        "server_count": runtime.servers().count(),
+        "user_count": get_user_model().objects.filter(is_active=True, pgdas_membership__organization=request.pgdas_member.organization).count(),
+        "sql_runs": runtime.audits().filter(action="sql.run").count(),
         "preselect": request.GET.get("server", ""),
         # Opened onto a particular node (/?type=table&server=1&...) or the old /?server=1 address.
         "deep_link": bool(request.GET.get("server") or request.GET.get("type", "servers") != "servers"),
@@ -34,6 +36,7 @@ def server_add(request):
         server = form.save(commit=False)
         server.created_by = request.user
         server.save()
+        OrganizationServer.objects.get_or_create(server=server, defaults={"organization": request.pgdas_member.organization})
         detail = f"{server.username}@{server.host}:{server.port}"
         record(request.user, "server.add", server, detail)
         messages.success(request, f"Server {server.name} saved.")

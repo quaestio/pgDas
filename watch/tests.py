@@ -5,7 +5,8 @@ from io import StringIO
 import psycopg
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
-from django.test import Client, TestCase, override_settings
+from django.test import Client, override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -135,8 +136,8 @@ class PageTests(WriteFixture, TestCase):
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
         for name in ("watch", "watch_data"):
-            self.assertEqual(plain.get(reverse(name), {"server": self.server.pk}).status_code, 302)
-        self.assertEqual(plain.post(reverse("watch_sample"), {"server": self.server.pk}).status_code, 302)
+            self.assertEqual(plain.get(reverse(name), {"server": self.server.pk}).status_code, 403)
+        self.assertEqual(plain.post(reverse("watch_sample"), {"server": self.server.pk}).status_code, 403)
 
     def test_sample_now_takes_a_sample_and_is_audited(self):
         client = Client()

@@ -65,6 +65,7 @@
   function failed(message) { showMessage("error", message); tone("error"); }
 
   form.addEventListener("submit", function (event) {
+    if (event.submitter && event.submitter.id === "exportButton") return;
     var kind = kindOf(textarea.value);
     if (!kind) return;                                    // anything else runs read-only, as before
     event.preventDefault();

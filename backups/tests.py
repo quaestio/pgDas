@@ -4,7 +4,8 @@ from datetime import timedelta
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -115,8 +116,11 @@ class BackupTests(BackupFixture, TestCase):
         other = get_user_model().objects.create_user("plain", password="pw-12345-abc")
         client = Client()
         client.force_login(other)
-        self.assertEqual(client.get(reverse("backup_list")).status_code, 302)
-        self.assertEqual(client.post(reverse("backup_create"), {"server": self.server.pk, "database": self.db}).status_code, 302)
+        page = client.get(reverse("backup_list"))                                      # everyone may look; they see only what they may use
+        self.assertEqual(page.status_code, 200)
+        self.assertEqual(list(page.context["backups"]), [])
+        self.assertEqual(list(page.context["servers"]), [])
+        self.assertEqual(client.post(reverse("backup_create"), {"server": self.server.pk, "database": self.db}).status_code, 404)   # not their server
         self.assertFalse(Backup.objects.exists())
         self.assertEqual(self.client.get(reverse("backup_list")).status_code, 200)
 

@@ -17,6 +17,9 @@
   var toggle = document.getElementById("toggle");
   var mobile = window.matchMedia("(max-width: 800px)");
   function syncToggle() {
+    var label = document.getElementById("sidebarToggleLabel");
+    var expanded = mobile.matches ? document.body.classList.contains("menu-open") : !root.classList.contains("sidebar-collapsed");
+    if (label) label.textContent = expanded ? "Hide sidebar" : "Show sidebar";
     if (toggle) toggle.setAttribute("aria-expanded", String(mobile.matches ?
       document.body.classList.contains("menu-open") : !root.classList.contains("sidebar-collapsed")));
   }

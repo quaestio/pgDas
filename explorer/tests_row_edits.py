@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -172,9 +173,10 @@ class GridPageTests(GridFixture):
     def test_people_who_are_not_staff_get_the_plain_table(self):
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
-        html = self.page(plain)
-        self.assertNotIn("data-grid", html)
-        self.assertIn("Ann", html)
+        response = plain.get(reverse("detail"), {"type": "table", "server": self.server.pk, "db": DB, "schema": "public", "table": "people", "tab": "data"})
+        self.assertEqual(response.status_code, 404)                              # not their server: no page, no data, no grid
+        self.assertNotContains(response, "data-grid", status_code=404)
+        self.assertNotContains(response, "Ann", status_code=404)
 
     def test_scripts_are_wired_and_safe(self):
         home = self.client.get("/").content.decode()

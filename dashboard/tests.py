@@ -1,7 +1,8 @@
 """The home page's dashboard: totals and per-server facts read live, the buttons of each server row, and what only staff see."""
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import record
@@ -42,7 +43,9 @@ class DashboardTests(WriteFixture, TestCase):
         self.assertTrue(self.get()["can_manage"])
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
-        self.assertFalse(self.get(plain)["can_manage"])
+        refused = plain.get(reverse("dashboard_data"))                      # the server-wide dashboard is for Super Users only
+        self.assertEqual(refused.status_code, 403)
+        self.assertFalse(refused.json()["ok"])
 
     def test_the_size_trend_is_gone(self):
         d = self.get()
@@ -75,10 +78,9 @@ class DashboardTests(WriteFixture, TestCase):
         self.assertTrue(any(a["title"].startswith("Failed delete by zed") for a in d["attention"]))
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
-        d = self.get(plain)
-        self.assertFalse(d["is_staff"])
-        self.assertEqual((d["activity"], d["attention"]), ([], []))
-        self.assertEqual(d["totals"]["servers"], 1)                      # the rest is shown to everyone who signs in
+        refused = plain.get(reverse("dashboard_data"))                      # no activity, no failed changes, no totals: nothing at all
+        self.assertEqual(refused.status_code, 403)
+        self.assertNotIn("activity", refused.json())
 
 
 class HomePageTests(WriteFixture, TestCase):

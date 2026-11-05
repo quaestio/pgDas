@@ -1,3 +1,4 @@
+from access_control import runtime
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.http import FileResponse, Http404, JsonResponse
@@ -12,7 +13,7 @@ from servers.models import ServerConnection
 from . import dump
 from .models import Backup, BackupSchedule
 
-staff_required = user_passes_test(lambda user: user.is_staff)
+staff_required = user_passes_test(lambda user: user.is_authenticated)
 
 
 def _back():
@@ -28,9 +29,9 @@ def _options(request):
 @staff_required
 def backup_list(request):
     return render(request, "backups/list.html", {
-        "backups": Backup.objects.select_related("created_by")[:200],
-        "schedules": BackupSchedule.objects.select_related("server"),
-        "servers": ServerConnection.objects.all(),
+        "backups": runtime.backups().select_related("created_by")[:200],
+        "schedules": BackupSchedule.objects.filter(server__in=runtime.servers()).select_related("server") if runtime.is_admin() else BackupSchedule.objects.none(),
+        "servers": runtime.servers(),
         "restore_word": dump.RESTORE_WORD,
     })
 
@@ -42,7 +43,8 @@ def database_choices(request):
     server = get_object_or_404(ServerConnection, pk=request.GET.get("server") or 0)
     try:
         with pg.connect(server) as conn:
-            names = [d["name"] for d in pg.list_databases(conn) if d["name"] != "template0"]
+            from access_control.policy import filter_databases
+            names = [d["name"] for d in filter_databases(request.user, server, pg.list_databases(conn)) if d["name"] != "template0"]
     except PgError as error:
         return JsonResponse({"error": str(error)}, status=502)
     return JsonResponse({"databases": names})
@@ -78,6 +80,14 @@ def backup_create(request):
         options = _options(request)
     except PgError as error:
         messages.error(request, str(error))
+        return _back()
+    try:
+        server = runtime.execution_server(server, database)
+        with pg.connect(server, database):
+            pass  # Validate the restricted execution role before launching pg_dump.
+    except PgError as error:
+        messages.error(request, str(error))
+        record(request.user, "backup.create", server, str(error), ok=False, payload={"database": database})
         return _back()
     backup = dump.make_backup(server, database, request.user, options=options)
     if backup.status == "ok":

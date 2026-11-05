@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Database permissions · PGDAS{% endblock %}
+{% block content %}<h1>Database permissions</h1><p>{{ employee.user.display_name }} · {{ employee.get_role_display }}</p>
+{% if employee.role == 'super_user' %}<section class="panel pad">Super Users can administer all registered servers in their organization, within the saved PostgreSQL login's privileges.</section>
+{% else %}<section class="panel pad scroll"><table><thead><tr><th>Server</th><th>Database</th><th>Execution login</th><th>Actions</th></tr></thead><tbody>{% for grant in grants %}<tr><td>{{ grant.server }}</td><td>{{ grant.database }}</td><td>{{ grant.execution_username|default:"Not configured — execution blocked" }}</td><td><a class="btn" href="?grant={{ grant.pk }}">Edit</a><form method="post" action="{% url 'employee_revoke' employee.user_id grant.pk %}" style="display:inline">{% csrf_token %}<button class="btn danger">Revoke access</button></form></td></tr>{% empty %}<tr><td colspan="4">No databases assigned. Access is denied by default.</td></tr>{% endfor %}</tbody></table></section>
+<h2 style="margin-top:24px">Assign / update database</h2><p class="muted">Use an existing restricted PostgreSQL login with only the required rights. Superuser, role-creation, database-creation, replication and bypass-RLS privileges are refused for employee execution. PGDAS does not grant PostgreSQL privileges.</p>
+<section class="panel pad account-form"><form method="post">{% csrf_token %}{{ form.as_p }}<button class="btn primary">Save permissions</button></form></section>{% endif %}
+<p><a class="btn" href="{% url 'employee_list' %}">Back to employees</a></p>{% endblock %}

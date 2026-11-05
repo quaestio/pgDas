@@ -26,10 +26,10 @@
           </details>
           <div class="record-actions">
             <a class="btn" href="{% url 'audit_json' entry.pk %}">Download JSON</a>
-            {% if entry.can_reinsert %}
+            {% if user.is_staff and entry.can_reinsert %}
               <button type="button" class="btn danger" data-reinsert="{% url 'audit_reinsert' entry.pk %}" data-count="{{ entry.payload.count }}"
                       data-table="{{ entry.payload.schema }}.{{ entry.payload.table }}">Re-insert {{ entry.payload.count }} row{{ entry.payload.count|pluralize }}</button>
-            {% elif entry.can_undo %}
+            {% elif user.is_staff and entry.can_undo %}
               <button type="button" class="btn danger" data-reinsert="{% url 'audit_undo' entry.pk %}" data-count="{{ entry.payload.count }}" data-verb="undo"
                       data-table="{{ entry.payload.schema }}.{{ entry.payload.table }}">Undo {{ entry.payload.count }} row{{ entry.payload.count|pluralize }}</button>
             {% elif entry.restored_at %}

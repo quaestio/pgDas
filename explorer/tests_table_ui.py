@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from .tests import admin_connect
@@ -37,7 +38,8 @@ class TableButtonsTests(AdminFixture, TestCase):
             with self.subTest(kind=kind):
                 html = self.page(self.staff_client, type=kind)
                 self.assertEqual(self.structure(html), {"server": self.server.pk, "db": DB, "schema": "public", "table": "",
-                                                        "types_url": reverse("column_types", args=[self.server.pk]) + f"?db={DB}"})
+                                                        "types_url": reverse("column_types", args=[self.server.pk]) + f"?db={DB}",
+                                                        "tables_url": reverse("database_tables", args=[self.server.pk]) + f"?db={DB}"})
                 self.assertIn('data-table-dialog="new-table"', html)
                 self.assertNotIn('data-table-dialog="new-table"', self.page(self.plain, type=kind))
 
@@ -55,10 +57,10 @@ class TableButtonsTests(AdminFixture, TestCase):
 
     def test_people_who_are_not_staff_get_no_buttons_but_still_see_the_columns(self):
         for params in ({"type": "table", "table": "people"}, {"type": "table", "table": "people", "tab": "columns"}):
-            html = self.page(self.plain, **params)
-            for forbidden in ("data-table-dialog", "data-structure", "data-col-move", "data-order-apply"):
-                self.assertNotIn(forbidden, html)
-        self.assertIn("<td>name</td>", self.page(self.plain, type="table", table="people", tab="columns"))
+            response = self.plain.get(reverse("detail"), {"server": self.server.pk, "db": DB, "schema": "public", **params})
+            self.assertEqual(response.status_code, 404)                          # a person with no role on this server gets nothing, buttons included
+            for forbidden in ("data-table-dialog", "data-structure", "data-col-move", "data-order-apply", "<td>name</td>"):
+                self.assertNotContains(response, forbidden, status_code=404)
 
     def test_views_and_sequences_have_no_table_buttons(self):
         with admin_connect(DB) as conn:

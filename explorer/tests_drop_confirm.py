@@ -3,7 +3,8 @@ Everything else that asks for a word (DROP TABLE, DROP ROLE, TRUNCATE, ...) keep
 import json
 from pathlib import Path
 
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry

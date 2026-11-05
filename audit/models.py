@@ -82,20 +82,44 @@ class AuditEntry(models.Model):
             return f"{kind.upper()} {p.get('object_type', '')} · {n} object{'' if n == 1 else 's'}" + (" · risky" if p.get("risky") else "")
         return ""
 
+    def ordered_payload(self):
+        """The record with every saved row's keys back in the table's own column order. The database keeps JSON as jsonb, which
+        sorts keys by length and then alphabet; the record carries the order (columns / order) next to the rows."""
+        p = self.payload
+        if not isinstance(p, dict):
+            return p
+
+        def reorder(rows, order):
+            if not order or not isinstance(rows, list):
+                return rows
+            return [{**{n: r[n] for n in order if n in r}, **{k: v for k, v in r.items() if k not in order}} if isinstance(r, dict) else r for r in rows]
+
+        shown = {**p}
+        if p.get("kind") == "delete":
+            shown["rows"] = reorder(p.get("rows"), p.get("columns"))
+        if p.get("kind") == "rows":
+            for part in ("old", "new", "inserted", "deleted"):
+                shown[part] = reorder(p.get(part), p.get("order"))
+        undo = p.get("undo")
+        if isinstance(undo, dict) and undo.get("order"):
+            shown["undo"] = {**undo, "old": reorder(undo.get("old"), undo["order"]), "new": reorder(undo.get("new"), undo["order"])}
+        return shown
+
     @property
     def payload_preview(self):
         """The JSON shown in the audit log: the first few rows only; the whole record can be downloaded."""
         if not self.payload:
             return ""
         undo = self.payload.get("undo") or {}
-        shown = {**self.payload}
+        shown = {**self.ordered_payload()}
         if "rows" in self.payload:
-            shown["rows"] = self.payload["rows"][:PREVIEW_ROWS]
+            shown["rows"] = shown["rows"][:PREVIEW_ROWS]
         if self.payload.get("kind") == "rows":
             for part in ("old", "new", "inserted", "deleted"):
-                shown[part] = (self.payload.get(part) or [])[:PREVIEW_ROWS]
+                shown[part] = (shown.get(part) or [])[:PREVIEW_ROWS]
         if "old" in undo:
-            shown["undo"] = {**undo, "old": undo["old"][:PREVIEW_ROWS], "new": undo["new"][:PREVIEW_ROWS]}
+            ordered = shown.get("undo") or undo
+            shown["undo"] = {**ordered, "old": ordered["old"][:PREVIEW_ROWS], "new": ordered["new"][:PREVIEW_ROWS]}
         text = json.dumps(shown, indent=2, default=str, ensure_ascii=False)
         more = max(len(self.payload.get("rows", [])), len(undo.get("old", []))) - PREVIEW_ROWS
         return text + (f"\n… {more} more row{'s' if more != 1 else ''} in the downloadable JSON" if more > 0 else "")
@@ -112,6 +136,11 @@ def redact_secrets(text):
 
 
 def record(user, action, server=None, detail="", ok=True, rows=None, payload=None):
+    from access_control.runtime import request_context
+    request = request_context.get()
+    database = getattr(request, "pgdas_database", None)
+    if database:
+        payload = {"database": database, **(payload or {})}
     return AuditEntry.objects.create(
         user=user if getattr(user, "pk", None) else None,
         username=getattr(user, "username", "") or "anonymous",

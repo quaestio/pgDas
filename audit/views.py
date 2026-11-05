@@ -1,3 +1,4 @@
+from access_control import runtime
 import json
 
 from django.contrib import messages
@@ -13,13 +14,13 @@ from explorer.pg import PgError
 
 from .models import AuditEntry, record
 
-staff_required = user_passes_test(lambda user: user.is_staff)
+staff_required = user_passes_test(lambda user: user.is_authenticated)
 
 
 @login_required
 @staff_required
 def audit_list(request):
-    page = Paginator(AuditEntry.objects.all(), 50).get_page(request.GET.get("page"))
+    page = Paginator(runtime.audits(), 50).get_page(request.GET.get("page"))
     return render(request, "audit/list.html", {"page": page, "confirm_word": writes.CONFIRM_WORD})
 
 
@@ -30,7 +31,7 @@ def audit_json(request, pk):
     entry = get_object_or_404(AuditEntry, pk=pk)
     if not entry.payload:
         return HttpResponse("This audit entry has no JSON record.", status=404, content_type="text/plain")
-    response = HttpResponse(json.dumps(entry.payload, indent=2, default=str, ensure_ascii=False),
+    response = HttpResponse(json.dumps(entry.ordered_payload(), indent=2, default=str, ensure_ascii=False),
                             content_type="application/json; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="pgdas-audit-{entry.pk}.json"'
     return response

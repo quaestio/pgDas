@@ -1,4 +1,4 @@
-"""Tests run against a real PostgreSQL server: the one PGDAS browses. PGDAS's own data is in SQLite.
+"""Tests run against a real PostgreSQL server: the one PGDAS browses. PGDAS's own data is in its own PostgreSQL database.
 
 The PostgreSQL server comes from PGDAS_TEST_PG_HOST / _PORT / _USER / _PASSWORD (falling back to the older
 PGDAS_DB_* names); its login needs CREATEDB. A scratch database, pgdas_test_target, is created and dropped here.
@@ -8,7 +8,8 @@ import unittest
 
 import psycopg
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -573,7 +574,7 @@ class PgLayerTests(PgFixture, TestCase):
 
 class ExplorerViewTests(PgFixture, TestCase):
     def setUp(self):
-        self.user = get_user_model().objects.create_user("ana", password="pw-12345-abc")
+        self.user = get_user_model().objects.create_user("ana", password="pw-12345-abc", is_staff=True)   # browsing needs a role now: a Super User
         self.server = make_server()
         self.client.force_login(self.user)
 
@@ -734,10 +735,9 @@ class ExplorerViewTests(PgFixture, TestCase):
                          ["Databases", "Roles", "Tablespaces"])  # listing them needs no connection
 
     def test_unknown_server_is_an_error_not_a_crash(self):
-        response = self.client.get(reverse("tree"), {"type": "databases", "server": 99999})
-        self.assertEqual(response.status_code, 502)
-        self.assertIn("not saved", response.json()["error"])
-        self.assertContains(self.detail(type="server", server=99999), "not saved")
+        # A server the person cannot see (unknown or not theirs) is "not found", whichever it is: the answer must not tell them which.
+        self.assertEqual(self.client.get(reverse("tree"), {"type": "databases", "server": 99999}).status_code, 404)
+        self.assertEqual(self.detail(type="server", server=99999).status_code, 404)
         self.assertContains(self.detail(type="databases", server=""), "not saved")
 
     def test_tree_walks_server_to_indexes(self):
@@ -1008,6 +1008,6 @@ class ExplorerViewTests(PgFixture, TestCase):
         ok = self.client.post(url, {"sql": "SELECT 1 AS one"})
         self.assertContains(ok, "one")
         bad = self.client.post(url, {"sql": "DELETE FROM pgdas_demo.people"})
-        self.assertContains(bad, "read-only")
+        self.assertContains(bad, "reviewed write workflow", status_code=403)       # the page refuses it and says why (changes go through the popup)
         entries = list(AuditEntry.objects.filter(action="sql.run").order_by("pk").values_list("ok", "username"))
         self.assertEqual(entries, [(True, "ana"), (False, "ana")])

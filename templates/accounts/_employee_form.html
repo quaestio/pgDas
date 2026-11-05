@@ -1,0 +1,4 @@
+<h2 id="employeeDialogTitle">{{ title }}</h2>
+<form method="post" class="account-form">{% csrf_token %}{{ form.as_p }}
+<div class="employee-dialog-actions"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-employee-close>Cancel</button></div>
+</form>

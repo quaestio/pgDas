@@ -4,7 +4,8 @@ import time
 
 import psycopg
 from django.contrib.auth import get_user_model
-from django.test import Client, TestCase
+from django.test import Client
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -120,8 +121,8 @@ class SnapshotTests(MonitorFixture, TestCase):
         self.assertEqual(self.client.get(reverse("monitor_data"), {"server": 0}).status_code, 404)
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
-        self.assertEqual(plain.get(reverse("monitor")).status_code, 302)
-        self.assertEqual(plain.get(reverse("monitor_data"), {"server": self.server.pk}).status_code, 302)
+        self.assertEqual(plain.get(reverse("monitor")).status_code, 403)                 # Super Users only; the refusal is recorded
+        self.assertEqual(plain.get(reverse("monitor_data"), {"server": self.server.pk}).status_code, 403)
         self.assertEqual(self.client.get(reverse("monitor")).status_code, 200)
 
 

@@ -33,3 +33,18 @@ table.grid td[data-col] { cursor: cell; }
 .combo-name { font-weight: 600; white-space: nowrap; }
 .combo-note { font-size: 12px; text-align: right; }
 .combo-empty { padding: 6px 12px; font-size: 12px; }
+
+.type-parameters { display: flex; gap: 8px; margin-top: 6px; }
+.type-parameters[hidden], .type-parameters label[hidden] { display: none; }
+.type-parameters label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3px; font-size: 11px; }
+.type-parameters input { min-width: 0; width: 100%; }
+
+/* Constraints (static/table_constraints.js). */
+.cons-row { border: 1px solid rgba(31, 159, 255, 0.35); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.cons-head { display: grid; grid-template-columns: 180px 1fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.cons-pair { display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 8px; align-items: center; margin-bottom: 6px; }
+.cons-row [data-cons-pairs] .cons-pair:not(:has(.muted)) { grid-template-columns: 1fr auto; }
+.cons-row [data-cons-fk] { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; align-items: center; }
+.cons-row [data-cons-fk] label { display: flex; gap: 6px; align-items: center; font-size: 12px; }
+.cons-row [data-cons-fk][hidden], .cons-row [data-cons-check][hidden], .cons-row [data-cons-columns][hidden] { display: none; }
+.cons-row [data-cons-check] input { width: 100%; box-sizing: border-box; }

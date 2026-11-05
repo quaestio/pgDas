@@ -30,11 +30,30 @@ def _database_unusable(message):
 
 
 def _open(server, dbname):
-    return psycopg.connect(
+    from access_control import runtime
+    server = runtime.execution_server(server, dbname)
+    conn = psycopg.connect(
         host=server.host, port=server.port, dbname=dbname, user=server.username,
         password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
         application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
     )
+    if runtime.user() and not runtime.is_admin():
+        try:
+            # Check inherited memberships too: a non-superuser login may still SET ROLE to a privileged role.
+            dangerous = conn.execute("""WITH RECURSIVE memberships AS (
+                SELECT oid FROM pg_roles WHERE rolname = current_user
+                UNION SELECT m.roleid FROM pg_auth_members m JOIN memberships p ON m.member = p.oid
+            ) SELECT EXISTS(SELECT 1 FROM pg_roles WHERE oid IN (SELECT oid FROM memberships)
+                AND (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls))""").fetchone()[0]
+            conn.rollback()
+            if dangerous:
+                raise PgError("Employee execution requires a PostgreSQL login without administrative privileges or privileged role memberships.")
+            conn.execute("SET search_path TO pg_catalog, public")
+            conn.commit()
+        except Exception:
+            conn.close()
+            raise
+    return conn
 
 
 def _connect_first_usable(server):
@@ -44,6 +63,10 @@ def _connect_first_usable(server):
     (PostgreSQL's own default), then `template1`. Only a missing or forbidden database moves on to the next one;
     a wrong password, host or port is reported straight away. If none works, the first reason is shown.
     """
+    from access_control import runtime
+    assigned = runtime.default_database(server)
+    if assigned:
+        return _open(server, assigned)
     candidates = list(dict.fromkeys([server.database_name, "postgres", server.username, "template1"]))
     first_reason = None
     for dbname in candidates:
@@ -599,6 +622,18 @@ def column_types(conn):
              AND ((t.typtype IN ('e', 'd', 'r')) OR (t.typtype = 'c' AND rel.relkind = 'c') OR (t.typtype = 'b' AND e.oid IS NOT NULL))
            ORDER BY 1""").fetchall()
     return [(name, kind) for name, kind in rows]
+
+
+def database_tables(conn):
+    """Every ordinary table of the database (user schemas) with its columns, for the foreign key picker."""
+    rows = conn.execute(
+        """SELECT n.nspname, c.relname,
+                  (SELECT json_agg(json_build_object('name', a.attname, 'type', format_type(a.atttypid, a.atttypmod)) ORDER BY a.attnum)
+                   FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)
+           FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname !~ '^pg_temp'
+           ORDER BY 1, 2""").fetchall()
+    return [{"schema": s, "name": t, "columns": columns or []} for s, t, columns in rows]
 
 
 def type_info(conn, schema, name):

@@ -8,7 +8,8 @@ from io import StringIO
 from django.contrib.auth import get_user_model
 from django.core import mail
 from django.core.management import call_command
-from django.test import Client, TestCase, override_settings
+from django.test import Client, override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -225,7 +226,7 @@ class TestButtonTests(NotifyTestCase):
     def test_only_staff_may_send_it_and_the_page_lists_the_channels(self):
         plain = Client()
         plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
-        self.assertEqual(plain.post(reverse("watch_test_notify")).status_code, 302)
+        self.assertEqual(plain.post(reverse("watch_test_notify")).status_code, 403)
         self.assertEqual(self.hook.received, [])
         data = self.client.get(reverse("watch_data"), {"server": self.server.pk}).json()
         self.assertEqual(data["channels"]["webhook"], f"127.0.0.1:{self.hook.server_address[1]}")

@@ -68,6 +68,10 @@ def _count(conn, schema, table):
 def _commit_after_recording(conn, server, user, kind, detail, rows, payload, what):
     """Save the audit record first, then commit. If the record cannot be saved nothing changes; if the commit is refused
     the record is marked as not committed."""
+    from access_control import runtime
+    from access_control.sql_policy import authorize_effects
+    if runtime.user():
+        authorize_effects(user, server, payload.get("database"), payload.get("side_effects", []))
     try:
         entry = record(user, kind, server, detail, ok=True, rows=rows, payload=payload)
     except Exception:
@@ -242,9 +246,9 @@ def _execute_update(server, database, text, fingerprint, user):
         payload = {"kind": "update", "database": _current_database(conn), "schema": schema, "table": table,
                    "statement": parsed["statement"], "count": count, "no_where": not parsed["has_where"], "side_effects": effects}
         if "old" in undo:
-            _, old = _in_table_order(conn, schema, table, undo["old"])
+            order, old = _in_table_order(conn, schema, table, undo["old"])
             _, new = _in_table_order(conn, schema, table, undo["new"])
-            payload["undo"] = {"pk": undo["pk"], "columns": undo["columns"], "old": old, "new": new}
+            payload["undo"] = {"pk": undo["pk"], "columns": undo["columns"], "order": order, "old": old, "new": new}
         else:
             payload["undo"] = {"unavailable": undo["unavailable"]}
         entry = _commit_after_recording(conn, server, user, "update", parsed["statement"], count, payload, "updated")

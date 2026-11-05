@@ -90,6 +90,16 @@ body.resizing { user-select: none; cursor: col-resize; }
 .sidebar-tree .tree { flex: 1; min-height: 0; overflow: auto; padding: 0 8px 12px 12px; font-size: 13px; }
 body.has-tree .sidebar-bottom { padding: 12px 18px; border-top: 1px solid var(--line); flex-shrink: 0; letter-spacing: normal; }
 body.has-tree .sidebar-bottom small { margin-top: 4px; }
+#appearanceSettings { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; padding: 24px; background: var(--panel); color: var(--text); border: 1px solid var(--accent); border-radius: 8px; }
+#appearanceSettings::backdrop { background: #000a; }
+.appearance-heading, .appearance-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.appearance-heading h2 { margin: 0; }
+.appearance-option { margin: 22px 0; }
+.appearance-option input[type="color"] { width: 56px; height: 36px; padding: 2px; }
+.appearance-option input[type="checkbox"] { width: 20px; height: 20px; }
+.display-notice { position: fixed; bottom: 20px; right: 20px; max-width: min(420px, calc(100vw - 40px)); padding: 16px; background: var(--panel); color: var(--text); border: 1px solid var(--accent); z-index: 100; }
+#fullscreen { min-width: 36px; min-height: 40px; cursor: pointer; }
+@media (max-width: 480px) { .head-right { gap: 8px; } .head-right .who { display: none; } }
 
 /* Explorer */
 .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
@@ -139,7 +149,7 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .object-list { list-style: none; margin: 8px 0; padding: 0; text-align: left; }
 .object-list li { padding: 4px 10px; border-left: 2px solid #7a2c3a; margin: 3px 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: #ffc2cb; }
 
-/* Create / Rename dialogs (tabs like pgAdmin's), the row buttons in lists, and the little result message */
+/* Create / Rename dialogs (tabbed), the row buttons in lists, and the little result message */
 .cyber-dialog.dlg { width: min(100%, 640px); max-height: 92vh; display: flex; flex-direction: column; text-align: left; padding-bottom: 14px; }
 .dlg .modal-top { flex: none; }
 .dlg-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--line); margin: 6px 0 14px; flex: none; }
@@ -220,3 +230,20 @@ pre.sql.json { max-height: 280px; overflow: auto; }
 .dashboard-grid h2 { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .dashboard-grid h2 select { width: auto; padding: 4px 8px; font-size: 12px; }
 nav.compact.above { padding-bottom: 4px; }
+
+.account-form { max-width: 760px; }
+.account-form form p { display: flex; flex-direction: column; gap: 6px; margin: 16px 0; }
+.account-form input:not([type=checkbox]), .account-form select { width: 100%; min-height: 42px; padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 4px; }
+.account-form input[type=checkbox] { align-self: flex-start; width: 20px; height: 20px; }
+.account-form .helptext { font-size: 12px; color: var(--muted); }
+.errorlist { color: #ff9090; }
+
+#toggle { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; cursor: pointer; }
+#sidebarToggleLabel { font-size: 12px; }
+@media (max-width: 480px) { header { gap: 8px; } .head-right { gap: 4px; } }
+
+#employeeDialog { width: min(640px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; background: var(--panel); color: var(--text); border: 1px solid var(--accent); padding: 26px; border-radius: 8px; }
+#employeeDialog::backdrop { background: #000b; }
+.employee-dialog-close { float: right; margin-left: 12px; min-width: 40px; min-height: 40px; }
+.employee-dialog-actions { display: flex; gap: 10px; margin-top: 20px; }
+#employeeDialog .account-form p { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }

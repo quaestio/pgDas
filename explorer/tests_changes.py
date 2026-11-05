@@ -2,7 +2,8 @@
 import json
 
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -594,8 +595,7 @@ class ChangeEndpointTests(ChangeFixture, TestCase):
         plain.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
         for name in ("write_preview", "write_execute"):
             response = self.post(name, {"sql": sql, "db": self.db}, client=plain)
-            self.assertEqual(response.status_code, 403)
-            self.assertIn("Only staff", response.json()["error"])
+            self.assertIn(response.status_code, (403, 404))                      # not their server: the answer does not say it exists
         self.assertEqual(self.query("SELECT count(*) FROM pgdas_w.parent WHERE note = 'x'")[0][0], 0)
 
     def test_a_refused_attempt_is_logged_under_its_own_kind(self):

@@ -232,11 +232,15 @@
           <button type="button" class="btn" data-table-dialog="edit-column">Edit</button><button type="button" class="btn" data-table-dialog="rename-column">Rename</button><button type="button" class="btn danger" data-table-dialog="drop-column">Drop</button></td>{% endif %}</tr>{% endfor %}</tbody>
     </table></div></div>
   {% elif tab == "constraints" %}
+    <div {% if structure and relation_kind == "table" %}data-cons-tab="{{ column_names }}"{% endif %}>
+    {% if structure and relation_kind == "table" %}<div class="column-tools"><button type="button" class="btn primary" data-constraint-action="add">+ Add constraint</button>
+      <span class="muted">Primary key, foreign key, unique or check.</span></div>{% endif %}
     <div class="scroll"><table>
-      <thead><tr><th>NAME</th><th>TYPE</th><th>DEFINITION</th></tr></thead>
-      <tbody>{% for c in constraints %}<tr><td>{{ c.name }}</td><td><span class="badge">{{ c.type }}</span></td><td class="cell">{{ c.definition }}</td></tr>
-      {% empty %}<tr><td colspan="3" class="muted">No constraints.</td></tr>{% endfor %}</tbody>
-    </table></div>
+      <thead><tr><th>NAME</th><th>TYPE</th><th>DEFINITION</th>{% if structure and relation_kind == "table" %}<th></th>{% endif %}</tr></thead>
+      <tbody>{% for c in constraints %}<tr data-constraint="{{ c.name }}"><td>{{ c.name }}</td><td><span class="badge">{{ c.type }}</span></td><td class="cell">{{ c.definition }}</td>
+        {% if structure and relation_kind == "table" %}<td class="col-actions"><button type="button" class="btn" data-constraint-action="rename">Rename</button><button type="button" class="btn danger" data-constraint-action="drop">Drop</button></td>{% endif %}</tr>
+      {% empty %}<tr><td colspan="4" class="muted">No constraints.</td></tr>{% endfor %}</tbody>
+    </table></div></div>
   {% elif tab == "indexes" %}
     <div {% if structure and relation_kind == "table" %}data-index-tab="{{ column_names }}"{% endif %}>
     {% if structure and relation_kind == "table" %}<div class="column-tools"><button type="button" class="btn primary" data-table-dialog="create-index">+ Create index</button>

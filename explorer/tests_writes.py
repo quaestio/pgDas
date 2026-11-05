@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 import psycopg
 from django.contrib.auth import get_user_model
-from django.test import Client, SimpleTestCase, TestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from audit.models import AuditEntry
@@ -130,7 +131,11 @@ class PreviewTests(WriteFixture, TestCase):
         entry = AuditEntry.objects.get(pk=self.delete("DELETE FROM pgdas_w.parent WHERE id = 3", 1,
                                                       [{"table": "pgdas_w.child", "inserted": 0, "updated": 0, "deleted": 2}])["entry_id"])
         self.assertEqual(entry.payload["columns"], table_order)
-        self.assertEqual(list(entry.payload["rows"][0]), table_order)           # also in the stored (and downloaded) JSON
+        # (the database keeps the record as jsonb, which sorts keys, so the order is put back when it is shown or downloaded)
+        self.assertEqual(list(entry.ordered_payload()["rows"][0]), table_order)
+        self.client.force_login(self.staff)
+        downloaded = json.loads(self.client.get(reverse("audit_json", args=[entry.pk])).content)
+        self.assertEqual(list(downloaded["rows"][0]), table_order)
         self.assertLess(entry.payload_preview.index('"name"'), entry.payload_preview.index('"note"'))
 
     def test_preview_shows_only_a_sample_but_counts_everything(self):
@@ -363,8 +368,7 @@ class DeleteEndpointTests(WriteFixture, TestCase):
         other.force_login(plain)
         for name in ("write_preview", "write_execute"):
             response = self.post(name, payload, client=other)
-            self.assertEqual(response.status_code, 403, name)
-            self.assertIn("Only staff", response.json()["error"])
+            self.assertIn(response.status_code, (403, 404), name)           # not their server: the answer does not say it exists
         # not signed in at all
         for name in ("write_preview", "write_execute"):
             self.assertEqual(self.post(name, payload, client=Client()).status_code, 302, name)
@@ -395,21 +399,21 @@ class PagesTests(WriteFixture, TestCase):
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         self.client.force_login(plain)
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]))
+        self.assertEqual(page.status_code, 404)                                     # no role on this server: no SQL page at all
         for text in ("changeModal", "write_flow.js", "data-can-write"):
-            self.assertNotContains(page, text)
-        self.assertContains(page, "read-only")
+            self.assertNotContains(page, text, status_code=404)
 
     def test_a_delete_typed_into_the_normal_form_still_cannot_write(self):
         response = self.client.post(reverse("sql_runner", args=[self.server.pk]),
                                     {"sql": "DELETE FROM pgdas_w.ident WHERE id = 1", "db": self.db})
-        self.assertContains(response, "read-only transaction")
-        self.assertContains(response, "needs JavaScript")                       # staff: told how to proceed
+        self.assertContains(response, "reviewed write workflow", status_code=403)   # the plain form refuses it and says where changes go
+        self.assertContains(response, "needs JavaScript", status_code=403)                       # staff: told how to proceed
         self.assertEqual(self.count("ident"), 5)                                 # the plain path stays read-only everywhere
         plain = get_user_model().objects.create_user("pat", password="pw-12345-abc")
         self.client.force_login(plain)
         other = self.client.post(reverse("sql_runner", args=[self.server.pk]),
                                  {"sql": "DELETE FROM pgdas_w.ident WHERE id = 1", "db": self.db})
-        self.assertContains(other, "Only staff users can change data")
+        self.assertEqual(other.status_code, 404)                                 # no role on this server: nothing is run, nothing is said
         self.assertEqual(self.count("ident"), 5)
 
     def post_delete(self):
@@ -451,10 +455,10 @@ class PagesTests(WriteFixture, TestCase):
     def test_audit_actions_are_staff_only(self):
         entry = AuditEntry.objects.get(pk=self.post_delete()["entry_id"])
         self.client.force_login(get_user_model().objects.create_user("pat", password="pw-12345-abc"))
-        for response in (self.client.get(reverse("audit_json", args=[entry.pk])),
-                         self.client.post(reverse("audit_reinsert", args=[entry.pk])),
-                         self.client.get(reverse("audit_list"))):
-            self.assertEqual(response.status_code, 302)
+        # Someone with no role on the server cannot download the record or restore rows; the list itself is theirs (and empty).
+        self.assertEqual(self.client.get(reverse("audit_json", args=[entry.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("audit_reinsert", args=[entry.pk])).status_code, 403)
+        self.assertEqual(self.client.get(reverse("audit_list")).status_code, 200)
         self.assertEqual(self.count("ident"), 4)                                 # nothing was restored
 
     def test_a_long_record_shows_a_preview_and_a_pointer_to_the_download(self):

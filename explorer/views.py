@@ -11,8 +11,12 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from audit.models import AuditEntry, record
 from servers.models import ServerConnection
+from access_control import runtime
+from access_control.policy import require, permits, filter_databases
+from access_control.sql_policy import authorize
+from django.core.exceptions import PermissionDenied
 
-from . import changes, exporter, pg, row_edits, server_admin, tree
+from . import changes, exporter, pg, row_edits, server_admin, table_rebuild, tree
 
 TAB_LABELS = {"properties": "Properties", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
               "triggers": "Triggers", "data": "Data", "sql": "SQL"}
@@ -76,6 +80,7 @@ def _relation_context(conn, node, request):
         context["column_names"] = json.dumps([c["name"] for c in context["columns"]])
     elif tab == "constraints":
         context["constraints"] = pg.table_constraints(conn, schema, name)
+        context["column_names"] = json.dumps([c["name"] for c in pg.table_columns(conn, schema, name)])
     elif tab == "indexes":
         context["indexes"] = pg.table_indexes(conn, schema, name)
         context["column_names"] = json.dumps([c["name"] for c in pg.table_columns(conn, schema, name)])
@@ -160,13 +165,17 @@ def detail(request):
     kind, db, schema, system = node["type"], node["db"], node["schema"], node["system"]
     context = {"kind": kind, "node": node}
     if kind == "servers":
-        context["servers"] = ServerConnection.objects.all()
+        context["servers"] = runtime.servers()
         return render(request, "explorer/_detail.html", context)
     server = tree.get_server(node)
     if server is None:
         context["error"] = "That server is not saved in PGDAS."
         return render(request, "explorer/_detail.html", context)
     context["server"] = server
+    if kind in {"roles", "role", "tablespaces", "tablespace"}:
+        require(request.user, "postgres_roles_manage", server=server)
+    elif kind not in {"server", "databases"}:
+        require(request.user, "read", server=server, database=db)
     try:
         if kind == "server":
             with pg.connect(server) as conn:
@@ -174,12 +183,12 @@ def detail(request):
         elif kind == "databases":
             context["can_admin"] = _can_admin(request.user, server)
             with pg.connect(server) as conn:
-                context["databases"] = pg.list_databases(conn)
+                context["databases"] = filter_databases(request.user, server, pg.list_databases(conn))
                 if context["can_admin"]:
                     context["admin_json"] = _admin_json(server, pg.list_roles(conn), context["databases"])
         elif kind == "database":
             with pg.connect(server) as conn:
-                context["database"] = next((d for d in pg.list_databases(conn) if d["name"] == db), None)
+                context["database"] = next((d for d in filter_databases(request.user, server, pg.list_databases(conn)) if d["name"] == db), None)
             if context["database"] is None:
                 raise pg.PgError(f"Database {db} was not found or you cannot connect to it.")
         elif kind in OBJECT_LISTS:
@@ -236,7 +245,7 @@ def detail(request):
 
 def _can_write(user, server):
     """Staff users can change anything on any saved server. Every change still goes through its popup and the audit log."""
-    return bool(user.is_staff)
+    return runtime.is_admin(user)
 
 
 _can_structure = _can_admin = _can_write
@@ -250,16 +259,34 @@ def _admin_json(server, roles, databases):
 def _structure_json(server, db, schema, table=""):
     """Where the table-structure buttons (New table, Rename, Drop, column actions) apply, as one JSON attribute."""
     return json.dumps({"server": server.pk, "db": db, "schema": schema, "table": table,
-                       "types_url": reverse("column_types", args=[server.pk]) + "?" + urlencode({"db": db})})
+                       "types_url": reverse("column_types", args=[server.pk]) + "?" + urlencode({"db": db}),
+                       "tables_url": reverse("database_tables", args=[server.pk]) + "?" + urlencode({"db": db})})
+
+
+@login_required
+@require_GET
+def database_tables(request, pk):
+    """The tables (with their columns) of one database, for the foreign key picker of the constraint dialogs."""
+    server = get_object_or_404(runtime.servers(), pk=pk)
+    database = request.GET.get("db") or ""
+    require(request.user, "read", server=server, database=database)
+    try:
+        with pg.connect(server, database or None) as conn:
+            found = pg.database_tables(conn)
+    except pg.PgError as error:
+        return JsonResponse({"error": str(error)}, status=502)
+    return JsonResponse({"tables": found})
 
 
 @login_required
 @require_GET
 def column_types(request, pk):
     """The enums, domains, composite / range types and extension types of one database, for the column type lists."""
-    server = get_object_or_404(ServerConnection, pk=pk)
+    server = get_object_or_404(runtime.servers(), pk=pk)
+    database = request.GET.get("db") or ""
+    require(request.user, "read", server=server, database=database)
     try:
-        with pg.connect(server, request.GET.get("db") or None) as conn:
+        with pg.connect(server, database or None) as conn:
             found = pg.column_types(conn)
     except pg.PgError as error:
         return JsonResponse({"error": str(error)}, status=502)
@@ -273,8 +300,6 @@ def _refuse(message, status=403):
 def _write_request(request, pk):
     """Common checks for the endpoints that change data: returns (server, kind, data, None) or (None, None, None, error response)."""
     server = get_object_or_404(ServerConnection, pk=pk)
-    if not request.user.is_staff:
-        return None, None, None, _refuse("Only staff users can change data.")
     try:
         data = json.loads(request.body or b"{}")
         if not isinstance(data, dict):
@@ -283,6 +308,18 @@ def _write_request(request, pk):
         return None, None, None, _refuse("That request was not understood.", 400)
     try:
         kind = changes.classify(str(data.get("sql") or ""))
+        database = str(data.get("db") or "")
+        if not database and runtime.is_admin():
+            database = server.database_name
+        if table_rebuild.is_reorder_statement(str(data.get("sql") or "")):
+            # PGDAS's own statement (not PostgreSQL SQL, so it cannot be parsed for the policy): a rebuild is for Super Users only.
+            require(request.user, "read", server=server, database=database)
+            if not runtime.is_admin(request.user):
+                raise PermissionDenied("Changing the order of the columns rebuilds the table and requires a Super User.")
+        else:
+            authorize(request.user, server, database, str(data.get("sql") or ""), write=True)
+        request.pgdas_database = database
+        data["db"] = database
     except pg.PgError as error:
         return None, None, None, _refuse(str(error), 400)
     return server, kind, data, None
@@ -319,16 +356,23 @@ def write_execute(request, pk):
 
 
 def _rows_request(request, pk):
-    """Common checks for the data grid's save: (server, data, None) or (None, None, error response)."""
+    """Common checks for the data grid's save: (server, data, None) or (None, None, error response). Only Super Users edit in the grid."""
     server = get_object_or_404(ServerConnection, pk=pk)
-    if not request.user.is_staff:
-        return None, None, _refuse("Only staff users can change data.")
     try:
         data = json.loads(request.body or b"{}")
         if not isinstance(data, dict):
             raise ValueError
     except ValueError:
         return None, None, _refuse("That request was not understood.", 400)
+    database = str(data.get("db") or "") or server.database_name
+    try:
+        require(request.user, "read", server=server, database=database)
+        if not runtime.is_admin(request.user):
+            raise PermissionDenied("Only Super Users can edit rows in the grid.")
+    except PermissionDenied as error:
+        return None, None, _refuse(str(error) or "Not allowed.")
+    request.pgdas_database = database
+    data["db"] = database
     return server, data, None
 
 
@@ -363,21 +407,22 @@ def rows_execute(request, pk):
 
 
 def _can_export(user, server, database):
-    """Whoever may read a server may download its tables."""
-    return user.is_authenticated
+    """Whoever the access rules let export from this database may download its tables."""
+    return permits(user, "export", server=server, database=database)
 
 
 @login_required
 @require_GET
 def table_export(request, pk):
     """Download a table or view as CSV, JSON or SQL INSERT statements (at most MAX_EXPORT_ROWS rows), read-only and recorded."""
-    server = get_object_or_404(ServerConnection, pk=pk)
+    server = get_object_or_404(runtime.servers(), pk=pk)
     database, schema, table = request.GET.get("db", ""), request.GET.get("schema", ""), request.GET.get("table", "")
     fmt = request.GET.get("format", "csv")
     if fmt not in exporter.FORMATS or not (schema and table):
         return HttpResponse("That export was not understood.", status=400, content_type="text/plain")
     if not _can_export(request.user, server, database):
-        return HttpResponse("You are not allowed to export from this server.", status=403, content_type="text/plain")
+        return HttpResponse("You are not allowed to export from this database.", status=403, content_type="text/plain")
+    request.pgdas_database = database
     limit = int(settings.MAX_EXPORT_ROWS)
     try:
         conn_manager = pg.connect(server, database or None)
@@ -418,20 +463,28 @@ def table_export(request, pk):
 def sql_runner(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
     db = request.GET.get("db") or request.POST.get("db") or ""
+    db = db or runtime.default_database(server) or server.database_name
+    require(request.user, "read", server=server, database=db)
+    request.pgdas_database = db
     context = {"server": server, "sql": "", "db": db, "can_write": _can_write(request.user, server),
                "can_structure": _can_structure(request.user, server), "can_admin": _can_admin(request.user, server),
                "confirm_words": changes.CONFIRM_WORDS}
+    context["can_write"] = any(permits(request.user, action, server=server, database=db) for action in ("insert", "update", "delete", "truncate", "create", "alter", "drop"))
+    context["can_export"] = permits(request.user, "export", server=server, database=db)
+    refused = False                                                         # a statement the permissions refuse: the page answers 403 and says why
     if request.method == "POST":
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
         if statement:
             try:
+                authorize(request.user, server, db, statement)
                 result = pg.run_sql(server, statement, db or None)
-            except pg.PgError as error:
+            except (pg.PgError, PermissionDenied) as error:        # a refused statement is answered on the page, with the reason
+                refused = isinstance(error, PermissionDenied)
                 record(request.user, "sql.run", server, statement, ok=False)
-                context["error"] = str(error)
+                context["error"] = str(error) or "You are not permitted to run that statement."
                 verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter|grant|revoke)\b", statement, re.I)
-                if verb and ("read-only transaction" in str(error)):
+                if verb and ("read-only transaction" in str(error) or isinstance(error, PermissionDenied)):
                     word = verb.group(1).upper()
                     if not request.user.is_staff:
                         context["hint"] = "Only staff users can change data."
@@ -442,7 +495,7 @@ def sql_runner(request, pk):
                 record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])
                 context["result"] = result
     context["history"] = _history(request.user, server)
-    return render(request, "explorer/sql.html", context)
+    return render(request, "explorer/sql.html", context, status=403 if refused else 200)
 
 
 HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter", "grant", "revoke")
@@ -451,7 +504,7 @@ HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", 
 def _history(user, server, limit=20):
     """The signed-in person's own latest statements on this server, newest first, each statement once."""
     seen, found = set(), []
-    for entry in AuditEntry.objects.filter(user=user, server=server, action__in=HISTORY_ACTIONS).order_by("-created_at", "-pk")[:300]:
+    for entry in runtime.audits().filter(user=user, server=server, action__in=HISTORY_ACTIONS).order_by("-created_at", "-pk")[:300]:
         key = " ".join(entry.detail.split())
         if key and key not in seen:
             seen.add(key)
@@ -459,3 +512,25 @@ def _history(user, server, limit=20):
             if len(found) == limit:
                 break
     return found
+
+
+@login_required
+@require_POST
+def sql_export(request, pk):
+    import csv
+    from django.http import HttpResponse
+    server = get_object_or_404(runtime.servers(), pk=pk)
+    database = request.POST.get("db", "")
+    require(request.user, "export", server=server, database=database)
+    statement = request.POST.get("sql", "")
+    authorize(request.user, server, database, statement)
+    request.pgdas_database = database
+    result = pg.run_sql(server, statement, database)
+    fmt = request.POST.get("format", "csv")
+    if fmt not in ("csv", "json"):
+        fmt = "csv"
+    content_type, extension = exporter.FORMATS[fmt]
+    response = HttpResponse("".join(exporter.stream(fmt, result["columns"], result["rows"])), content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="pgdas-query.{extension}"'
+    record(request.user, "sql.export", server, statement, rows=result["count"])
+    return response

@@ -24,6 +24,31 @@
     ["timestamp", "date and time, no time zone"], ["timestamp with time zone", "date and time with time zone (timestamptz)"],
     ["tsquery", "text search query"], ["tsvector", "text search document"], ["uuid", "universally unique identifier"], ["xml", "XML data"],
   ];
+  TYPES = TYPES.map(function (t) { return [t[0].replace(/\([^)]*\)/g, ""), t[1]]; }).concat([
+    ["varchar", "variable-length text"], ["char", "fixed-length text"], ["decimal", "exact decimal (numeric)"],
+    ["float", "floating point with binary precision"], ["timestamptz", "timestamp with time zone"],
+    ["timestamp without time zone", "timestamp without time zone"], ["time without time zone", "time without time zone"],
+    ["int4range", "integer range"], ["int8range", "bigint range"], ["numrange", "numeric range"],
+    ["daterange", "date range"], ["tsrange", "timestamp range"], ["tstzrange", "timestamp with time zone range"],
+    ["int4multirange", "integer multirange"], ["int8multirange", "bigint multirange"], ["nummultirange", "numeric multirange"],
+    ["datemultirange", "date multirange"], ["tsmultirange", "timestamp multirange"], ["tstzmultirange", "timestamp with time zone multirange"],
+    ["integer[]", "array of integers"], ["text[]", "array of text"], ["numeric[]", "array of decimals"],
+    ["uuid[]", "array of UUIDs"], ["jsonb[]", "array of JSON values"]
+  ]);
+
+  function typeSpec(value) {
+    var match = /^\s*([a-z]+(?:\s+varying)?)(?:\s*\(\s*([+-]?\d+)\s*(?:,\s*([+-]?\d+)\s*)?\))?(\s+(?:with|without)\s+time\s+zone)?\s*((?:\[\s*\]\s*)*)$/i.exec(value);
+    if (!match) return null;
+    var base = match[1].toLowerCase().replace(/\s+/g, " "), mode, max;
+    if (/^(varchar|char|character|character varying|bit|bit varying|varbit)$/.test(base)) { mode = "length"; max = /bit/.test(base) ? null : 10485760; }
+    else if (/^(numeric|decimal)$/.test(base)) { mode = "numeric"; max = 1000; }
+    else if (/^(timestamp|timestamptz|time|timetz|interval)$/.test(base)) { mode = "time"; max = 6; }
+    else if (base === "float") { mode = "float"; max = 53; }
+    else return null;
+    if (match[3] !== undefined && mode !== "numeric") return null;
+    if (match[4] && base !== "timestamp" && base !== "time") return null;
+    return {base: base, zone: match[4] || "", array: (match[5] || "").replace(/\s/g, ""), precision: match[2], scale: match[3], mode: mode, max: max};
+  }
 
   function toast(message) {
     if (!toastEl) return;
@@ -58,6 +83,43 @@
     input.setAttribute("role", "combobox"); input.setAttribute("aria-expanded", "false"); input.setAttribute("aria-controls", id); input.setAttribute("aria-autocomplete", "list");
     var list = el("ul", {"class": "combo-list", id: id, role: "listbox", hidden: "hidden"});
     var wrap = el("div", {"class": "combo"}, [input, list]);
+    var size = el("input", {type: "number", step: "1", "aria-label": "Length / Precision", placeholder: "Default"});
+    var scale = el("input", {type: "number", step: "1", min: "-1000", max: "1000", "aria-label": "Scale", placeholder: "Default"});
+    var sizeText = el("span", {text: "Length / Precision"});
+    var sizeLabel = el("label", {}, [sizeText, size]);
+    var scaleLabel = el("label", {}, [document.createTextNode("Scale"), scale]);
+    var parameters = el("div", {"class": "type-parameters", hidden: "hidden"}, [sizeLabel, scaleLabel]);
+    wrap.appendChild(parameters);
+    var spec = null, specKey = "";
+    function syncType() {
+      spec = typeSpec(input.value);
+      var key = spec ? spec.base + spec.zone + spec.array : "";
+      if (key !== specKey) { size.value = ""; scale.value = ""; }
+      specKey = key;
+      parameters.hidden = !spec;
+      if (!spec) return;
+      scaleLabel.hidden = spec.mode !== "numeric";
+      sizeText.textContent = spec.mode === "length" ? "Length" : "Precision";
+      size.min = spec.mode === "time" ? "0" : "1";
+      if (spec.max !== null) size.max = String(spec.max); else size.removeAttribute("max");
+      size.title = spec.mode === "time" ? "Fractional-second precision: 0 to 6" : spec.mode === "numeric" ? "Total digits: 1 to 1000" : "Optional length or precision";
+      scale.title = "Decimal digits; negative scale requires PostgreSQL 15 or later";
+      if (spec.precision !== undefined) {
+        size.value = spec.precision; scale.value = spec.scale === undefined ? "" : spec.scale;
+        input.value = spec.base + spec.zone + spec.array;
+      }
+    }
+    input._typeSql = function () {
+      if (!spec) return input.value;
+      return spec.base + (size.value !== "" ? "(" + size.value + (spec.mode === "numeric" && scale.value !== "" ? "," + scale.value : "") + ")" : "") + spec.zone + spec.array;
+    };
+    input._typeProblem = function () {
+      if (!spec) return "";
+      if (!size.validity.valid || (spec.mode === "numeric" && !scale.validity.valid)) return "Enter a whole-number length/precision and scale within the supported limits.";
+      if (spec.mode === "numeric" && scale.value !== "" && size.value === "") return "Enter precision before scale.";
+      return "";
+    };
+    input.addEventListener("input", syncType);
     var shown = [], active = -1, picking = false;
 
     function matches(query) {
@@ -82,7 +144,8 @@
       shown.forEach(function (t, index) {
         var item = el("li", {role: "option", id: id + "-" + index, "class": "combo-item" + (index === active ? " active" : "")},
                       [el("span", {"class": "combo-name", text: t[0]}), el("span", {"class": "combo-note muted", text: t[1]})]);
-        item.addEventListener("mousedown", function (event) { event.preventDefault(); pick(index); });
+        item.addEventListener("mousedown", function (event) { event.preventDefault(); });
+        item.addEventListener("click", function (event) { event.stopPropagation(); pick(index); });
         list.appendChild(item);
       });
       if (!shown.length) list.appendChild(el("li", {"class": "combo-empty muted", text: "No listed type matches — what you typed is used as it is."}));
@@ -131,6 +194,8 @@
       }
     });
     wrap.input = input;
+    wrap.sync = syncType;
+    syncType();
     return wrap;
   }
   function checkbox(field, label, checked) {
@@ -147,15 +212,23 @@
   var KINDS = {
     "new-table": {
       title: "CREATE — TABLE", done: "Table created.",
-      build: function (form, ctx) {
+      tabs: [["general", "General"], ["columns", "Columns"], ["constraints", "Constraints"], ["sql", "SQL"]],
+      build: function (form, ctx, panels) {
         form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
         form.appendChild(row("Table", textInput("name")));
-        form.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Columns"}),
+        panels.columns.appendChild(el("p", {"class": "dlg-grants-head"}, [el("strong", {text: "Columns"}),
           el("button", {type: "button", "class": "btn", "data-col-add": "", text: "＋ Add column"})]));
-        form.appendChild(el("div", {"data-cols": ""}));
-        addColumn(form, {name: "id", type: "bigserial", pk: true});
+        panels.columns.appendChild(el("div", {"data-cols": ""}));
+        addColumn(panels.columns, {name: "id", type: "bigserial", pk: true});
+        open.constraints = window.pgdasConstraints.editor({ctx: ctx});
+        panels.constraints.appendChild(open.constraints.el);
       },
-      collect: function (v, form) { v.cols = columns(form); return v; },
+      collect: function (v) {
+        v.cols = columns(open.panels.columns);
+        open.constraints.setColumns(v.cols.map(function (c) { return c.name.trim(); }).filter(Boolean));     // the constraints choose among these
+        v.constraints = open.constraints.read();
+        return v;
+      },
       problem: function (v) {
         if (!v.name.trim()) return "'Table' cannot be empty.";
         var seen = {};
@@ -166,12 +239,19 @@
           if (seen[n]) return "Column " + n + " is listed twice.";
           seen[n] = true;
         }
-        return v.cols.length ? "" : "Add at least one column.";
+        if (!v.cols.length) return "Add at least one column.";
+        var constraintProblem = window.pgdasConstraints.problem(v.constraints);
+        if (constraintProblem) return constraintProblem;
+        if (v.cols.some(function (c) { return c.pk; }) && v.constraints.some(function (c) { return c.type === "PRIMARY KEY"; })) {
+          return "A key box is ticked on the Columns tab and there is also a Primary key constraint. Use one of them.";
+        }
+        return "";
       },
       sql: function (v, ctx) {
         var lines = v.cols.map(function (c) { return "    " + columnSql(c); });
         var keys = v.cols.filter(function (c) { return c.pk; }).map(function (c) { return ident(c.name.trim()); });
         if (keys.length) lines.push("    PRIMARY KEY (" + keys.join(", ") + ")");
+        v.constraints.forEach(function (c) { lines.push("    " + window.pgdasConstraints.sql(c)); });
         return "CREATE TABLE " + ident(ctx.schema) + "." + ident(v.name.trim()) + " (\n" + lines.join(",\n") + "\n)";
       },
       after: function (v, ctx) {
@@ -219,7 +299,7 @@
       build: function (form, ctx) {
         var c = ctx.column, plain = !c.identity && !c.generated;
         form.appendChild(row("Column", el("input", {type: "text", value: c.name, readonly: "readonly"})));
-        var type = typeInput("type"); type.input.value = c.type;
+        var type = typeInput("type"); type.input.value = c.type; type.sync();
         form.appendChild(row("Type", type));
         form.appendChild(checkbox("using", "Convert the existing values to the new type (USING " + c.name + "::type)", true));
         var def = textInput("default", plain ? "SQL expression; empty = no default" : "");
@@ -293,6 +373,7 @@
     var line = el("div", {"class": "tdlg-col", "data-col": ""});
     var name = textInput("c-name", "name"), type = typeInput("c-type"), def = textInput("c-default", "default");
     name.value = start.name || ""; type.input.value = start.type || "";
+    type.sync();
     var notnull = el("input", {type: "checkbox", "data-field": "c-notnull"}), pk = el("input", {type: "checkbox", "data-field": "c-pk"});
     pk.checked = !!start.pk;
     var remove = el("button", {type: "button", "class": "btn", "data-col-remove": "", title: "Remove this column", text: "✕"});
@@ -306,7 +387,7 @@
   function columns(form) {
     return Array.prototype.map.call(form.querySelectorAll("[data-col]"), function (line) {
       var get = function (field) { return line.querySelector('[data-field="' + field + '"]'); };
-      return {name: get("c-name").value, type: get("c-type").value, default: get("c-default").value, notnull: get("c-notnull").checked, pk: get("c-pk").checked};
+      return {name: get("c-name").value, type: get("c-type")._typeSql(), default: get("c-default").value, notnull: get("c-notnull").checked, pk: get("c-pk").checked};
     });
   }
 
@@ -318,15 +399,21 @@
     form.querySelectorAll("[data-field]").forEach(function (f) {
       var key = f.getAttribute("data-field");
       if (key.indexOf("c-") === 0) return;
-      v[key] = f.type === "checkbox" ? f.checked : f.value;
+      v[key] = f.type === "checkbox" ? f.checked : f._typeSql ? f._typeSql() : f.value;
     });
     if (open && open.kind.collect) open.kind.collect(v, form);
     return v;
   }
 
+  function formProblem(current, v) {
+    var problem = current.kind.problem(v, current.ctx);
+    current.form.querySelectorAll('[role="combobox"]').forEach(function (input) { if (!problem) problem = input._typeProblem(); });
+    return problem;
+  }
+
   function refresh() {
     if (!open) return;
-    var v = values(open.form), problem = open.kind.problem(v, open.ctx);
+    var v = values(open.form), problem = formProblem(open, v);
     var line = open.root.querySelector("[data-problem]");
     line.textContent = problem; line.hidden = !problem;
     open.root.querySelector("[data-dlg-save]").disabled = !!problem;
@@ -352,14 +439,14 @@
   function save() {
     if (!open) return;
     var current = open, v = values(current.form);
-    if (current.kind.problem(v, current.ctx)) return;
+    if (formProblem(current, v)) return;
     var button = current.root.querySelector("[data-dlg-save]"), line = current.root.querySelector("[data-problem]");
     button.disabled = true;
     window.pgdasReview.start({
       server: current.ctx.server, db: current.ctx.db, sql: current.kind.sql(v, current.ctx),
       onError: function (message) { line.textContent = message; line.hidden = false; },
       onSuccess: function (result) { close(); finished(current.ctx, current.kind.after(v, current.ctx), result.message || current.kind.done); },
-    }).then(function () { if (open === current) button.disabled = !!current.kind.problem(values(current.form), current.ctx); });
+    }).then(function () { if (open === current) button.disabled = !!formProblem(current, values(current.form)); });
   }
 
   // The types this database adds (enums, domains, composite and range types, extension types) join the suggestions once they arrive.
@@ -379,20 +466,27 @@
     var kind = KINDS[kindName];
     var form = el("div", {"class": "dlg-panel", "data-panel": "general"});
     var sqlPanel = el("div", {"class": "dlg-panel", "data-panel": "sql", hidden: "hidden"}, [el("pre", {"class": "sql dlg-sql", "data-sql": ""})]);
+    // Most dialogs are General + SQL; a dialog may name more tabs (kind.tabs) and gets an empty panel for each in `panels`.
+    var tabList = kind.tabs || [["general", "General"], ["sql", "SQL"]], panels = {general: form}, middle = [form];
+    tabList.forEach(function (t) {
+      if (t[0] === "general" || t[0] === "sql") return;
+      panels[t[0]] = el("div", {"class": "dlg-panel", "data-panel": t[0], hidden: "hidden"});
+      middle.push(panels[t[0]]);
+    });
     var root = el("div", {"class": "cyber-modal", "data-tdlg": ""}, [el("div", {"class": "cyber-dialog dlg tdlg", role: "dialog", "aria-modal": "true"}, [
       el("div", {"class": "modal-top"}, [el("span", {text: kind.title}), el("button", {type: "button", "data-dlg-close": "", "aria-label": "Close", text: "✕"})]),
-      el("div", {"class": "dlg-tabs", role: "tablist"}, [
-        el("button", {type: "button", "class": "dlg-tab active", "data-tab": "general", text: "General"}),
-        el("button", {type: "button", "class": "dlg-tab", "data-tab": "sql", text: "SQL"})]),
-      form, sqlPanel,
+      el("div", {"class": "dlg-tabs", role: "tablist"}, tabList.map(function (t, index) {
+        return el("button", {type: "button", "class": "dlg-tab" + (index === 0 ? " active" : ""), "data-tab": t[0], text: t[1]});
+      })),
+    ].concat(middle, [sqlPanel,
       el("p", {"class": "dlg-problem", "data-problem": "", hidden: "hidden"}),
       el("div", {"class": "dlg-foot"}, [
         el("button", {type: "button", "class": "btn", "data-dlg-close": "", text: "Close"}),
         el("button", {type: "button", "class": "btn primary", "data-dlg-save": "", disabled: "disabled", text: "Save"})]),
-    ])]);
-    open = {kind: kind, root: root, form: form, ctx: ctx};
+    ]))]);
+    open = {kind: kind, root: root, form: form, ctx: ctx, panels: panels};
     addDatabaseTypes(ctx);
-    kind.build(form, ctx);
+    kind.build(form, ctx, panels);
     document.body.appendChild(root);
     refresh();
     var first = form.querySelector("input:not([readonly]):not([disabled]):not([role=combobox])");     // not the type list: it would open at once
@@ -487,7 +581,7 @@
     if (tab && open.root.contains(tab)) { showTab(tab.getAttribute("data-tab")); return; }
     if (event.target.closest("[data-dlg-close]") && open.root.contains(event.target)) { close(); return; }
     if (event.target.closest("[data-dlg-save]") && open.root.contains(event.target)) { save(); return; }
-    if (event.target.closest("[data-col-add]") && open.root.contains(event.target)) { addColumn(open.form); refresh(); return; }
+    if (event.target.closest("[data-col-add]") && open.root.contains(event.target)) { addColumn(open.panels.columns || open.form); refresh(); return; }
     var removeColumn = event.target.closest("[data-col-remove]");
     if (removeColumn && open.root.contains(removeColumn)) { removeColumn.closest("[data-col]").remove(); refresh(); return; }
     if (event.target === open.root) close();

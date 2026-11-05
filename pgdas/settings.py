@@ -36,6 +36,8 @@ INSTALLED_APPS = [
     "monitor",
     "watch",
     "dashboard",
+    "access_control",
+    "accounts",
 ]
 
 MIDDLEWARE = [
@@ -45,6 +47,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "access_control.middleware.AccessMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -64,27 +67,32 @@ TEMPLATES = [{
 
 WSGI_APPLICATION = "pgdas.wsgi.application"
 
-# PGDAS keeps its own data (users, saved servers, audit log, sessions) in one SQLite file, so installing it needs no
-# database server. The PostgreSQL servers it browses are separate and are added in the app.
-SQLITE_PATH = Path(os.getenv("PGDAS_SQLITE_PATH") or BASE_DIR / "data" / "pgdas.sqlite3")
-SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+# PGDAS keeps its own data (users, saved servers, audit log, sessions) in a PostgreSQL database of its own, separate from the
+# PostgreSQL servers it browses (those are added in the app). Create the database and its login once: see .env.example.
+def app_db_setting(name, default=None):
+    value = os.getenv(name, default)
+    if value is None or value == "":
+        raise RuntimeError(f"Set {name} (see .env.example): PGDAS keeps its own data in a PostgreSQL database.")
+    return value
+
+
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": SQLITE_PATH,
-        "OPTIONS": {
-            # WAL lets readers and the one writer work together; IMMEDIATE makes a writer wait for its turn
-            # (up to `timeout` seconds) instead of failing with "database is locked".
-            "timeout": 20,
-            "init_command": "PRAGMA journal_mode=WAL;",
-            "transaction_mode": "IMMEDIATE",
-        },
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": app_db_setting("PGDAS_APP_DB_NAME"),
+        "USER": app_db_setting("PGDAS_APP_DB_USER"),
+        "PASSWORD": os.getenv("PGDAS_APP_DB_PASSWORD", ""),
+        "HOST": os.getenv("PGDAS_APP_DB_HOST") or "localhost",
+        "PORT": os.getenv("PGDAS_APP_DB_PORT") or "5432",
+        "CONN_MAX_AGE": 60,
+        "OPTIONS": {"sslmode": os.getenv("PGDAS_APP_DB_SSLMODE") or "prefer"},
     }
 }
 
 if sys.argv[1:2] == ["test"]:
     # Django's real password hashing is slow on purpose (about a second per user). Tests create many users, so
     # `manage.py test` uses a fast hasher. This applies only to the test command and never to a running server.
+    # (The tests also need PGDAS_APP_DB_USER to be allowed to create a database: Django makes test_<name> for the run.)
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -113,6 +121,11 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTH_USER_MODEL = "accounts.User"
+AUTHENTICATION_BACKENDS = ["accounts.backends.EmployeeBackend", "django.contrib.auth.backends.ModelBackend"]
+if os.getenv("PGDAS_LEGACY_UPGRADE") == "1":
+    # Transitional mode only for the documented two-stage upgrade of an existing auth_user table.
+    AUTH_USER_MODEL = "auth.User"
 
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"

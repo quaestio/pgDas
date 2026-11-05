@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% load people %}
+{% block title %}Profile · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">ACCOUNT / <span>PROFILE</span></div><h1>Profile</h1>
+  <p class="muted">Who you are in PGDAS. Your designation, email and role are set by a Super User.</p></div></div>
+<section class="panel pad profile">
+  <div class="profile-head">
+    <span class="avatar big" aria-hidden="true">{{ user.display_name|initials }}</span>
+    <div><h2>{{ user.display_name }}</h2><p class="muted">{{ user.designation|default:"No designation set" }}</p></div>
+  </div>
+  <dl class="props">
+    <dt>Email</dt><dd>{{ user.email|default:user.username }}</dd>
+    <dt>Designation</dt><dd>{{ user.designation|default:"—" }}</dd>
+    <dt>Role</dt><dd>{% if member %}{{ member.get_role_display }}{% else %}—{% endif %}</dd>
+    <dt>Organization</dt><dd>{% if member %}{{ member.organization.name }}{% else %}—{% endif %}</dd>
+  </dl>
+  <form method="post" class="profile-form">{% csrf_token %}
+    <label for="{{ form.name.id_for_label }}">Your name</label>
+    {{ form.name }}
+    {% for error in form.name.errors %}<p class="bad-text">{{ error }}</p>{% endfor %}
+    <div class="profile-actions"><button class="btn primary" type="submit">Save name</button>
+      <a class="btn" href="{% url 'password_change' %}">Change password</a></div>
+  </form>
+</section>
+{% endblock %}

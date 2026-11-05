@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from pgdas.testing import TestCase
 from django.urls import reverse
 
 from explorer.pg import PgError
@@ -20,7 +20,7 @@ class FeatureControlsTests(TestCase):
     @patch("monitor.features.change")
     def test_viewer_cannot_change_settings(self, change):
         self.client.force_login(self.viewer)
-        self.assertEqual(self.client.post(self.url, self.data).status_code, 302)
+        self.assertEqual(self.client.post(self.url, self.data).status_code, 403)
         change.assert_not_called()
 
     @patch("monitor.features.change")
