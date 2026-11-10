@@ -1,13 +1,14 @@
 services:
   db:
     # PGDAS's own data (users, saved servers, audit log, sessions): a PostgreSQL database of its own, separate from the
-    # servers PGDAS browses. Set PGDAS_APP_DB_PASSWORD in .env.
+    # servers PGDAS browses. Set PGDAS_APP_DB_PASSWORD in .env. Skipped when PGDAS_APP_DB_ENGINE=sqlite (profile "postgres").
     image: postgres:18
+    profiles: ["postgres"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: pgdas_identity
       POSTGRES_USER: pgdas_app
-      POSTGRES_PASSWORD: ${PGDAS_APP_DB_PASSWORD:?Set PGDAS_APP_DB_PASSWORD in .env}
+      POSTGRES_PASSWORD: ${PGDAS_APP_DB_PASSWORD:-change-me-in-env}
     volumes:
       - pgdas-db:/var/lib/postgresql
     healthcheck:
@@ -19,21 +20,25 @@ services:
   pgdas:
     build: .
     restart: unless-stopped
+    # Start with the database:   docker compose --profile postgres up -d --build
+    # or, trying PGDAS with one SQLite file instead:   PGDAS_APP_DB_ENGINE=sqlite docker compose up -d --build
     depends_on:
       db:
         condition: service_healthy
+        required: false
     environment:
       PGDAS_SECRET_KEY: ${PGDAS_SECRET_KEY:?Set PGDAS_SECRET_KEY in .env}
       PGDAS_ALLOWED_HOSTS: ${PGDAS_ALLOWED_HOSTS:-localhost,127.0.0.1}
       PGDAS_CSRF_TRUSTED_ORIGINS: ${PGDAS_CSRF_TRUSTED_ORIGINS:-}
       # Plain http on localhost; set to 1 once PGDAS is served over https behind a reverse proxy.
       PGDAS_SECURE_COOKIES: ${PGDAS_SECURE_COOKIES:-0}
+      PGDAS_APP_DB_ENGINE: ${PGDAS_APP_DB_ENGINE:-postgresql}
       PGDAS_APP_DB_NAME: pgdas_identity
       PGDAS_APP_DB_USER: pgdas_app
-      PGDAS_APP_DB_PASSWORD: ${PGDAS_APP_DB_PASSWORD:?Set PGDAS_APP_DB_PASSWORD in .env}
+      PGDAS_APP_DB_PASSWORD: ${PGDAS_APP_DB_PASSWORD:-change-me-in-env}
       PGDAS_APP_DB_HOST: db
     volumes:
-      # Backups made by PGDAS (pg_dump files) are kept in this volume.
+      # Backups made by PGDAS (pg_dump files) and, with SQLite, PGDAS's own data file.
       - pgdas-data:/app/data
     ports:
       # Bound to localhost only. Put an https reverse proxy in front before exposing it.

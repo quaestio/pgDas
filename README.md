@@ -90,8 +90,15 @@ Re-insert fails, and changes nothing, if a row with the same key now exists or a
 login only the rights it needs (for example `DELETE` on the tables staff may clear): PGDAS can only do what that login may.
 
 ## Where PGDAS keeps its own data
-PGDAS keeps its users, saved servers, audit log and sessions in a **PostgreSQL database of its own**, separate from the
-servers you browse (you add those in the app). Create it once, with a login that owns it:
+PGDAS keeps its users, saved servers, audit log and sessions in a database of its own, separate from the servers you browse (you
+add those in the app). `PGDAS_APP_DB_ENGINE` chooses it:
+
+| Engine | Use it for | Needs |
+|---|---|---|
+| `postgresql` (default, recommended) | any shared installation: several people at once | a PostgreSQL database and login (below) |
+| `sqlite` | trying PGDAS out, or one person | nothing: one file, `data/pgdas.sqlite3` (change it with `PGDAS_SQLITE_PATH`); the folder is created on first start |
+
+**PostgreSQL.** Create the database once, with a login that owns it:
 ```sql
 CREATE ROLE pgdas_app LOGIN PASSWORD '...' CREATEDB;   -- CREATEDB only if you want to run the tests
 CREATE DATABASE pgdas_identity OWNER pgdas_app;
@@ -100,18 +107,25 @@ and set `PGDAS_APP_DB_NAME`, `PGDAS_APP_DB_USER`, `PGDAS_APP_DB_PASSWORD`, `PGDA
 `PGDAS_APP_DB_SSLMODE` in `.env` (see `.env.example`). PGDAS refuses to start, and says which setting is missing, if the
 name or the login is not set. **Back it up** like any PostgreSQL database (`pg_dump pgdas_identity`). Use verified TLS
 (`PGDAS_APP_DB_SSLMODE=verify-full`) when the database is on another machine.
+
+**SQLite.** Set `PGDAS_APP_DB_ENGINE=sqlite` and nothing else. **Back it up** by copying the file while PGDAS is stopped. SQLite
+allows one writer at a time (PGDAS waits up to 20 seconds for its turn), which suits one person; people changing things together
+can meet "database is locked", so `manage.py check` warns when a non-debug install uses it.
+
+One installation uses one engine. To move between them, export with `dumpdata` and import with `loaddata` (see
+`docs/permissions.md`), or start empty.
 ## Quick start with Docker (server or local)
 ```bash
 cp .env.example .env        # then set PGDAS_SECRET_KEY
 docker compose up -d --build
 docker compose exec pgdas python manage.py installation_token    # prints the one-time setup token
 ```
-Open http://localhost:8000/setup/, enter the token and create your organization with its first Super User (the email address is the sign-in ID). PGDAS's own database lives in the `pgdas-db` volume and the backup files in `pgdas-data`. The port is bound to localhost; put an https
+Open http://localhost:8000/setup/, enter the token and create your organization with its first Super User (the email address is the sign-in ID). PGDAS's own database lives in the `pgdas-db` volume and the backup files in `pgdas-data`. Start it with `docker compose --profile postgres up -d --build` (or `PGDAS_APP_DB_ENGINE=sqlite docker compose up -d --build` to try it with one SQLite file in `pgdas-data`, no database container); set `PGDAS_APP_DB_PASSWORD` in `.env` first. The port is bound to localhost; put an https
 reverse proxy (Caddy, nginx) in front before exposing it, then set `PGDAS_ALLOWED_HOSTS`,
 `PGDAS_CSRF_TRUSTED_ORIGINS` and `PGDAS_SECURE_COOKIES=1`.
 
 ## Quick start without Docker (Windows, macOS, Linux)
-Requires Python 3.12+ and a PostgreSQL database of its own for PGDAS (see above).
+Requires Python 3.12+ and, for a shared installation, a PostgreSQL database of its own for PGDAS (see above); for a quick try, set `PGDAS_APP_DB_ENGINE=sqlite`.
 ```bash
 python -m venv .venv
 .venv/Scripts/activate       # Linux/macOS: source .venv/bin/activate
@@ -142,7 +156,7 @@ remote servers.
 - Read-only is enforced by PostgreSQL (`BEGIN READ ONLY`), not by filtering SQL text.
 
 ## Tests
-The tests run on PostgreSQL: Django creates and drops a temporary `test_<name>` copy of PGDAS's own database, so `PGDAS_APP_DB_USER`
+The tests run on the chosen engine (PostgreSQL by default; set `PGDAS_APP_DB_ENGINE=sqlite` to run them on SQLite, which uses a throw-away in-memory database). On PostgreSQL Django creates and drops a temporary `test_<name>` copy of PGDAS's own database, so `PGDAS_APP_DB_USER`
 needs the `CREATEDB` right. The explorer tests also browse a real PostgreSQL server and
 create and drop a scratch database `pgdas_test_target` on it, so they need a login that can create databases:
 ```bash

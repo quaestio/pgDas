@@ -9,8 +9,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN PGDAS_SECRET_KEY=build-only python manage.py collectstatic --noinput
 
-# PGDAS's own data lives in a PostgreSQL database (PGDAS_APP_DB_* settings, see docker-compose.yml). The data folder
-# holds the backup files PGDAS makes; mount a volume here to keep them across container restarts.
+# PGDAS's own data lives in a PostgreSQL database (PGDAS_APP_DB_* settings, see docker-compose.yml) or, with
+# PGDAS_APP_DB_ENGINE=sqlite, in one file under /app/data. The data folder also holds the backup files PGDAS makes;
+# mount a volume here to keep them across container restarts.
+ENV PGDAS_SQLITE_PATH=/app/data/pgdas.sqlite3
 RUN mkdir -p /app/data
 VOLUME ["/app/data"]
 

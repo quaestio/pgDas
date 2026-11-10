@@ -1,62 +1,132 @@
-"""PGDAS's own storage is a PostgreSQL database (users, saved servers, audit log, sessions), separate from the servers it browses."""
+"""PGDAS's own storage: a PostgreSQL database (default) or one SQLite file, chosen with PGDAS_APP_DB_ENGINE. The managed servers are separate."""
+import json
 import os
+import sqlite3
 import subprocess
 import sys
+import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase
+from django.core.checks import run_checks
+from django.test import override_settings
+
 from pgdas.testing import TestCase
 
 BASE_DIR = Path(settings.BASE_DIR)
 
 
-class OwnStorageIsPostgresTests(SimpleTestCase):
-    def test_settings_use_a_postgresql_application_database(self):
+def manage(*args, **env):
+    """Run manage.py in a clean process with the given environment on top of this one's. Returns the CompletedProcess."""
+    merged = dict(os.environ, PGDAS_DEBUG="1")
+    merged.update(env)
+    return subprocess.run([sys.executable, str(BASE_DIR / "manage.py"), *args], cwd=BASE_DIR, env=merged, capture_output=True, text=True, timeout=180)
+
+
+def settings_seen_by_a_new_process(**env):
+    code = ("import json; from django.conf import settings; d = settings.DATABASES['default']; "
+            "print(json.dumps({'engine': d['ENGINE'], 'options': d.get('OPTIONS'), 'name': str(d['NAME']), 'chosen': settings.APP_DB_ENGINE}))")
+    result = manage("shell", "-c", code, **env)
+    return result, (json.loads(result.stdout.strip().splitlines()[-1]) if result.returncode == 0 else None)
+
+
+class OwnStorageTests(TestCase):          # (a TestCase: running the system checks reads the database)
+    def test_this_run_uses_the_chosen_engine_with_its_settings(self):
         config = settings.DATABASES["default"]
-        self.assertEqual(config["ENGINE"], "django.db.backends.postgresql")
-        for key in ("NAME", "USER", "HOST", "PORT"):
-            self.assertTrue(config[key], key)
-        self.assertEqual(config["CONN_MAX_AGE"], 60)                          # connections are reused, not opened per request
+        if settings.APP_DB_ENGINE == "sqlite":
+            self.assertEqual(config["ENGINE"], "django.db.backends.sqlite3")
+            options = config["OPTIONS"]
+            self.assertEqual(options["init_command"], "PRAGMA journal_mode=WAL;")      # readers and a writer share the file
+            self.assertEqual(options["transaction_mode"], "IMMEDIATE")                 # a writer waits its turn, no instant "locked" errors
+            self.assertGreaterEqual(options["timeout"], 10)
+        else:
+            self.assertEqual(config["ENGINE"], "django.db.backends.postgresql")
+            for key in ("NAME", "USER", "HOST", "PORT"):
+                self.assertTrue(config[key], key)
+            self.assertEqual(config["CONN_MAX_AGE"], 60)                               # connections are reused, not opened per request
 
-    def test_the_fast_password_hasher_is_only_used_while_testing(self):
-        self.assertEqual(settings.PASSWORD_HASHERS, ["django.contrib.auth.hashers.MD5PasswordHasher"])   # this test run
-        # Any other command (runserver, createsuperuser, shell, ...) must keep Django's strong default hashing.
-        env = dict(os.environ, PGDAS_DEBUG="1")
-        result = subprocess.run([sys.executable, str(BASE_DIR / "manage.py"), "shell", "-c",
-                                 "from django.conf import settings; print(settings.PASSWORD_HASHERS[0])"],
-                                cwd=BASE_DIR, env=env, capture_output=True, text=True, timeout=120)
-        self.assertEqual(result.returncode, 0, result.stderr[-600:])
-        # (`shell` prints an "objects imported automatically" banner first, so look at the last line.)
-        self.assertEqual(result.stdout.strip().splitlines()[-1], "django.contrib.auth.hashers.PBKDF2PasswordHasher")
+    def test_postgresql_is_the_default_and_sqlite_needs_no_database_settings(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "nested" / "pgdas.sqlite3"
+            result, seen = settings_seen_by_a_new_process(PGDAS_APP_DB_ENGINE="")
+            self.assertEqual(result.returncode, 0, result.stderr[-500:])
+            self.assertEqual((seen["chosen"], seen["engine"]), ("postgresql", "django.db.backends.postgresql"))
+            result, seen = settings_seen_by_a_new_process(PGDAS_APP_DB_ENGINE=" SQLite ", PGDAS_SQLITE_PATH=str(target),
+                                                          PGDAS_APP_DB_NAME="", PGDAS_APP_DB_USER="")      # nothing of PostgreSQL is needed
+            self.assertEqual(result.returncode, 0, result.stderr[-500:])
+            self.assertEqual((seen["chosen"], seen["engine"], seen["name"]), ("sqlite", "django.db.backends.sqlite3", str(target)))
+            self.assertEqual((seen["options"]["init_command"], seen["options"]["transaction_mode"]), ("PRAGMA journal_mode=WAL;", "IMMEDIATE"))
+            self.assertTrue(target.parent.is_dir())                                    # the missing folder was created
 
-    def test_a_missing_database_setting_stops_the_start_with_a_clear_message(self):
-        env = dict(os.environ, PGDAS_DEBUG="1", PGDAS_APP_DB_NAME="")
-        result = subprocess.run([sys.executable, str(BASE_DIR / "manage.py"), "check"], cwd=BASE_DIR, env=env, capture_output=True, text=True, timeout=120)
+    def test_an_unknown_engine_stops_the_start_with_a_clear_message(self):
+        result = manage("check", PGDAS_APP_DB_ENGINE="mysql")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PGDAS_APP_DB_ENGINE must be postgresql or sqlite", result.stderr)
+
+    def test_a_missing_postgresql_setting_stops_the_start_with_a_clear_message(self):
+        result = manage("check", PGDAS_APP_DB_ENGINE="postgresql", PGDAS_APP_DB_NAME="")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Set PGDAS_APP_DB_NAME", result.stderr)
         self.assertIn("PostgreSQL database", result.stderr)
 
-    def test_the_data_folder_is_not_committed(self):
-        self.assertIn("data/", (BASE_DIR / ".gitignore").read_text(encoding="utf-8"))
+    def test_every_migration_runs_on_a_fresh_sqlite_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "fresh.sqlite3"
+            result = manage("migrate", "--noinput", PGDAS_APP_DB_ENGINE="sqlite", PGDAS_SQLITE_PATH=str(target))
+            self.assertEqual(result.returncode, 0, result.stderr[-800:])
+            with closing(sqlite3.connect(target)) as db:
+                tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+                indexes = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type = 'index'")}
+                mode = db.execute("PRAGMA journal_mode").fetchone()[0]
+            self.assertTrue({"auth_user", "servers_serverconnection", "audit_auditentry", "django_session", "access_control_organization"} <= tables)
+            self.assertIn("accounts_user_email_unique_ci", indexes)                    # the case-insensitive unique email rule exists there too
+            self.assertEqual(mode, "wal")
 
-    def test_install_files_describe_the_application_database(self):
+    def test_the_fast_password_hasher_is_only_used_while_testing(self):
+        self.assertEqual(settings.PASSWORD_HASHERS, ["django.contrib.auth.hashers.MD5PasswordHasher"])   # this test run
+        # Any other command (runserver, createsuperuser, shell, ...) must keep Django's strong default hashing.
+        result = manage("shell", "-c", "from django.conf import settings; print(settings.PASSWORD_HASHERS[0])")
+        self.assertEqual(result.returncode, 0, result.stderr[-600:])
+        # (`shell` prints an "objects imported automatically" banner first, so look at the last line.)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "django.contrib.auth.hashers.PBKDF2PasswordHasher")
+
+    def test_the_data_folder_and_sqlite_files_are_not_committed(self):
+        ignored = (BASE_DIR / ".gitignore").read_text(encoding="utf-8")
+        for pattern in ("data/", "*.sqlite3", "*.sqlite3-wal", "*.sqlite3-shm"):
+            self.assertIn(pattern, ignored)
+
+    def test_install_files_describe_both_engines(self):
         compose = (BASE_DIR / "docker-compose.yml").read_text(encoding="utf-8")
-        self.assertIn("postgres:", compose)                     # PGDAS's own database runs next to it
+        self.assertIn("postgres:", compose)                     # PGDAS's own database can run next to it ...
+        self.assertIn('profiles: ["postgres"]', compose)        # ... and is left out when SQLite is chosen
+        self.assertIn("PGDAS_APP_DB_ENGINE", compose)
         self.assertIn("PGDAS_APP_DB_HOST: db", compose)
-        self.assertIn("pgdas-db:/var/lib/postgresql", compose)  # and keeps its files in a volume
+        self.assertIn("pgdas-db:/var/lib/postgresql", compose)
         dockerfile = (BASE_DIR / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn("PGDAS_APP_DB", dockerfile + compose)
+        self.assertIn("PGDAS_SQLITE_PATH", dockerfile)
         # The image must never contain the local .env, the data folder or the virtualenv.
         ignore = (BASE_DIR / ".dockerignore").read_text(encoding="utf-8").split()
         for entry in (".env", "data", ".venv"):
             self.assertIn(entry, ignore)
         example = (BASE_DIR / ".env.example").read_text(encoding="utf-8")
-        for key in ("PGDAS_APP_DB_NAME", "PGDAS_APP_DB_USER", "PGDAS_APP_DB_PASSWORD", "PGDAS_APP_DB_HOST"):
+        for key in ("PGDAS_APP_DB_ENGINE", "PGDAS_SQLITE_PATH", "PGDAS_APP_DB_NAME", "PGDAS_APP_DB_USER", "PGDAS_APP_DB_PASSWORD", "PGDAS_APP_DB_HOST"):
             self.assertIn(key, example)
         self.assertNotIn("PGDAS_DB_PASSWORD", example.replace("PGDAS_TEST_PG_PASSWORD", "").replace("PGDAS_APP_DB_PASSWORD", ""))
-        self.assertIn("PGDAS_APP_DB_NAME", (BASE_DIR / "README.md").read_text(encoding="utf-8"))
+        readme = (BASE_DIR / "README.md").read_text(encoding="utf-8")
+        for needle in ("PGDAS_APP_DB_ENGINE", "PGDAS_APP_DB_NAME", "SQLite"):
+            self.assertIn(needle, readme)
+
+    @override_settings(APP_DB_ENGINE="sqlite", DEBUG=False)
+    def test_a_sqlite_install_that_is_not_in_debug_gets_a_warning_a_postgresql_one_does_not(self):
+        warnings = [w for w in run_checks() if w.id == "access_control.W002"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("one writer at a time", warnings[0].hint)
+        with override_settings(APP_DB_ENGINE="postgresql"):
+            self.assertEqual([w for w in run_checks() if w.id == "access_control.W002"], [])
+        with override_settings(DEBUG=True):
+            self.assertEqual([w for w in run_checks() if w.id == "access_control.W002"], [])
 
 
 class BrandingTests(TestCase):

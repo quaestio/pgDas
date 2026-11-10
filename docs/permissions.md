@@ -45,9 +45,9 @@ SQL uses a PostgreSQL parser and exactly one statement per request. Employee SQL
 
 Export CSV requires export rights, is row-capped, and escapes spreadsheet formula prefixes. PostgreSQL read privileges alone do not enable the export endpoint. Users who can read data can of course copy what they can see.
 
-## Application database (PostgreSQL)
+## Application database (PostgreSQL or SQLite)
 
-PGDAS keeps its users, saved servers, audit log and sessions in a PostgreSQL database of its own, separate from the servers it manages. Create the database and its login once, then configure:
+PGDAS keeps its users, saved servers, audit log and sessions in a database of its own, separate from the servers it manages. `PGDAS_APP_DB_ENGINE` chooses it: `postgresql` (default, recommended for any shared installation) or `sqlite` (one file, `PGDAS_SQLITE_PATH`; for trying PGDAS out or one person, because SQLite allows one writer at a time). One installation uses one engine; every migration is tested on both. For PostgreSQL, create the database and its login once, then configure:
 
 ```
 PGDAS_APP_DB_NAME=pgdas_identity

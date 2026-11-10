@@ -1,5 +1,15 @@
+from django.conf import settings
 from django.core.checks import Warning, register
 from django.db import DatabaseError
+
+
+@register()
+def sqlite_is_for_trying_it_out(app_configs, **kwargs):
+    if getattr(settings, "APP_DB_ENGINE", "") == "sqlite" and not settings.DEBUG:
+        return [Warning("PGDAS keeps its own data in a SQLite file.",
+                        hint="SQLite allows one writer at a time, so people changing things together can meet 'database is locked'. "
+                             "Use PGDAS_APP_DB_ENGINE=postgresql for a shared installation.", id="access_control.W002")]
+    return []
 
 
 @register()

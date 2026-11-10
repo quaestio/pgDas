@@ -69,8 +69,16 @@ TEMPLATES = [{
 
 WSGI_APPLICATION = "pgdas.wsgi.application"
 
-# PGDAS keeps its own data (users, saved servers, audit log, sessions) in a PostgreSQL database of its own, separate from the
-# PostgreSQL servers it browses (those are added in the app). Create the database and its login once: see .env.example.
+# PGDAS keeps its own data (users, saved servers, audit log, sessions) in a database of its own, separate from the PostgreSQL
+# servers it browses (those are added in the app). PGDAS_APP_DB_ENGINE chooses where:
+#   postgresql  (default, recommended) a PostgreSQL database; see PGDAS_APP_DB_* in .env.example
+#   sqlite      one file (PGDAS_SQLITE_PATH), nothing to install: for trying PGDAS out or a single person. SQLite allows one
+#               writer at a time, so people changing things together can meet "database is locked".
+APP_DB_ENGINE = (os.getenv("PGDAS_APP_DB_ENGINE") or "postgresql").strip().lower()
+if APP_DB_ENGINE not in ("postgresql", "sqlite"):
+    raise RuntimeError("PGDAS_APP_DB_ENGINE must be postgresql or sqlite.")
+
+
 def app_db_setting(name, default=None):
     value = os.getenv(name, default)
     if value is None or value == "":
@@ -78,23 +86,39 @@ def app_db_setting(name, default=None):
     return value
 
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": app_db_setting("PGDAS_APP_DB_NAME"),
-        "USER": app_db_setting("PGDAS_APP_DB_USER"),
-        "PASSWORD": os.getenv("PGDAS_APP_DB_PASSWORD", ""),
-        "HOST": os.getenv("PGDAS_APP_DB_HOST") or "localhost",
-        "PORT": os.getenv("PGDAS_APP_DB_PORT") or "5432",
-        "CONN_MAX_AGE": 60,
-        "OPTIONS": {"sslmode": os.getenv("PGDAS_APP_DB_SSLMODE") or "prefer"},
+if APP_DB_ENGINE == "sqlite":
+    SQLITE_PATH = Path(os.getenv("PGDAS_SQLITE_PATH") or BASE_DIR / "data" / "pgdas.sqlite3")
+    SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": SQLITE_PATH,
+            "OPTIONS": {
+                # WAL lets readers and the one writer work together; IMMEDIATE makes a writer wait for its turn
+                # (up to `timeout` seconds) instead of failing at once with "database is locked".
+                "timeout": 20,
+                "init_command": "PRAGMA journal_mode=WAL;",
+                "transaction_mode": "IMMEDIATE",
+            },
+        }
     }
-}
-
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": app_db_setting("PGDAS_APP_DB_NAME"),
+            "USER": app_db_setting("PGDAS_APP_DB_USER"),
+            "PASSWORD": os.getenv("PGDAS_APP_DB_PASSWORD", ""),
+            "HOST": os.getenv("PGDAS_APP_DB_HOST") or "localhost",
+            "PORT": os.getenv("PGDAS_APP_DB_PORT") or "5432",
+            "CONN_MAX_AGE": 60,
+            "OPTIONS": {"sslmode": os.getenv("PGDAS_APP_DB_SSLMODE") or "prefer"},
+        }
+    }
 if sys.argv[1:2] == ["test"]:
     # Django's real password hashing is slow on purpose (about a second per user). Tests create many users, so
     # `manage.py test` uses a fast hasher. This applies only to the test command and never to a running server.
-    # (The tests also need PGDAS_APP_DB_USER to be allowed to create a database: Django makes test_<name> for the run.)
+    # (On PostgreSQL the tests also need PGDAS_APP_DB_USER to be allowed to create a database: Django makes test_<name> for the run.\n    # On SQLite they use a throw-away in-memory database.)
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 AUTH_PASSWORD_VALIDATORS = [
