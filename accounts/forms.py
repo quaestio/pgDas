@@ -93,6 +93,13 @@ class RegistrationForm(NewOrganizationForm):
     website = forms.CharField(required=False, label="", widget=forms.TextInput(attrs={"tabindex": "-1", "autocomplete": "off", "aria-hidden": "true",
                                                                                         "style": "position:absolute;left:-9999px;width:1px;height:1px"}))
 
+    accept_terms = forms.BooleanField(required=True, label="I have read and accept the Terms and Conditions",
+                                      error_messages={"required": "You must accept the Terms and Conditions to register."})
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.order_fields(["organization", "name", "designation", "email", "password", "password_confirm", "accept_terms", "website"])
+
     def clean_website(self):
         if self.cleaned_data.get("website"):                 # a field no person sees: only a script fills it in
             raise ValidationError("This registration was not accepted.")

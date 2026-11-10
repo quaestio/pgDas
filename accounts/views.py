@@ -62,6 +62,12 @@ def setup(request):
     return render(request, "accounts/setup.html", {"form": form})
 
 
+def terms(request):
+    """The built-in Terms and Conditions: public, so they can be read before registering."""
+    from . import terms as terms_module
+    return render(request, "accounts/terms.html", {"terms_version": terms_module.VERSION})
+
+
 @login_required
 def employees(request):
     member = administrator(request)

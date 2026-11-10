@@ -1,0 +1,4 @@
+{% extends "base.html" %}
+{% block title %}Terms and Conditions · PGDAS{% endblock %}
+{% block content %}{% include "accounts/_terms_body.html" %}{% endblock %}
+{% block anonymous %}{% if not user.is_authenticated %}<div class="login-screen"><div class="login-card terms-card" style="width:min(100%,860px);text-align:left">{% include "accounts/_terms_body.html" %}<p class="login-register"><a href="{% url 'login' %}">Back to sign in</a></p></div></div>{% endif %}{% endblock %}

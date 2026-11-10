@@ -33,7 +33,7 @@ class ModeFixture(TestCase):
 
     def register(self, client=None, **extra):
         data = {"organization": "Second Org", "name": "Bea Boss", "designation": "Owner", "email": "bea@second.test", "password": PASSWORD,
-                "password_confirm": PASSWORD, "website": "", **extra}
+                "password_confirm": PASSWORD, "accept_terms": "on", "website": "", **extra}
         return (client or Client()).post(reverse("register"), data)
 
 
@@ -232,6 +232,92 @@ class ConfirmationTests(ModeFixture):
     def test_an_unconfirmed_organization_already_counts_towards_the_limit(self):
         self.registered()
         self.assertEqual(Client().get(reverse("register")).status_code, 404)
+
+@override_settings(**SHARED)
+class LoginPageRegistrationTests(ModeFixture):
+    def page(self, **kwargs):
+        return Client().get(reverse("login"), **kwargs)
+
+    def test_the_sign_in_page_carries_the_registration_with_cautions_and_the_terms(self):
+        page = self.page()
+        for needle in ('id="tabSignin"', 'id="tabRegister"', "Register your organization", 'id="panelRegister"', 'action="/register/"', "Before you register",
+                       "first Super User", "least-privilege", "email address is your sign-in ID", 'name="accept_terms"', 'name="organization"', 'name="email"',
+                       'name="password"', 'name="password_confirm"', 'href="/terms/"', "login_tabs.js", "register.css"):
+            self.assertContains(page, needle)
+        self.assertContains(page, 'name="website"')                          # the hidden field is in the form but off screen
+        self.assertContains(page, "Authorised use only")
+        self.assertEqual(page.context["register_form"].fields["accept_terms"].required, True)
+
+    def test_without_registration_the_page_has_only_sign_in_and_still_the_caution(self):
+        with override_settings(ALLOW_ORGANIZATION_REGISTRATION=False):
+            page = self.page()
+        for needle in ("tabRegister", "panelRegister", "Before you register", "accept_terms", "Register your organization"):
+            self.assertNotContains(page, needle)
+        self.assertContains(page, "Authorised use only")
+        self.assertContains(page, 'name="username"')
+
+    def test_the_terms_must_be_accepted_or_nothing_is_registered(self):
+        data = {"organization": "Second Org", "name": "Bea Boss", "designation": "", "email": "bea@second.test", "password": PASSWORD,
+                "password_confirm": PASSWORD, "website": ""}
+        response = Client().post(reverse("register"), data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "You must accept the Terms and Conditions to register.")
+        self.assertContains(response, 'id="panelRegister"')
+        self.assertEqual((Organization.objects.count(), get_user_model().objects.count()), (1, 1))
+
+    def test_what_was_accepted_is_recorded_with_the_version_the_time_and_the_address(self):
+        self.register(Client(REMOTE_ADDR="203.0.113.5"))
+        terms = AuditEntry.objects.get(action="organization.register").payload["terms"]
+        from accounts import terms as terms_module
+        self.assertEqual((terms["version"], terms["url"], terms["address"]), (terms_module.VERSION, "/terms/", "203.0.113.5"))
+        self.assertRegex(terms["accepted_at"], r"^\d{4}-\d\d-\d\dT")
+
+    def test_the_register_address_shows_the_sign_in_page_with_the_register_tab_selected(self):
+        page = Client().get(reverse("register"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'data-active="register"')
+        self.assertTemplateUsed(page, "registration/login.html")
+
+    def test_mistakes_come_back_on_the_same_page_with_the_register_tab_selected_and_what_was_typed(self):
+        response = self.register(password_confirm="different", organization="Kept Name")
+        self.assertContains(response, 'data-active="register"')
+        self.assertContains(response, "Passwords do not match.")
+        self.assertContains(response, "Kept Name")
+
+    def test_your_own_terms_address_replaces_the_built_in_page(self):
+        with override_settings(TERMS_URL="https://example.test/our-terms"):
+            page = self.page()
+            self.assertContains(page, 'href="https://example.test/our-terms"')
+            self.assertNotContains(page, 'href="/terms/"')
+            self.register()
+        self.assertEqual(AuditEntry.objects.get(action="organization.register").payload["terms"]["url"], "https://example.test/our-terms")
+
+    def test_the_built_in_terms_can_be_read_signed_out_or_in_and_say_what_they_cover(self):
+        out = Client().get(reverse("terms"))
+        self.assertEqual(out.status_code, 200)
+        for needle in ("Terms and Conditions", "Version 2026-11-10", "Acceptable use", "Changes you make are real", "audit log", "no warranty", "not legal advice"):
+            self.assertContains(out, needle)
+        signed = Client()
+        signed.force_login(self.admin)
+        self.assertContains(signed.get(reverse("terms")), "Acceptable use")
+
+    def test_the_terms_page_is_not_a_way_around_setup(self):
+        Installation.objects.filter(pk=1).update(completed=False)
+        self.assertRedirects(Client().get(reverse("terms")), reverse("setup"), fetch_redirect_response=False)
+
+    @override_settings(EMAIL_HOST="smtp.test", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+    def test_the_check_your_email_message_is_on_the_same_page(self):
+        response = self.register()
+        self.assertContains(response, "We sent a confirmation link to <strong>bea@second.test</strong>")
+        self.assertNotContains(response, 'name="accept_terms"')
+
+    def test_the_tab_script_handles_clicks_keys_and_the_hash(self):
+        from pathlib import Path
+        from django.conf import settings
+        script = (Path(settings.BASE_DIR) / "static" / "login_tabs.js").read_text(encoding="utf-8")
+        for needle in ('role="tab"', "aria-selected", "ArrowRight", '"#register"', "panel.hidden"):
+            self.assertIn(needle, script)
+        self.assertNotIn("innerHTML", script)
 
 
 class HostCommandTests(ModeFixture):

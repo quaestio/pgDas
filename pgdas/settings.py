@@ -34,6 +34,8 @@ if MODE not in ("dedicated", "shared"):
 # Shared mode only: may a visitor register a new organization at /register/ (and become its first Super User)? Off unless set to 1.
 ALLOW_ORGANIZATION_REGISTRATION = os.getenv("PGDAS_ALLOW_ORGANIZATION_REGISTRATION", "0").strip() == "1"
 MAX_ORGANIZATIONS = int(os.getenv("PGDAS_MAX_ORGANIZATIONS") or 0)             # 0 = no limit (shared mode)
+# Where the Terms and Conditions that a registering organization must accept are read. Empty = the built-in page at /terms/.
+TERMS_URL = os.getenv("PGDAS_TERMS_URL", "").strip()
 REGISTRATIONS_PER_HOUR = int(os.getenv("PGDAS_REGISTRATIONS_PER_HOUR") or 5)    # registration attempts per address per hour
 REGISTRATION_CONFIRM_HOURS = int(os.getenv("PGDAS_REGISTRATION_CONFIRM_HOURS") or 48)   # how long the emailed confirmation link works
 
@@ -133,6 +135,9 @@ if sys.argv[1:2] == ["test"]:
     # `manage.py test` uses a fast hasher. This applies only to the test command and never to a running server.
     # (On PostgreSQL the tests also need PGDAS_APP_DB_USER to be allowed to create a database: Django makes test_<name> for the run.\n    # On SQLite they use a throw-away in-memory database.)
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+    # The tests do not depend on how this installation is set up: they run as a dedicated installation with nothing open to the
+    # public, and a test that is about shared mode or registration says so (override_settings).
+    MODE, ALLOW_ORGANIZATION_REGISTRATION, MAX_ORGANIZATIONS, TERMS_URL = "dedicated", False, 0, ""
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

@@ -14,13 +14,15 @@ from django.core.mail import send_mail
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.urls import reverse
 
 from access_control import mode, network
 from access_control.models import Installation, Membership, Organization
 from audit.models import record
 
-from .forms import RegistrationForm
+from . import terms
+from .forms import EmailAuthenticationForm, RegistrationForm
 
 SALT = "pgdas.organization-registration"
 
@@ -29,6 +31,12 @@ def _too_many_attempts(request):
     key = f"pgdas-registration:{network.client_ip(request)}"
     cache.add(key, 0, 3600)
     return cache.incr(key) > settings.REGISTRATIONS_PER_HOUR
+
+
+def _page(request, status=200, **extra):
+    """Registering happens on the sign-in page (its second tab), so every answer is that page."""
+    context = {"form": EmailAuthenticationForm(request), "registration_open": mode.registration_open(), "terms_url": terms.url(), "register_active": True, **extra}
+    return render(request, "registration/login.html", context, status=status)
 
 
 def needs_confirmation():
@@ -43,7 +51,7 @@ def register(request):
     form = RegistrationForm(request.POST or None)
     if request.method == "POST":
         if _too_many_attempts(request):
-            return render(request, "accounts/register.html", {"form": form, "blocked": "Too many attempts from this address. Try again later."}, status=429)
+            return _page(request, 429, register_form=form, register_blocked="Too many attempts from this address. Try again later.")
         if form.is_valid():
             with transaction.atomic():
                 Installation.objects.select_for_update().get(pk=1)          # one at a time, so the organization limit holds
@@ -59,24 +67,27 @@ def register(request):
                 user.save()
                 Membership.objects.create(user=user, organization=organization, role="super_user")
                 record(user, "organization.register", None, f"Organization {organization.name!r} registered by {user.email}"
-                       + (" (waiting for email confirmation)" if pending else ""), payload={"organization": organization.pk, "pending": pending})
+                       + (" (waiting for email confirmation)" if pending else ""),
+                       payload={"organization": organization.pk, "pending": pending,
+                                "terms": {"version": terms.VERSION, "url": terms.url(), "accepted_at": timezone.now().isoformat(), "address": str(network.client_ip(request))}})
             if pending:
                 token = signing.dumps({"organization": organization.pk, "user": user.pk}, salt=SALT)
                 link = request.build_absolute_uri(reverse("register_confirm", args=[token]))
                 send_mail("Confirm your organization on PGDAS", f"Open this link to confirm {organization.name!r} and sign in:\n\n{link}\n\n"
                           f"It works for {settings.REGISTRATION_CONFIRM_HOURS} hours. If you did not register, ignore this message.",
                           settings.ALERT_EMAIL_FROM, [user.email], fail_silently=True)
-                return render(request, "accounts/register.html", {"sent": user.email})
+                return _page(request, register_sent=user.email)
             messages.success(request, f"Organization {organization.name} was registered. Sign in with {user.email}.")
             return redirect("login")
-    return render(request, "accounts/register.html", {"form": form})
+    return _page(request, register_form=form)
 
 
 def confirm(request, token):
     try:
         data = signing.loads(token, salt=SALT, max_age=settings.REGISTRATION_CONFIRM_HOURS * 3600)
     except signing.BadSignature:                            # (also an expired link)
-        return render(request, "accounts/register.html", {"blocked": "This confirmation link is not valid or has expired. Register again."}, status=400)
+        return _page(request, 400, register_active=False, register_form=RegistrationForm(),
+                     register_blocked="This confirmation link is not valid or has expired. Register again.")
     with transaction.atomic():
         organization = Organization.objects.select_for_update().filter(pk=data["organization"], active=False).first()
         user = get_user_model().objects.select_for_update().filter(pk=data["user"], is_active=False).first()

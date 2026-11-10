@@ -3,21 +3,64 @@
 {% block title %}Sign in · PGDAS{% endblock %}
 {% block anonymous %}
 <div class="login-screen">
-  <div class="login-card">
+  <div class="login-card{% if registration_open %} has-register{% endif %}" id="loginCard" data-active="{% if register_active and register_form %}register{% else %}signin{% endif %}">
     <img class="login-logo" src="{% static 'img/pgdas-400.png' %}" srcset="{% static 'img/pgdas-400.png' %} 1x, {% static 'img/pgdas-800.png' %} 2x" width="300" height="150" alt="PGDAS — PostgreSQL Database Access System">
     <div class="login-kicker">SECURE ACCESS TERMINAL</div>
     {% if messages %}<ul class="errorlist" role="alert">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
-    <form method="post">{% csrf_token %}
-      {{ form.non_field_errors }}
-      <label for="{{ form.username.id_for_label }}">EMAIL</label>
-      {{ form.username }}{{ form.username.errors }}
-      <label for="{{ form.password.id_for_label }}">PASSWORD</label>
-      {{ form.password }}{{ form.password.errors }}
-      <input type="hidden" name="next" value="{{ next }}">
-      <button type="submit" class="cyber-primary">SIGN IN <span>↗</span></button>
-    </form>
-    {% if registration_open %}<p class="login-register"><a href="{% url 'register' %}">Register your organization</a></p>{% endif %}
-    <div class="login-foot"><span class="dot"></span> PG DATABASE ACCESS SYSTEM</div>
+    {% if register_blocked %}<ul class="errorlist" role="alert"><li>{{ register_blocked }}</li></ul>{% endif %}
+    {% if register_sent %}
+      <p>We sent a confirmation link to <strong>{{ register_sent }}</strong>. Open it to switch your organization on, then sign in.</p>
+      <p class="login-register"><a href="{% url 'login' %}">Back to sign in</a></p>
+    {% else %}
+    {% if registration_open %}
+    <div class="login-tabs" role="tablist" aria-label="Sign in or register">
+      <button type="button" role="tab" id="tabSignin" aria-controls="panelSignin" data-tab="signin">Sign in</button>
+      <button type="button" role="tab" id="tabRegister" aria-controls="panelRegister" data-tab="register">Register your organization</button>
+    </div>
+    {% endif %}
+    <div id="panelSignin" role="tabpanel" aria-labelledby="tabSignin" data-panel="signin">
+      <form method="post" action="{% url 'login' %}">{% csrf_token %}
+        {{ form.non_field_errors }}
+        <label for="{{ form.username.id_for_label }}">EMAIL</label>
+        {{ form.username }}{{ form.username.errors }}
+        <label for="{{ form.password.id_for_label }}">PASSWORD</label>
+        {{ form.password }}{{ form.password.errors }}
+        <input type="hidden" name="next" value="{{ next }}">
+        <button type="submit" class="cyber-primary">SIGN IN <span>↗</span></button>
+      </form>
+      <p class="login-caution"><strong>Authorised use only.</strong> Your sign-in, the address you use and everything you do here are recorded in the audit log.</p>
+    </div>
+    {% if registration_open and register_form %}
+    <div id="panelRegister" role="tabpanel" aria-labelledby="tabRegister" data-panel="register">
+      <div class="login-cautions" role="note">
+        <strong>Before you register</strong>
+        <ul>
+          <li>You become the <strong>first Super User</strong> of the new organization and are responsible for who it lets in and what they can reach.</li>
+          <li>Everything done in PGDAS is <strong>recorded</strong>, with the address it came from. Changes to the databases you connect are <strong>real</strong>: keep backups.</li>
+          <li>Connect PostgreSQL with <strong>least-privilege logins</strong>. PGDAS stores the passwords you give it, encrypted, but a login can only do what PostgreSQL lets it.</li>
+          <li>Your <strong>email address is your sign-in ID</strong>; it cannot be shared with another person or used twice on this installation.</li>
+          <li>Choose a <strong>strong, unique password</strong>, and register only organizations you are allowed to manage.</li>
+        </ul>
+      </div>
+      <form method="post" action="{% url 'register' %}">{% csrf_token %}
+        {{ register_form.non_field_errors }}
+        {% for field in register_form %}
+          {% if field.name == "website" %}{{ field }}
+          {% elif field.name == "accept_terms" %}
+            <label class="login-terms" for="{{ field.id_for_label }}">{{ field }} I have read and accept the <a href="{{ terms_url }}" target="_blank" rel="noopener">Terms and Conditions</a></label>
+            {{ field.errors }}
+          {% else %}
+            <label for="{{ field.id_for_label }}">{{ field.label|upper }}</label>
+            {{ field }}{{ field.errors }}
+          {% endif %}
+        {% endfor %}
+        <button type="submit" class="cyber-primary">REGISTER <span>↗</span></button>
+      </form>
+    </div>
+    {% endif %}
+    {% endif %}
+    <div class="login-foot"><span class="dot"></span> PG DATABASE ACCESS SYSTEM{% if registration_open %}<a href="{{ terms_url }}" target="_blank" rel="noopener">Terms</a>{% endif %}</div>
   </div>
 </div>
 {% endblock %}
+{% block scripts %}<script src="{% static 'login_tabs.js' %}"></script>{% endblock %}
