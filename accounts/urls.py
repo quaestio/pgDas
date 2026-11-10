@@ -1,9 +1,11 @@
 from django.urls import path
 from django.contrib.auth import views as auth_views
-from . import profile as profile_views, views
+from . import profile as profile_views, registration, views
 
 urlpatterns = [
     path("setup/", views.setup, name="setup"),
+    path("register/", registration.register, name="register"),
+    path("register/confirm/<str:token>/", registration.confirm, name="register_confirm"),
     path("employees/", views.employees, name="employee_list"),
     path("employees/add/", views.employee_edit, name="employee_add"),
     path("employees/<int:pk>/edit/", views.employee_edit, name="employee_edit"),

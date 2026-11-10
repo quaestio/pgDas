@@ -66,13 +66,13 @@
         <div class="user-menu" id="userMenu">
           <button class="user-trigger" id="userMenuButton" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="userMenuPanel">
             <span class="avatar" aria-hidden="true">{{ user.display_name|initials }}</span>
-            <span class="user-text"><strong>{{ user.display_name }}</strong>{% if user.designation %}<small>{{ user.designation }}</small>{% endif %}</span>
+            <span class="user-text"><strong>{{ user.display_name }}</strong>{% if user.designation %}<small>{{ user.designation }}{% if pgdas_shared and pgdas_organization %} · {{ pgdas_organization }}{% endif %}</small>{% elif pgdas_shared and pgdas_organization %}<small>{{ pgdas_organization }}</small>{% endif %}</span>
             <span class="user-caret" aria-hidden="true">▾</span>
           </button>
           <div class="user-panel" id="userMenuPanel" role="menu" aria-label="Account" hidden>
             <div class="user-card">
               <span class="avatar big" aria-hidden="true">{{ user.display_name|initials }}</span>
-              <div><strong>{{ user.display_name }}</strong>{% if user.designation %}<small>{{ user.designation }}</small>{% endif %}</div>
+              <div><strong>{{ user.display_name }}</strong>{% if user.designation %}<small>{{ user.designation }}</small>{% endif %}{% if pgdas_shared and pgdas_organization %}<small>{{ pgdas_organization }}</small>{% endif %}</div>
             </div>
             <a role="menuitem" href="{% url 'profile' %}">Profile</a>
             <a role="menuitem" href="{% url 'password_change' %}">Change Password</a>

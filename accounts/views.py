@@ -18,7 +18,7 @@ from access_control.policy import membership_for, require, visible_servers, GRAN
 from access_control.services import assign_database, revoke_database
 from audit.models import record
 from servers import crypto
-from access_control import network
+from access_control import mode, network
 from .forms import EmployeeForm, GrantForm, NewOrganizationForm, OrganizationSettingsForm, SetupForm
 
 
@@ -200,14 +200,23 @@ def organization_edit(request):
         return redirect("employee_list")
     note = (f"Your address now is {network.client_ip(request) or 'unknown'}. Super Users (you included) can sign in from any address; "
             "the list applies to everyone else, on every request after they sign in.")
+    note += (" This installation is shared: it can hold many separate organizations." if mode.is_shared()
+             else " This installation is dedicated to one organization.")
+    if mode.too_many_for_dedicated():
+        note += (f" WARNING: PGDAS_MODE is dedicated but {mode.organization_count()} organizations exist. Creating or registering more is "
+                 "switched off; set PGDAS_MODE=shared in .env if that is not what you want.")
     return render(request, "accounts/form.html", {"form": form, "title": "Organization settings", "note": note,
-                                                  "can_create_organizations": not organization.restrict_creation})
+                                                  "can_create_organizations": mode.room_for_another() and not organization.restrict_creation})
 
 
 @login_required
 def organization_create(request):
     """Create another organization with its first Super User, in one step. Only a Super User whose own organization allows it."""
     admin = administrator(request)
+    if not mode.is_shared():
+        raise PermissionDenied("This installation is dedicated to one organization (PGDAS_MODE=dedicated in .env).")
+    if not mode.room_for_another():
+        raise PermissionDenied("This installation has reached its limit of organizations.")
     if admin.organization.restrict_creation:
         raise PermissionDenied("Creating organizations is restricted for your organization. A Super User can change that in Organization settings.")
     form = NewOrganizationForm(request.POST or None)

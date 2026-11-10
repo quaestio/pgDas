@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from access_control import network
+from access_control import mode, network
 from access_control.models import DatabaseGrant, Membership, Organization
 
 
@@ -88,6 +88,17 @@ class NewOrganizationForm(SetupForm):
         self.order_fields(["organization", "name", "designation", "email", "password", "password_confirm"])
 
 
+class RegistrationForm(NewOrganizationForm):
+    """The public page: a visitor registers an organization and becomes its first Super User."""
+    website = forms.CharField(required=False, label="", widget=forms.TextInput(attrs={"tabindex": "-1", "autocomplete": "off", "aria-hidden": "true",
+                                                                                        "style": "position:absolute;left:-9999px;width:1px;height:1px"}))
+
+    def clean_website(self):
+        if self.cleaned_data.get("website"):                 # a field no person sees: only a script fills it in
+            raise ValidationError("This registration was not accepted.")
+        return ""
+
+
 class OrganizationSettingsForm(forms.ModelForm):
     class Meta:
         model = Organization
@@ -101,6 +112,11 @@ class OrganizationSettingsForm(forms.ModelForm):
                            "always sign in from any address.",
         }
         widgets = {"allowed_ips": forms.Textarea(attrs={"rows": 5, "spellcheck": "false"})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not mode.is_shared():                             # one organization only: there is nothing to restrict
+            self.fields.pop("restrict_creation")
 
     def clean_allowed_ips(self):
         text = self.cleaned_data.get("allowed_ips", "")

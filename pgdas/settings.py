@@ -25,6 +25,18 @@ CSRF_TRUSTED_ORIGINS = env_list("PGDAS_CSRF_TRUSTED_ORIGINS")
 # Proxies (addresses or ranges) whose X-Forwarded-For header may be believed when working out a visitor's address (see access_control.network).
 TRUSTED_PROXIES = env_list("PGDAS_TRUSTED_PROXIES")
 
+# How many organizations this installation serves. Set in .env only (nothing in the app can change it):
+#   dedicated (default)  exactly one organization, created at /setup/; no registering or creating others
+#   shared               many organizations, each with its own people, servers and audit log, completely separate
+MODE = (os.getenv("PGDAS_MODE") or "dedicated").strip().lower()
+if MODE not in ("dedicated", "shared"):
+    raise RuntimeError("PGDAS_MODE must be dedicated or shared.")
+# Shared mode only: may a visitor register a new organization at /register/ (and become its first Super User)? Off unless set to 1.
+ALLOW_ORGANIZATION_REGISTRATION = os.getenv("PGDAS_ALLOW_ORGANIZATION_REGISTRATION", "0").strip() == "1"
+MAX_ORGANIZATIONS = int(os.getenv("PGDAS_MAX_ORGANIZATIONS") or 0)             # 0 = no limit (shared mode)
+REGISTRATIONS_PER_HOUR = int(os.getenv("PGDAS_REGISTRATIONS_PER_HOUR") or 5)    # registration attempts per address per hour
+REGISTRATION_CONFIRM_HOURS = int(os.getenv("PGDAS_REGISTRATION_CONFIRM_HOURS") or 48)   # how long the emailed confirmation link works
+
 INSTALLED_APPS = [
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -64,6 +76,7 @@ TEMPLATES = [{
         "django.template.context_processors.request",
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
+        "access_control.context.installation",
     ]},
 }]
 

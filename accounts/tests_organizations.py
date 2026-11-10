@@ -5,7 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.checks import run_checks
-from django.test import Client, TestCase
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from access_control.models import Installation, Membership, Organization
@@ -14,6 +14,7 @@ from audit.models import AuditEntry
 PASSWORD = "Sample-safe-9381!"
 
 
+@override_settings(MODE="shared")                # creating organizations and the creation switch exist only on a shared installation
 class OrganizationFixture(TestCase):
     def setUp(self):
         Installation.objects.update_or_create(pk=1, defaults={"completed": True})

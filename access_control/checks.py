@@ -13,6 +13,21 @@ def sqlite_is_for_trying_it_out(app_configs, **kwargs):
 
 
 @register()
+def dedicated_means_one_organization(app_configs, **kwargs):
+    from . import mode
+    try:
+        crowded = mode.too_many_for_dedicated()
+        count = mode.organization_count() if crowded else 0
+    except DatabaseError:
+        return []
+    if not crowded:
+        return []
+    return [Warning(f"PGDAS_MODE is dedicated but {count} organizations exist.",
+                    hint="Creating and registering organizations is switched off. Set PGDAS_MODE=shared in .env if this installation should hold several.",
+                    id="access_control.W003")]
+
+
+@register()
 def every_organization_has_a_super_user(app_configs, **kwargs):
     """An organization needs at least one active Super User: nobody else can add people, servers or settings."""
     from .models import Membership, Organization

@@ -245,4 +245,4 @@ MIT — see [LICENSE](LICENSE).
 
 ## Organization accounts and database permissions
 
-PGDAS now uses custom application accounts, first-install organization setup, employee management, and explicit database/action assignments. Read [the installation, migration and permission guide](docs/permissions.md) before upgrading or adding employees. PGDAS keeps its own data in a separate PostgreSQL application database. Existing accounts are retained. PostgreSQL execution privileges remain an independent requirement.
+PGDAS now uses custom application accounts, first-install organization setup, employee management, and explicit database/action assignments. `PGDAS_MODE` in `.env` makes an installation **dedicated** (one organization, the default) or **shared** (many separate organizations that can register at `/register/` when `PGDAS_ALLOW_ORGANIZATION_REGISTRATION=1`). Read [the installation, migration and permission guide](docs/permissions.md) before upgrading or adding employees. PGDAS keeps its own data in a separate PostgreSQL application database. Existing accounts are retained. PostgreSQL execution privileges remain an independent requirement.
