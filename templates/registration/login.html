@@ -18,6 +18,9 @@
         {{ confirm_form.new_password2 }}{{ confirm_form.new_password2.errors }}
         <button type="submit" class="cyber-primary">CONFIRM <span>↗</span></button>
       </form>
+    {% elif verify_email %}
+      <p>Verify <strong>{{ verify_email }}</strong> as your sign-in address.</p>
+      <form method="post">{% csrf_token %}<button type="submit" class="cyber-primary">VERIFY <span>↗</span></button></form>
     {% elif register_sent %}
       <p>We sent a confirmation link to <strong>{{ register_sent }}</strong>. Open it to confirm your address and choose your password; that switches your organization on.</p>
       <p class="login-register"><a href="{% url 'login' %}">Back to sign in</a></p>

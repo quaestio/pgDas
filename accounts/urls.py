@@ -1,12 +1,13 @@
 from django.urls import path
 from django.contrib.auth import views as auth_views
-from . import profile as profile_views, registration, views, invitations
+from . import profile as profile_views, registration, views, invitations, verification
 
 urlpatterns = [
     path("setup/", views.setup, name="setup"),
     path("register/", registration.register, name="register"),
     path("terms/", views.terms, name="terms"),
     path("register/confirm/<str:token>/", registration.confirm, name="register_confirm"),
+    path("verify-email/<str:token>/", verification.verify, name="email_verify"),
     path("invitation/<str:token>/", invitations.accept, name="invitation_accept"),
     path("employees/", views.employees, name="employee_list"),
     path("employees/add/", views.employee_edit, name="employee_add"),

@@ -107,6 +107,7 @@ def confirm(request, token):
             organization.save(update_fields=["active"])
             user.set_password(form.cleaned_data["new_password1"])
             user.is_active = True
+            user.email_verified = True
             user.save()
             record(user, "organization.confirm", None, f"Organization {organization.name!r} confirmed by email", payload={"organization": organization.pk})
         messages.success(request, f"Organization {organization.name} is confirmed. Sign in with {user.email}.")

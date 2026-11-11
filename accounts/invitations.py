@@ -58,6 +58,7 @@ def accept(request, token):
                 return redirect("login")
             user.set_password(form.cleaned_data["new_password1"])
             user.is_active = True
+            user.email_verified = True
             user.save()
             record(user, "employee.accept", None, f"Employee #{user.pk} confirmed their email and chose a password")
         messages.success(request, f"Your account is ready. Sign in with {user.email}.")

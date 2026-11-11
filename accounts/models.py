@@ -7,6 +7,7 @@ from django.db.models.functions import Lower
 class User(AbstractUser):
     deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
     designation = models.CharField(max_length=150, blank=True)
+    email_verified = models.BooleanField(default=False)          # set when the person opens the emailed link (registration, invitation or verification)
     # Preserve existing primary keys, password hashes and foreign keys during upgrade.
     groups = models.ManyToManyField(Group, blank=True, related_name="pgdas_employees")
     user_permissions = models.ManyToManyField(Permission, blank=True, related_name="pgdas_employees")

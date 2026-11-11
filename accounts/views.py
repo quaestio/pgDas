@@ -97,6 +97,8 @@ def employee_edit(request, pk=None):
                 user.first_name = form.cleaned_data["name"]
                 user.last_name = ""
                 user.is_staff = user.is_superuser = role == "super_user"
+                if member and "email" in form.changed_data:
+                    user.email_verified = False              # a new address must be proved again
                 invited = form.inviting
                 if invited:                                  # no password and switched off until they accept the emailed invitation
                     user.set_unusable_password()
