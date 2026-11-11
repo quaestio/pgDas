@@ -185,6 +185,12 @@ if os.getenv("PGDAS_LEGACY_UPGRADE") == "1":
     # Transitional mode only for the documented two-stage upgrade of an existing auth_user table.
     AUTH_USER_MODEL = "auth.User"
 
+# Behind a reverse proxy (nginx) that terminates HTTPS and sends X-Forwarded-Proto: believe it, so links in emails and redirects use https.
+# Set this only when the proxy is the one way in (the proxy must set that header itself, not pass the visitor's).
+BEHIND_HTTPS_PROXY = os.getenv("PGDAS_BEHIND_HTTPS_PROXY", "0") == "1"
+if BEHIND_HTTPS_PROXY:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
