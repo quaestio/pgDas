@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
+from access_control import pending
 from access_control.models import Membership, Organization, OrganizationServer
 from audit.models import record
 
@@ -45,18 +46,4 @@ class Command(BaseCommand):
             self.stdout.write(f"{organization.pk:>4}  {'yes' if organization.active else 'NO':<7} {people.count():>6} {supers:>11} {servers:>7}  {organization.name}")
 
     def purge(self, hours):
-        cutoff = timezone.now() - timedelta(hours=hours)
-        removed = 0
-        for organization in Organization.objects.filter(active=False):
-            members = list(Membership.objects.filter(organization=organization).select_related("user"))
-            waiting = members and all(not m.user.is_active and m.user.date_joined < cutoff for m in members)
-            if not waiting or OrganizationServer.objects.filter(organization=organization).exists():
-                continue
-            with transaction.atomic():
-                user_ids = [m.user_id for m in members]
-                Membership.objects.filter(organization=organization).delete()
-                get_user_model().objects.filter(pk__in=user_ids).delete()
-                record(None, "organization.purge", None, f"Unconfirmed registration of {organization.name!r} removed", payload={"organization": organization.pk})
-                organization.delete()
-            removed += 1
-        self.stdout.write(f"{removed} unconfirmed registration(s) removed.")
+        self.stdout.write(f"{pending.purge(hours)} unconfirmed registration(s) removed.")

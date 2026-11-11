@@ -31,9 +31,14 @@ def _database_unusable(message):
 
 def _open(server, dbname):
     from access_control import runtime
+    from servers import netpolicy
     server = runtime.execution_server(server, dbname)
+    try:
+        pinned = netpolicy.check(server.host)            # the address that was checked is the address connected to
+    except netpolicy.AddressNotAllowed as error:
+        raise PgError(str(error))
     conn = psycopg.connect(
-        host=server.host, port=server.port, dbname=dbname, user=server.username,
+        host=server.host, port=server.port, dbname=dbname, user=server.username, **({"hostaddr": pinned} if pinned else {}),
         password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
         application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
     )

@@ -36,6 +36,19 @@ ALLOW_ORGANIZATION_REGISTRATION = os.getenv("PGDAS_ALLOW_ORGANIZATION_REGISTRATI
 MAX_ORGANIZATIONS = int(os.getenv("PGDAS_MAX_ORGANIZATIONS") or 0)             # 0 = no limit (shared mode)
 # Where the Terms and Conditions that a registering organization must accept are read. Empty = the built-in page at /terms/.
 TERMS_URL = os.getenv("PGDAS_TERMS_URL", "").strip()
+# Which addresses a saved PostgreSQL server may have (see servers/netpolicy.py). "public": only addresses on the public internet (no
+# loopback, private, link-local or cloud-metadata addresses), so a stranger who registers an organization cannot make PGDAS probe your
+# internal network. "any": no restriction. Empty = public on a shared installation, any on a dedicated one.
+SERVER_NETWORKS = (os.getenv("PGDAS_SERVER_NETWORKS") or "").strip().lower()
+if SERVER_NETWORKS not in ("", "public", "any"):
+    raise RuntimeError("PGDAS_SERVER_NETWORKS must be public or any (or empty).")
+# Hosts, addresses or ranges that are always allowed, even when the policy is public (for example your own database server).
+ALLOWED_SERVER_HOSTS = env_list("PGDAS_ALLOWED_SERVER_HOSTS")
+SERVER_TESTS_PER_10_MINUTES = int(os.getenv("PGDAS_SERVER_TESTS_PER_10_MINUTES") or 20)      # "Test" clicks per person
+# Sign-in throttling (access_control/throttle.py): failed attempts per email address, and per network address, in a window.
+SIGNIN_MAX_FAILURES = int(os.getenv("PGDAS_SIGNIN_MAX_FAILURES") or 5)
+SIGNIN_MAX_FAILURES_PER_ADDRESS = int(os.getenv("PGDAS_SIGNIN_MAX_FAILURES_PER_ADDRESS") or 20)
+SIGNIN_LOCKOUT_MINUTES = int(os.getenv("PGDAS_SIGNIN_LOCKOUT_MINUTES") or 15)
 REGISTRATIONS_PER_HOUR = int(os.getenv("PGDAS_REGISTRATIONS_PER_HOUR") or 5)    # registration attempts per address per hour
 REGISTRATION_CONFIRM_HOURS = int(os.getenv("PGDAS_REGISTRATION_CONFIRM_HOURS") or 48)   # how long the emailed confirmation link works
 
@@ -138,6 +151,7 @@ if sys.argv[1:2] == ["test"]:
     # The tests do not depend on how this installation is set up: they run as a dedicated installation with nothing open to the
     # public, and a test that is about shared mode or registration says so (override_settings).
     MODE, ALLOW_ORGANIZATION_REGISTRATION, MAX_ORGANIZATIONS, TERMS_URL = "dedicated", False, 0, ""
+    SERVER_NETWORKS, ALLOWED_SERVER_HOSTS = "any", []
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

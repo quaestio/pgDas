@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from access_control import mode, network
+from access_control import mode, network, throttle
 from access_control.models import DatabaseGrant, Membership, Organization
 
 
@@ -14,6 +14,23 @@ class EmailAuthenticationForm(AuthenticationForm):
 
     def clean_username(self):
         return self.cleaned_data["username"].strip().lower()
+
+    def clean(self):
+        email = self.cleaned_data.get("username")
+        address = network.client_ip(self.request) if self.request is not None else None
+        if email:
+            wait = throttle.minutes_locked(email, str(address) if address else None)
+            if wait:                                         # refused before the password is even looked at
+                raise ValidationError(f"Too many failed sign-in attempts. Try again in {wait} minute{'' if wait == 1 else 's'}.", code="locked")
+        try:
+            cleaned = super().clean()
+        except ValidationError as error:
+            if email and error.code == "invalid_login":
+                throttle.record_failure(email, str(address) if address else None)
+            raise
+        if email:
+            throttle.clear(email)
+        return cleaned
 
 
 class EmployeeForm(forms.ModelForm):
@@ -88,17 +105,24 @@ class NewOrganizationForm(SetupForm):
         self.order_fields(["organization", "name", "designation", "email", "password", "password_confirm"])
 
 
-class RegistrationForm(NewOrganizationForm):
-    """The public page: a visitor registers an organization and becomes its first Super User."""
+class RegistrationForm(forms.Form):
+    """The public page: a visitor registers an organization and becomes its first Super User. There is no password here: the person
+    sets it from the link emailed to the address, which proves the address is theirs."""
+    organization = forms.CharField(max_length=150, label="Organization name")
+    name = forms.CharField(max_length=150, label="Your name")
+    designation = forms.CharField(max_length=150, required=False, label="Your designation")
+    email = forms.EmailField(max_length=150, label="Your email", help_text="Your sign-in ID. A link to confirm it is sent here.")
+    accept_terms = forms.BooleanField(required=True, label="I have read and accept the Terms and Conditions",
+                                      error_messages={"required": "You must accept the Terms and Conditions to register."})
     website = forms.CharField(required=False, label="", widget=forms.TextInput(attrs={"tabindex": "-1", "autocomplete": "off", "aria-hidden": "true",
                                                                                         "style": "position:absolute;left:-9999px;width:1px;height:1px"}))
 
-    accept_terms = forms.BooleanField(required=True, label="I have read and accept the Terms and Conditions",
-                                      error_messages={"required": "You must accept the Terms and Conditions to register."})
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.order_fields(["organization", "name", "designation", "email", "password", "password_confirm", "accept_terms", "website"])
+    def clean_email(self):
+        from django.db.models import Q
+        email = self.cleaned_data["email"].strip().lower()
+        if get_user_model().objects.filter(Q(email__iexact=email) | Q(username__iexact=email)).exists():
+            raise ValidationError("Another employee already uses this email address.")
+        return email
 
     def clean_website(self):
         if self.cleaned_data.get("website"):                 # a field no person sees: only a script fills it in

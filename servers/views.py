@@ -74,6 +74,13 @@ def server_delete(request, pk):
 @require_POST
 def server_test(request, pk):
     server = get_object_or_404(ServerConnection, pk=pk)
+    from django.core.cache import cache
+    from django.conf import settings
+    key = f"pgdas-server-test:{request.user.pk}"                  # "Test" opens a connection to wherever the server points: not unlimited
+    cache.add(key, 0, 600)
+    if cache.incr(key) > settings.SERVER_TESTS_PER_10_MINUTES:
+        messages.error(request, "Too many connection tests in a short time. Try again in a few minutes.")
+        return redirect("server_list")
     try:
         version = pg.test_connection(server)
     except pg.PgError as error:

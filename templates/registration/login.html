@@ -8,8 +8,18 @@
     <div class="login-kicker">SECURE ACCESS TERMINAL</div>
     {% if messages %}<ul class="errorlist" role="alert">{% for message in messages %}<li>{{ message }}</li>{% endfor %}</ul>{% endif %}
     {% if register_blocked %}<ul class="errorlist" role="alert"><li>{{ register_blocked }}</li></ul>{% endif %}
-    {% if register_sent %}
-      <p>We sent a confirmation link to <strong>{{ register_sent }}</strong>. Open it to switch your organization on, then sign in.</p>
+    {% if confirm_form %}
+      <p>Choose a password for <strong>{{ confirm_email }}</strong> to switch on <strong>{{ confirm_organization }}</strong>.</p>
+      <form method="post">{% csrf_token %}
+        {{ confirm_form.non_field_errors }}
+        <label for="{{ confirm_form.new_password1.id_for_label }}">NEW PASSWORD</label>
+        {{ confirm_form.new_password1 }}{{ confirm_form.new_password1.errors }}
+        <label for="{{ confirm_form.new_password2.id_for_label }}">CONFIRM PASSWORD</label>
+        {{ confirm_form.new_password2 }}{{ confirm_form.new_password2.errors }}
+        <button type="submit" class="cyber-primary">CONFIRM <span>↗</span></button>
+      </form>
+    {% elif register_sent %}
+      <p>We sent a confirmation link to <strong>{{ register_sent }}</strong>. Open it to confirm your address and choose your password; that switches your organization on.</p>
       <p class="login-register"><a href="{% url 'login' %}">Back to sign in</a></p>
     {% else %}
     {% if registration_open %}
@@ -39,7 +49,7 @@
           <li>Everything done in PGDAS is <strong>recorded</strong>, with the address it came from. Changes to the databases you connect are <strong>real</strong>: keep backups.</li>
           <li>Connect PostgreSQL with <strong>least-privilege logins</strong>. PGDAS stores the passwords you give it, encrypted, but a login can only do what PostgreSQL lets it.</li>
           <li>Your <strong>email address is your sign-in ID</strong>; it cannot be shared with another person or used twice on this installation.</li>
-          <li>Choose a <strong>strong, unique password</strong>, and register only organizations you are allowed to manage.</li>
+          <li>You choose your password <strong>from the link we email to you</strong>, so use an address only you can read. Make it a <strong>strong, unique password</strong>, and register only organizations you are allowed to manage.</li>
         </ul>
       </div>
       <form method="post" action="{% url 'register' %}">{% csrf_token %}

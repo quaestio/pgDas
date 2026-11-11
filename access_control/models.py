@@ -1,6 +1,7 @@
 """Permission storage, independent of the eventual custom employee model."""
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Organization(models.Model):
@@ -61,6 +62,13 @@ class DatabaseGrant(models.Model):
             raise ValidationError("The employee and server must belong to the same organization.")
         if not self.database or "\x00" in self.database or len(self.database.encode("utf-8")) > 63:
             raise ValidationError("Use an exact PostgreSQL database name of at most 63 UTF-8 bytes.")
+
+
+class SignInFailure(models.Model):
+    """One failed sign-in: the email address that was tried (whether or not it exists) and the address it came from. See throttle.py."""
+    email = models.CharField(max_length=254, db_index=True)
+    address = models.GenericIPAddressField(null=True, blank=True, db_index=True)
+    at = models.DateTimeField(default=timezone.now, db_index=True)
 
 
 class Installation(models.Model):

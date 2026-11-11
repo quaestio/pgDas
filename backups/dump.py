@@ -38,7 +38,14 @@ def tool(name):
 
 
 def _environment(server):
+    from servers import netpolicy
     env = dict(os.environ, PGPASSWORD=server.get_password(), PGSSLMODE=server.sslmode, PGCONNECT_TIMEOUT="15")
+    try:
+        pinned = netpolicy.check(server.host)           # the same rule as every other connection; pg_dump connects to the checked address
+    except netpolicy.AddressNotAllowed as error:
+        raise PgError(str(error))
+    if pinned:
+        env["PGHOSTADDR"] = pinned
     return env
 
 

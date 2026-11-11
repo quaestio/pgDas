@@ -20,9 +20,15 @@ def room_for_another():
     return not limit or organization_count() < limit
 
 
+def can_send_email():
+    return bool(settings.EMAIL_HOST)
+
+
 def registration_open():
-    """Whether the public page /register/ works: shared mode, switched on in .env, and room for another organization."""
-    return is_shared() and settings.ALLOW_ORGANIZATION_REGISTRATION and room_for_another()
+    """Whether the public page /register/ works: shared mode, switched on in .env, room for another organization, and email that can
+    be sent. The address must be proven by a link sent to it (the person also sets their password there), so without email the
+    page stays closed."""
+    return is_shared() and settings.ALLOW_ORGANIZATION_REGISTRATION and can_send_email() and room_for_another()
 
 
 def too_many_for_dedicated():

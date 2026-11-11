@@ -13,6 +13,26 @@ def sqlite_is_for_trying_it_out(app_configs, **kwargs):
 
 
 @register()
+def registration_needs_email(app_configs, **kwargs):
+    from . import mode
+    if settings.MODE == "shared" and settings.ALLOW_ORGANIZATION_REGISTRATION and not mode.can_send_email():
+        return [Warning("Registration is switched on but this installation cannot send email, so /register/ stays closed.",
+                        hint="Set PGDAS_EMAIL_HOST (and the other PGDAS_EMAIL_* settings): the person must confirm their address and choose their password from an emailed link.",
+                        id="access_control.W004")]
+    return []
+
+
+@register()
+def shared_installation_reaches_private_networks(app_configs, **kwargs):
+    from servers import netpolicy
+    if settings.MODE == "shared" and netpolicy.policy() == "any":
+        return [Warning("This shared installation lets saved servers be on private and local networks (PGDAS_SERVER_NETWORKS=any).",
+                        hint="Anyone who becomes a Super User of an organization can then make PGDAS connect to your internal network. Use PGDAS_SERVER_NETWORKS=public and list your own servers in PGDAS_ALLOWED_SERVER_HOSTS.",
+                        id="access_control.W005")]
+    return []
+
+
+@register()
 def dedicated_means_one_organization(app_configs, **kwargs):
     from . import mode
     try:

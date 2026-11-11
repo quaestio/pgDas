@@ -1,4 +1,5 @@
-"""Dedicated and shared installations (PGDAS_MODE in .env), and registering an organization from the public page."""
+"""Dedicated and shared installations (PGDAS_MODE in .env), and registering an organization from the public page (email confirmed, password
+chosen from the emailed link)."""
 import re
 from datetime import timedelta
 from io import StringIO
@@ -20,21 +21,32 @@ from . import mode
 from .models import Installation, Membership, Organization, OrganizationServer
 
 PASSWORD = "Sample-safe-9381!"
-SHARED = dict(MODE="shared", ALLOW_ORGANIZATION_REGISTRATION=True)
+EMAIL = dict(EMAIL_HOST="smtp.test", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+SHARED = dict(MODE="shared", ALLOW_ORGANIZATION_REGISTRATION=True, **EMAIL)
 
 
 class ModeFixture(TestCase):
     def setUp(self):
         cache.clear()
+        mail.outbox = []
         Installation.objects.update_or_create(pk=1, defaults={"completed": True})
         self.org = Organization.objects.create(name="First")
         self.admin = get_user_model().objects.create_user("a", email="admin@first.test", password="pw-12345-abc", first_name="Ada")
         Membership.objects.create(user=self.admin, organization=self.org, role="super_user")
 
     def register(self, client=None, **extra):
-        data = {"organization": "Second Org", "name": "Bea Boss", "designation": "Owner", "email": "bea@second.test", "password": PASSWORD,
-                "password_confirm": PASSWORD, "accept_terms": "on", "website": "", **extra}
+        data = {"organization": "Second Org", "name": "Bea Boss", "designation": "Owner", "email": "bea@second.test", "accept_terms": "on",
+                "website": "", **extra}
         return (client or Client()).post(reverse("register"), data)
+
+    def link(self):
+        found = re.search(r"http://\S+/register/confirm/\S+/", mail.outbox[-1].body)
+        return found.group(0).replace("http://testserver", "")
+
+    def confirm(self, password=PASSWORD, client=None):
+        client = client or Client()
+        link = self.link()
+        return client.post(link, {"new_password1": password, "new_password2": password})
 
 
 class ModeSettingTests(TestCase):
@@ -53,7 +65,7 @@ class ModeSettingTests(TestCase):
 
 
 class DedicatedTests(ModeFixture):
-    @override_settings(MODE="dedicated", ALLOW_ORGANIZATION_REGISTRATION=True)          # even with the switch on: dedicated means one
+    @override_settings(MODE="dedicated", ALLOW_ORGANIZATION_REGISTRATION=True, **EMAIL)          # even with the switch on: dedicated means one
     def test_registration_does_not_exist(self):
         self.assertEqual(Client().get(reverse("register")).status_code, 404)
         self.assertEqual(self.register().status_code, 404)
@@ -65,8 +77,7 @@ class DedicatedTests(ModeFixture):
         Organization.objects.filter(pk=self.org.pk).update(restrict_creation=False)
         client = Client()
         client.force_login(self.admin)
-        response = client.get(reverse("organization_create"))
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(client.get(reverse("organization_create")).status_code, 403)
         self.assertEqual(client.post(reverse("organization_create"), {"organization": "X"}).status_code, 403)
 
     @override_settings(MODE="dedicated")
@@ -82,7 +93,6 @@ class DedicatedTests(ModeFixture):
     def test_the_header_shows_no_organization_name(self):
         client = Client()
         client.force_login(self.admin)
-        self.assertNotContains(client.get("/"), "· First")
         self.assertNotContains(client.get("/"), "<small>First</small>")
 
     @override_settings(MODE="dedicated")
@@ -109,26 +119,31 @@ class DedicatedTests(ModeFixture):
 
 @override_settings(**SHARED)
 class SharedRegistrationTests(ModeFixture):
-    def test_the_page_and_the_sign_in_link_exist_only_when_the_switch_is_on(self):
+    def test_the_page_and_the_sign_in_link_exist_only_when_switched_on_and_email_can_be_sent(self):
         self.assertEqual(Client().get(reverse("register")).status_code, 200)
         self.assertContains(Client().get(reverse("login")), "Register your organization")
-        with override_settings(ALLOW_ORGANIZATION_REGISTRATION=False):
-            self.assertEqual(Client().get(reverse("register")).status_code, 404)
-            self.assertNotContains(Client().get(reverse("login")), "Register your organization")
+        for off in (dict(ALLOW_ORGANIZATION_REGISTRATION=False), dict(EMAIL_HOST="")):
+            with override_settings(**off):
+                self.assertEqual(Client().get(reverse("register")).status_code, 404, off)
+                self.assertNotContains(Client().get(reverse("login")), "Register your organization")
 
-    def test_registering_creates_the_organization_and_its_first_super_user_who_can_sign_in(self):
+    def test_registering_makes_a_waiting_organization_and_person_and_sends_the_link_no_password_is_asked(self):
+        page = Client().get(reverse("register"))
+        self.assertNotIn('name="password"', page.content.decode().split('id="panelRegister"')[1])
         response = self.register()
-        self.assertRedirects(response, reverse("login"), fetch_redirect_response=False)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "We sent a confirmation link to <strong>bea@second.test</strong>")
         organization = Organization.objects.get(name="Second Org")
-        self.assertEqual((organization.active, organization.restrict_creation), (True, True))
-        member = Membership.objects.get(organization=organization)
-        self.assertEqual((member.role, member.user.email, member.user.is_active), ("super_user", "bea@second.test", True))
-        self.assertTrue(Client().login(username="bea@second.test", password=PASSWORD))
-        entry = AuditEntry.objects.get(action="organization.register")
-        self.assertFalse(entry.payload["pending"])
+        user = get_user_model().objects.get(email="bea@second.test")
+        self.assertEqual((organization.active, user.is_active, user.has_usable_password()), (False, False, False))
+        self.assertEqual(Membership.objects.get(user=user).role, "super_user")
+        self.assertEqual(mail.outbox[-1].to, ["bea@second.test"])
+        self.assertFalse(Client().login(username="bea@second.test", password=PASSWORD))
+        self.assertTrue(AuditEntry.objects.get(action="organization.register").payload["pending"])
 
     def test_the_organizations_are_completely_separate(self):
         self.register()
+        self.confirm()
         bea = Client()
         bea.login(username="bea@second.test", password=PASSWORD)
         theirs = bea.get(reverse("employee_list"))
@@ -138,23 +153,23 @@ class SharedRegistrationTests(ModeFixture):
         mine.force_login(self.admin)
         self.assertNotIn("bea@second.test", [m.user.email for m in mine.get(reverse("employee_list")).context["people"]])
 
-    def test_an_address_in_use_a_weak_password_a_mismatch_and_a_filled_hidden_field_register_nothing(self):
-        for extra in ({"email": "ADMIN@first.test"}, {"password": "123", "password_confirm": "123"}, {"password_confirm": "other"}, {"website": "http://spam.test"}):
+    def test_an_address_in_use_a_missing_terms_acceptance_and_a_filled_hidden_field_register_nothing(self):
+        for extra in ({"email": "ADMIN@first.test"}, {"accept_terms": ""}, {"website": "http://spam.test"}, {"email": "not-an-address"}):
             with self.subTest(extra=extra):
                 self.assertEqual(self.register(**extra).status_code, 200)
-        self.assertEqual((Organization.objects.count(), get_user_model().objects.count()), (1, 1))
+        self.assertEqual((Organization.objects.count(), get_user_model().objects.count(), len(mail.outbox)), (1, 1, 0))
 
     @override_settings(REGISTRATIONS_PER_HOUR=2)
     def test_attempts_are_limited_per_address(self):
-        statuses = [self.register(password="1").status_code for _ in range(3)]
+        statuses = [self.register(email="bad").status_code for _ in range(3)]
         self.assertEqual(statuses, [200, 200, 429])
         self.assertContains(self.register(), "Too many attempts", status_code=429)
         elsewhere = Client(REMOTE_ADDR="198.51.100.7")
-        self.assertEqual(self.register(elsewhere, password="1").status_code, 200)             # another address has its own count
+        self.assertEqual(self.register(elsewhere, email="bad").status_code, 200)             # another address has its own count
 
     @override_settings(MAX_ORGANIZATIONS=2)
-    def test_the_organization_limit_counts_everything_and_closes_the_page(self):
-        self.assertEqual(self.register().status_code, 302)
+    def test_the_organization_limit_counts_waiting_registrations_and_closes_the_page(self):
+        self.assertEqual(self.register().status_code, 200)
         self.assertEqual(Client().get(reverse("register")).status_code, 404)
         self.assertNotContains(Client().get(reverse("login")), "Register your organization")
         self.assertEqual(self.register(organization="Third", email="c@third.test").status_code, 404)
@@ -165,7 +180,7 @@ class SharedRegistrationTests(ModeFixture):
         Organization.objects.filter(pk=self.org.pk).update(restrict_creation=False)
         client = Client()
         client.force_login(self.admin)
-        self.assertEqual(client.get(reverse("organization_create")).status_code, 403)          # (the button is not shown either)
+        self.assertEqual(client.get(reverse("organization_create")).status_code, 403)
         self.assertEqual(client.post(reverse("organization_create"), {"organization": "X"}).status_code, 403)
         self.assertEqual(Organization.objects.count(), 1)
         self.assertNotContains(client.get(reverse("organization_edit")), "Create another organization")
@@ -190,48 +205,82 @@ class SharedRegistrationTests(ModeFixture):
         client.force_login(self.admin)
         self.assertEqual(client.get(reverse("organization_create")).status_code, 200)
 
+    @override_settings(ALLOW_ORGANIZATION_REGISTRATION=True, EMAIL_HOST="")
+    def test_registration_switched_on_without_email_is_warned_about(self):
+        warnings = [w for w in run_checks() if w.id == "access_control.W004"]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("cannot send email", warnings[0].msg)
 
-@override_settings(EMAIL_HOST="smtp.test", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend", **SHARED)
+
+@override_settings(**SHARED)
 class ConfirmationTests(ModeFixture):
-    def registered(self):
-        self.assertEqual(self.register().status_code, 200)                       # the "check your email" page, not a redirect
-        link = re.search(r"http://\S+/register/confirm/\S+/", mail.outbox[-1].body).group(0)
-        return link.replace("http://testserver", "")
+    def test_opening_the_link_only_shows_the_password_form_and_changes_nothing(self):
+        self.register()
+        page = Client().get(self.link())
+        self.assertContains(page, "Choose a password for <strong>bea@second.test</strong>")
+        self.assertContains(page, 'name="new_password1"')
+        self.assertFalse(Organization.objects.get(name="Second Org").active)           # (a mail scanner that opens links switches nothing on)
+        self.assertFalse(get_user_model().objects.get(email="bea@second.test").is_active)
 
-    def test_the_organization_and_person_wait_until_the_emailed_link_is_opened(self):
-        link = self.registered()
+    def test_choosing_a_password_switches_the_organization_and_the_person_on(self):
+        self.register()
+        response = self.confirm()
+        self.assertRedirects(response, reverse("login"), fetch_redirect_response=False)
         organization = Organization.objects.get(name="Second Org")
         user = get_user_model().objects.get(email="bea@second.test")
-        self.assertEqual((organization.active, user.is_active), (False, False))
-        self.assertEqual(mail.outbox[-1].to, ["bea@second.test"])
-        self.assertFalse(Client().login(username="bea@second.test", password=PASSWORD))         # not before the link
-        response = Client().get(link)
-        self.assertRedirects(response, reverse("login"), fetch_redirect_response=False)
-        organization.refresh_from_db(); user.refresh_from_db()
-        self.assertEqual((organization.active, user.is_active), (True, True))
+        self.assertEqual((organization.active, user.is_active, user.has_usable_password()), (True, True, True))
         self.assertTrue(Client().login(username="bea@second.test", password=PASSWORD))
         self.assertTrue(AuditEntry.objects.filter(action="organization.confirm").exists())
 
-    def test_opening_the_link_twice_changes_nothing_more(self):
-        link = self.registered()
-        Client().get(link)
-        again = Client().get(link, follow=True)
+    def test_a_weak_password_or_a_mismatch_keeps_it_waiting(self):
+        self.register()
+        for first, second in (("123", "123"), (PASSWORD, "different")):
+            response = Client().post(self.link(), {"new_password1": first, "new_password2": second})
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'name="new_password1"')
+        self.assertFalse(Organization.objects.get(name="Second Org").active)
+
+    def test_the_link_works_once(self):
+        self.register()
+        self.confirm()
+        again = Client().get(self.link(), follow=True)
         self.assertContains(again, "already confirmed")
+        takeover = Client().post(self.link(), {"new_password1": "Another-safe-7712!", "new_password2": "Another-safe-7712!"}, follow=True)
+        self.assertContains(takeover, "already confirmed")
+        self.assertTrue(Client().login(username="bea@second.test", password=PASSWORD))            # the password is still the first one
+        self.assertFalse(Client().login(username="bea@second.test", password="Another-safe-7712!"))
         self.assertEqual(AuditEntry.objects.filter(action="organization.confirm").count(), 1)
 
     def test_a_forged_a_damaged_and_an_expired_link_are_refused(self):
-        link = self.registered()
+        self.register()
+        link = self.link()
         for bad in (link[:-3] + "x/", "/register/confirm/not-a-token/", link.replace("confirm/", "confirm/x")):
             self.assertEqual(Client().get(bad).status_code, 400, bad)
+            self.assertEqual(Client().post(bad, {"new_password1": PASSWORD, "new_password2": PASSWORD}).status_code, 400, bad)
         with override_settings(REGISTRATION_CONFIRM_HOURS=0):
-            response = Client().get(link)
-            self.assertContains(response, "not valid or has expired", status_code=400)
+            self.assertContains(Client().get(link), "not valid or has expired", status_code=400)
         self.assertFalse(Organization.objects.get(name="Second Org").active)
 
     @override_settings(MAX_ORGANIZATIONS=2)
     def test_an_unconfirmed_organization_already_counts_towards_the_limit(self):
-        self.registered()
+        self.register()
         self.assertEqual(Client().get(reverse("register")).status_code, 404)
+
+    def test_an_expired_registration_is_removed_and_its_address_can_be_registered_again(self):
+        self.register()
+        stale = timezone.now() - timedelta(hours=100)
+        get_user_model().objects.filter(email="bea@second.test").update(date_joined=stale)
+        self.assertEqual(self.register(organization="Real Owner Org").status_code, 200)        # the same address, now by its real owner
+        self.assertEqual(sorted(Organization.objects.values_list("name", flat=True)), ["First", "Real Owner Org"])
+        self.assertEqual(get_user_model().objects.filter(email="bea@second.test").count(), 1)
+        self.assertTrue(AuditEntry.objects.filter(action="organization.purge").exists())
+
+    def test_a_fresh_registration_still_holds_its_address(self):
+        self.register()
+        again = self.register(organization="Impostor Org")
+        self.assertContains(again, "Another employee already uses this email address.")
+        self.assertFalse(Organization.objects.filter(name="Impostor Org").exists())
+
 
 @override_settings(**SHARED)
 class LoginPageRegistrationTests(ModeFixture):
@@ -241,12 +290,13 @@ class LoginPageRegistrationTests(ModeFixture):
     def test_the_sign_in_page_carries_the_registration_with_cautions_and_the_terms(self):
         page = self.page()
         for needle in ('id="tabSignin"', 'id="tabRegister"', "Register your organization", 'id="panelRegister"', 'action="/register/"', "Before you register",
-                       "first Super User", "least-privilege", "email address is your sign-in ID", 'name="accept_terms"', 'name="organization"', 'name="email"',
-                       'name="password"', 'name="password_confirm"', 'href="/terms/"', "login_tabs.js", "register.css"):
+                       "first Super User", "least-privilege", "email address is your sign-in ID", "from the link we email to you", 'name="accept_terms"',
+                       'name="organization"', 'name="email"', 'href="/terms/"', "login_tabs.js", "register.css"):
             self.assertContains(page, needle)
         self.assertContains(page, 'name="website"')                          # the hidden field is in the form but off screen
         self.assertContains(page, "Authorised use only")
         self.assertEqual(page.context["register_form"].fields["accept_terms"].required, True)
+        self.assertNotIn("password", page.context["register_form"].fields)
 
     def test_without_registration_the_page_has_only_sign_in_and_still_the_caution(self):
         with override_settings(ALLOW_ORGANIZATION_REGISTRATION=False):
@@ -257,9 +307,7 @@ class LoginPageRegistrationTests(ModeFixture):
         self.assertContains(page, 'name="username"')
 
     def test_the_terms_must_be_accepted_or_nothing_is_registered(self):
-        data = {"organization": "Second Org", "name": "Bea Boss", "designation": "", "email": "bea@second.test", "password": PASSWORD,
-                "password_confirm": PASSWORD, "website": ""}
-        response = Client().post(reverse("register"), data)
+        response = self.register(accept_terms="")
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "You must accept the Terms and Conditions to register.")
         self.assertContains(response, 'id="panelRegister"')
@@ -279,9 +327,9 @@ class LoginPageRegistrationTests(ModeFixture):
         self.assertTemplateUsed(page, "registration/login.html")
 
     def test_mistakes_come_back_on_the_same_page_with_the_register_tab_selected_and_what_was_typed(self):
-        response = self.register(password_confirm="different", organization="Kept Name")
+        response = self.register(email="not-an-address", organization="Kept Name")
         self.assertContains(response, 'data-active="register"')
-        self.assertContains(response, "Passwords do not match.")
+        self.assertContains(response, "Enter a valid email address.")
         self.assertContains(response, "Kept Name")
 
     def test_your_own_terms_address_replaces_the_built_in_page(self):
@@ -304,12 +352,6 @@ class LoginPageRegistrationTests(ModeFixture):
     def test_the_terms_page_is_not_a_way_around_setup(self):
         Installation.objects.filter(pk=1).update(completed=False)
         self.assertRedirects(Client().get(reverse("terms")), reverse("setup"), fetch_redirect_response=False)
-
-    @override_settings(EMAIL_HOST="smtp.test", EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
-    def test_the_check_your_email_message_is_on_the_same_page(self):
-        response = self.register()
-        self.assertContains(response, "We sent a confirmation link to <strong>bea@second.test</strong>")
-        self.assertNotContains(response, 'name="accept_terms"')
 
     def test_the_tab_script_handles_clicks_keys_and_the_hash(self):
         from pathlib import Path

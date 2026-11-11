@@ -80,3 +80,9 @@ Back up first. The custom user model intentionally keeps the legacy physical tab
 ## Validation
 
 Automated tests cover setup tokens/locking, employee creation/editing, password preservation, email login, last-administrator protection, cross-organization denial, assignment revocation, SQL transaction escapes, direct endpoint denial and audit atomicity. PostgreSQL integration checks use disposable scratch databases/roles. Desktop/mobile UI checks run against a copy of the application database, preserving live user data.
+
+## Shared-installation hardening
+
+- **Server addresses.** On a shared installation a saved server must be on the public internet (`PGDAS_SERVER_NETWORKS=public`, the default there); loopback, private, link-local and cloud-metadata addresses are refused when saving and at every connection, and the connection goes to the address that was checked. Exceptions go in `PGDAS_ALLOWED_SERVER_HOSTS`. Dedicated installations default to `any`.
+- **Sign-in lockout.** 5 failed sign-ins for one email (existing or not) or 20 from one address lock it for 15 minutes, even with the right password; each lock is audited (`access.signin_locked`). Clear with `python manage.py unlock_signin [email] [--all]`.
+- **Registration needs email.** Registering creates a waiting organization and person with no password; the person chooses a password from the emailed link, which switches both on. Unconfirmed registrations are removed after `PGDAS_REGISTRATION_CONFIRM_HOURS`. Without `PGDAS_EMAIL_HOST` the registration page is closed.
