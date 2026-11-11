@@ -19,6 +19,7 @@ from access_control.services import assign_database, revoke_database
 from audit.models import record
 from servers import crypto
 from access_control import mode, network
+from . import invitations
 from .forms import EmployeeForm, GrantForm, NewOrganizationForm, OrganizationSettingsForm, SetupForm
 
 
@@ -96,14 +97,22 @@ def employee_edit(request, pk=None):
                 user.first_name = form.cleaned_data["name"]
                 user.last_name = ""
                 user.is_staff = user.is_superuser = role == "super_user"
-                if form.cleaned_data.get("password"):
+                invited = form.inviting
+                if invited:                                  # no password and switched off until they accept the emailed invitation
+                    user.set_unusable_password()
+                    user.is_active = False
+                elif form.cleaned_data.get("password"):
                     user.set_password(form.cleaned_data["password"])
                 user.save()
                 Membership.objects.update_or_create(user=user, defaults={"organization": admin.organization, "role": role})
                 record(request.user, "employee.save", None, f"Employee #{user.pk} saved; role={role}; active={user.is_active}")
                 if user.pk == request.user.pk:
                     update_session_auth_hash(request, user)
-                messages.success(request, "Employee saved.")
+                if invited or form.cleaned_data.get("resend_invitation"):
+                    invitations.send(request, user, admin.organization)
+                    messages.success(request, f"Employee saved. An invitation was emailed to {user.email}.")
+                else:
+                    messages.success(request, "Employee saved.")
                 if request.headers.get("X-Employee-Modal") == "1":
                     return JsonResponse({"ok": True})
                 return redirect("employee_list")

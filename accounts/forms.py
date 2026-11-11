@@ -39,6 +39,7 @@ class EmployeeForm(forms.ModelForm):
     role = forms.ChoiceField(choices=Membership.Role.choices)
     password = forms.CharField(widget=forms.PasswordInput, required=False)
     password_confirm = forms.CharField(widget=forms.PasswordInput, required=False, label="Confirm password")
+    invites = True                                     # with email configured, a new person is invited and chooses their own password
 
     class Meta:
         model = get_user_model()
@@ -47,9 +48,16 @@ class EmployeeForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.instance.pk:
+        self.inviting = bool(self.invites and not self.instance.pk and mode.can_send_email())
+        if self.instance.pk or self.inviting:
             self.fields.pop("password")
             self.fields.pop("password_confirm")
+        if self.inviting:
+            self.fields.pop("is_active")
+            self.fields["email"].help_text = "Used to sign in to PGDAS. A link to confirm it and choose a password is emailed here."
+        self.waiting = bool(self.instance.pk and self.instance.email and not self.instance.is_active and not self.instance.has_usable_password())
+        if self.waiting:
+            self.fields["resend_invitation"] = forms.BooleanField(required=False, label="Send the invitation email again")
 
     def clean_email(self):
         from django.db.models import Q
@@ -62,7 +70,7 @@ class EmployeeForm(forms.ModelForm):
         data = super().clean()
         email = data.get("email", "")
         password = data.get("password")
-        if not self.instance.pk and not password:
+        if not self.instance.pk and not self.inviting and not password:
             self.add_error("password", "A password is required.")
         if password:
             if password != data.get("password_confirm"):
@@ -83,6 +91,7 @@ class EmployeeForm(forms.ModelForm):
 
 
 class SetupForm(EmployeeForm):
+    invites = False
     organization = forms.CharField(max_length=150)
     installation_token = forms.CharField(widget=forms.PasswordInput)
 
