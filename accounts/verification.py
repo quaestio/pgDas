@@ -7,7 +7,6 @@ as part of what they do. `manage.py verify_email <address>` marks an address ver
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
-from django.core.mail import send_mail
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.shortcuts import redirect
@@ -16,6 +15,7 @@ from django.urls import reverse
 from access_control import mode
 from audit.models import record
 
+from . import mailer
 from .registration import _page
 
 SALT = "pgdas.email-verification"
@@ -27,15 +27,18 @@ def required(user):
 
 
 def send_link(request, user):
-    """Email the link, unless one was sent in the last few minutes. Returns True when a message was sent now."""
+    """Email the link, unless one was sent in the last few minutes. Returns "sent", "recent" (not sent again yet) or "failed" (the mail server refused)."""
     if not cache.add(f"pgdas-verify-sent:{user.pk}", 1, settings.EMAIL_VERIFICATION_RESEND_MINUTES * 60):
-        return False
+        return "recent"
     token = signing.dumps({"user": user.pk, "email": user.email}, salt=SALT)
     link = request.build_absolute_uri(reverse("email_verify", args=[token]))
-    send_mail("Verify your email address on PGDAS",
-              f"Open this link to verify {user.email} and then sign in:\n\n{link}\n\nIt works for {settings.INVITATION_HOURS} hours. "
-              "If you did not try to sign in, ignore this message.", settings.ALERT_EMAIL_FROM, [user.email], fail_silently=True)
-    return True
+    sent = mailer.send("Verify your email address on PGDAS",
+                       f"Open this link to verify {user.email} and then sign in:\n\n{link}\n\nIt works for {settings.INVITATION_HOURS} hours. "
+                       "If you did not try to sign in, ignore this message.", user.email, purpose="verification")
+    if not sent:
+        cache.delete(f"pgdas-verify-sent:{user.pk}")             # nothing went out: do not make them wait before trying again
+        return "failed"
+    return "sent"
 
 
 def verify(request, token):
@@ -70,8 +73,11 @@ def pending(request):
         request.session.pop(SESSION_KEY, None)
         return redirect("login")
     if request.method == "POST":
-        if send_link(request, user):
+        result = send_link(request, user)
+        if result == "sent":
             messages.success(request, f"A new verification link was sent to {user.email}.")
+        elif result == "failed":
+            messages.error(request, "The email could not be sent just now. Try again in a few minutes; if it keeps happening, tell the person who runs this installation.")
         else:
             messages.info(request, f"A link was sent a moment ago. You can ask for another after {settings.EMAIL_VERIFICATION_RESEND_MINUTES} minutes.")
         return redirect("email_verify_pending")

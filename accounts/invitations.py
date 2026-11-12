@@ -6,7 +6,6 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import SetPasswordForm
 from django.core import signing
-from django.core.mail import send_mail
 from django.db import transaction
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -15,7 +14,7 @@ from access_control import mode
 from access_control.models import Membership
 from audit.models import record
 
-from . import terms
+from . import mailer, terms
 from .forms import EmailAuthenticationForm
 
 SALT = "pgdas.employee-invitation"
@@ -24,10 +23,10 @@ SALT = "pgdas.employee-invitation"
 def send(request, user, organization):
     token = signing.dumps({"user": user.pk}, salt=SALT)
     link = request.build_absolute_uri(reverse("invitation_accept", args=[token]))
-    send_mail(f"You are invited to {organization.name} on PGDAS",
+    return mailer.send(f"You are invited to {organization.name} on PGDAS",
               f"{organization.name!r} invited you to PGDAS. Open this link to confirm your email address and choose your password:\n\n{link}\n\n"
-              f"It works for {settings.INVITATION_HOURS} hours. If you were not expecting this, ignore this message and nothing happens.",
-              settings.ALERT_EMAIL_FROM, [user.email], fail_silently=True)
+                       f"It works for {settings.INVITATION_HOURS} hours. If you were not expecting this, ignore this message and nothing happens.",
+                       user.email, purpose="invitation")
 
 
 def _waiting(user_id):

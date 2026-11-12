@@ -111,8 +111,11 @@ def employee_edit(request, pk=None):
                 if user.pk == request.user.pk:
                     update_session_auth_hash(request, user)
                 if invited or form.cleaned_data.get("resend_invitation"):
-                    invitations.send(request, user, admin.organization)
-                    messages.success(request, f"Employee saved. An invitation was emailed to {user.email}.")
+                    if invitations.send(request, user, admin.organization):
+                        messages.success(request, f"Employee saved. An invitation was emailed to {user.email}.")
+                    else:
+                        messages.warning(request, f"Employee saved, but the invitation email to {user.email} could not be sent. Open the employee and tick "
+                                                  "\"Send the invitation email again\" once email works (see the service log).")
                 else:
                     messages.success(request, "Employee saved.")
                 if request.headers.get("X-Employee-Modal") == "1":

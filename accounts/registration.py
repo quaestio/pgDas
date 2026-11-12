@@ -13,7 +13,6 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.forms import SetPasswordForm
 from django.core import signing
 from django.core.cache import cache
-from django.core.mail import send_mail
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import redirect
@@ -25,7 +24,7 @@ from access_control import mode, network, pending
 from access_control.models import Installation, Membership, Organization
 from audit.models import record
 
-from . import terms
+from . import mailer, terms
 from .forms import EmailAuthenticationForm, RegistrationForm
 
 SALT = "pgdas.organization-registration"
@@ -70,10 +69,13 @@ def register(request):
                                           "address": str(network.client_ip(request))}})
             token = signing.dumps({"organization": organization.pk, "user": user.pk}, salt=SALT)
             link = request.build_absolute_uri(reverse("register_confirm", args=[token]))
-            send_mail("Confirm your organization on PGDAS",
-                      f"Open this link to confirm {organization.name!r} and choose your password:\n\n{link}\n\n"
-                      f"It works for {settings.REGISTRATION_CONFIRM_HOURS} hours. If you did not register, ignore this message and nothing happens.",
-                      settings.ALERT_EMAIL_FROM, [user.email], fail_silently=True)
+            sent = mailer.send("Confirm your organization on PGDAS",
+                               f"Open this link to confirm {organization.name!r} and choose your password:\n\n{link}\n\n"
+                               f"It works for {settings.REGISTRATION_CONFIRM_HOURS} hours. If you did not register, ignore this message and nothing happens.",
+                               user.email, purpose="registration")
+            if not sent:
+                return _page(request, 503, register_form=form, register_blocked="We could not send the confirmation email just now. Please try again in a few minutes; "
+                             "if it keeps happening, tell the person who runs this installation.")
             return _page(request, register_sent=user.email)
     return _page(request, register_form=form)
 
