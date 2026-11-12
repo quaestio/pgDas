@@ -492,7 +492,8 @@ def sql_runner(request, pk):
                 result = pg.run_sql(server, statement, db or None)
             except (pg.PgError, PermissionDenied) as error:        # a refused statement is answered on the page, with the reason
                 refused = isinstance(error, PermissionDenied)
-                record(request.user, "sql.run", server, statement, ok=False)
+                blocked_by = "pgdas" if refused else "postgresql" if "PostgreSQL blocked this" in str(error) else "error"          # which gate stopped it
+                record(request.user, "sql.run", server, statement, ok=False, payload={"database": db, "blocked_by": blocked_by})
                 context["error"] = str(error) or "You are not permitted to run that statement."
                 verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter|grant|revoke)\b", statement, re.I)
                 if verb and ("read-only transaction" in str(error) or isinstance(error, PermissionDenied)):

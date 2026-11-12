@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from access_control.models import Organization, Membership, Installation, DatabaseGrant
-from access_control.policy import membership_for, require, visible_servers, GRANT_ACTIONS
+from access_control.policy import membership_for, require, visible_servers, GRANT_ACTIONS, LEVEL_LABELS, PRESETS, level_of, preset_permissions
 from access_control.services import assign_database, revoke_database
 from audit.models import record
 from servers import crypto
@@ -165,11 +165,7 @@ def permissions(request, pk):
     if grant:
         form.fields["server"].disabled = True
         form.fields["database"].disabled = True
-    if employee.role == "viewer":
-        for action in GRANT_ACTIONS - {"read", "export"}:
-            form.fields[action].disabled = True
-            form.initial[action] = False
-    elif grant is None:
+    if grant is None and employee.role == "editor":
         form.initial.update(insert=True, update=True)
     if request.method == "POST" and form.is_valid():
         try:
@@ -189,6 +185,53 @@ def permissions(request, pk):
             form.add_error(None, error)
     return render(request, "accounts/permissions.html", {"form": form, "employee": employee,
                   "grants": employee.database_grants.select_related("server")})
+
+
+@login_required
+def access(request, pk):
+    """One page for what a person may reach: every server, every database on it, and the level (none / Viewer / Editor / Designer) for each.
+    The Super User picks levels per database, or sets a whole server at once; only the databases they can see are listed."""
+    from explorer import pg
+    admin = administrator(request)
+    employee = get_object_or_404(Membership, user_id=pk, organization=admin.organization)
+    if employee.role == "super_user":
+        return render(request, "accounts/access.html", {"employee": employee, "superuser": True})
+    current = {(g.server_id, g.database): g for g in employee.database_grants.all()}
+    sections = []
+    for server in visible_servers(request.user).order_by("name"):
+        names, error = [], ""
+        try:
+            with pg.connect(server) as conn:
+                names = [row["name"] for row in pg.list_databases(conn)]
+        except pg.PgError as problem:
+            error = str(problem)
+        names = sorted(set(names) | {db for (sid, db) in current if sid == server.pk}, key=str.lower)
+        sections.append({"server": server, "error": error, "rows": [
+            {"index": i, "name": name, "grant": current.get((server.pk, name)),
+             "level": level_of(current[(server.pk, name)]) if (server.pk, name) in current else "none"} for i, name in enumerate(names)]})
+    if request.method == "POST":
+        applied = removed = 0
+        try:
+            with transaction.atomic():
+                for section in sections:
+                    server = section["server"]
+                    everything = request.POST.get(f"all-{server.pk}", "")
+                    for row in section["rows"]:
+                        level = everything or request.POST.get(f"lvl-{server.pk}-{row['index']}", row["level"])
+                        if level == "custom" or level == row["level"]:
+                            continue                                  # unchanged, or a hand-made combination that is only edited under "Advanced"
+                        if level == "none":
+                            revoke_database(request.user, employee, server, row["name"])
+                            removed += 1
+                        elif level in PRESETS:
+                            assign_database(request.user, employee, server, row["name"], preset_permissions(level))
+                            applied += 1
+        except ValidationError as error:
+            messages.error(request, "; ".join(error.messages))
+        else:
+            messages.success(request, f"Access saved: {applied} database(s) set, {removed} removed.")
+            return redirect("employee_access", pk=pk)
+    return render(request, "accounts/access.html", {"employee": employee, "sections": sections, "levels": [(k, v) for k, v in LEVEL_LABELS.items() if k != "custom"]})
 
 
 @login_required

@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Access · PGDAS{% endblock %}
+{% block content %}<h1>Access</h1><p>{{ employee.user.display_name }} · {{ employee.get_role_display }}</p>
+{% if superuser %}<section class="panel pad">Super Users reach every server of the organization, within the login saved on each server.</section>
+{% else %}
+<p class="muted">Choose, for each database, what this person may do. Databases left on <strong>None</strong> are hidden from them. PGDAS checks this first; PostgreSQL then still applies the privileges of the login saved on the server, and says so when it refuses.</p>
+<p class="muted"><strong>Viewer</strong> can browse and export · <strong>Editor</strong> can also add, change and delete rows · <strong>Designer</strong> can also create, alter and drop tables and empty them. Other combinations are set under <a href="{% url 'employee_permissions' employee.user_id %}">Advanced</a>.</p>
+<form method="post">{% csrf_token %}
+{% for section in sections %}<section class="panel pad scroll"><h2>{{ section.server.name }} <small class="muted">{{ section.server.host }}:{{ section.server.port }}</small></h2>
+{% if section.error %}<p class="error" role="alert">Could not list the databases: {{ section.error }}</p>{% endif %}
+<p><label>Set every database on this server to
+<select name="all-{{ section.server.pk }}"><option value="">(keep each one as it is)</option><option value="none">None</option>{% for key, label in levels %}{% if key != "none" %}<option value="{{ key }}">{{ label }}</option>{% endif %}{% endfor %}</select></label></p>
+<table><thead><tr><th>Database</th><th>Level</th></tr></thead><tbody>
+{% for row in section.rows %}<tr><td>{{ row.name }}</td><td><select name="lvl-{{ section.server.pk }}-{{ row.index }}" aria-label="Level for {{ row.name }}">
+<option value="none"{% if row.level == "none" %} selected{% endif %}>None</option>{% for key, label in levels %}<option value="{{ key }}"{% if row.level == key %} selected{% endif %}>{{ label }}</option>{% endfor %}{% if row.level == "custom" %}<option value="custom" selected>Custom (keep)</option>{% endif %}</select></td></tr>
+{% empty %}<tr><td colspan="2">No databases listed.</td></tr>{% endfor %}</tbody></table></section>
+{% empty %}<section class="panel pad">No servers are saved in this organization yet.</section>{% endfor %}
+<p><button class="btn primary" type="submit">Save access</button> <a class="btn" href="{% url 'employee_list' %}">Back to employees</a></p></form>
+{% endif %}{% endblock %}

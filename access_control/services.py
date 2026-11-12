@@ -18,8 +18,6 @@ def assign_database(actor, employee, server, database, permissions=None):
         if set(permissions) - GRANT_ACTIONS or any(type(value) is not bool for value in permissions.values()):
             raise ValidationError("Use supported actions and boolean permission values.")
         values.update(permissions)
-    if employee.role == Membership.Role.VIEWER and any(values[action] for action in GRANT_ACTIONS - VIEWER_ACTIONS):
-        raise ValidationError("Viewers can only receive read and export permissions.")
     # Validate names before using them in SQL parameters (PostgreSQL rejects NUL text).
     DatabaseGrant(membership=employee, server=server, database=database).clean()
     grant, _ = DatabaseGrant.objects.get_or_create(membership=employee, server=server, database=database)

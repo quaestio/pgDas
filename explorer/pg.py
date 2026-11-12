@@ -3,6 +3,7 @@ import json
 import re
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 
 import psycopg
 from django.conf import settings
@@ -15,9 +16,28 @@ class PgError(Exception):
     """A database problem worded for the user; never contains the password."""
 
 
+_login = ContextVar("pgdas_pg_login", default="")          # the PostgreSQL login of the connection in use, for the messages below
+
+
+def _blocked(error, text):
+    """The second gate: PostgreSQL itself refused (not enough privilege, or a read-only login). Says so, and whose login it was."""
+    state = getattr(error, "sqlstate", None) or getattr(getattr(error, "diag", None), "sqlstate", None)
+    login = _login.get()
+    who = f"The login \"{login}\" saved for this server" if login else "The login saved for this server"
+    if state == "42501":
+        return (f"PostgreSQL blocked this: {who} is not allowed to do that ({text}). PGDAS allowed it, but PostgreSQL refused. "
+                "Ask a Super User to save a login with more privileges, or to grant it in PostgreSQL.")
+    if state == "25006" or "read-only transaction" in text:
+        return (f"PostgreSQL blocked this: {who} is read-only ({text}). PGDAS allowed it, but PostgreSQL refused. "
+                "Ask a Super User to save a login that can write.")
+    return text
+
+
 def _message(error):
     diag = getattr(error, "diag", None)
     text = (getattr(diag, "message_primary", None) or str(error)).strip()
+    if getattr(error, "sqlstate", None) in ("42501", "25006") or getattr(diag, "sqlstate", None) in ("42501", "25006"):
+        return _blocked(error, text)
     # "localhost" resolves to several addresses, and psycopg repeats the same failure for each one:
     # keep just the server's reason, e.g. `database "x" does not exist`.
     reason = re.search(r"FATAL:\s*(.*?)(?=\s*(?:Multiple connection attempts|- host:|\n|$))", text)
@@ -42,7 +62,8 @@ def _open(server, dbname):
         password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
         application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
     )
-    if runtime.user() and not runtime.is_admin():
+    _login.set(server.username)
+    if runtime.user() and not runtime.is_admin() and not getattr(server, "pgdas_enforced", False):
         try:
             # Check inherited memberships too: a non-superuser login may still SET ROLE to a privileged role.
             dangerous = conn.execute("""WITH RECURSIVE memberships AS (

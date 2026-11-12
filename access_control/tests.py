@@ -65,12 +65,35 @@ class PermissionPolicyTests(TestCase):
         self.assertFalse(self.allowed(self.editor, "truncate"))
         self.assertFalse(self.allowed(self.editor, "restore"))
 
-    def test_viewer_stays_read_only_even_with_corrupt_write_flags(self):
-        DatabaseGrant.objects.create(membership=self.viewer_member, server=self.server, database="accounts", insert=True, delete=True, export=True)
+    def test_the_level_is_per_database_so_one_person_can_view_one_and_edit_another(self):
+        from access_control.policy import preset_permissions
+        assign_database(self.admin, self.viewer_member, self.server, "accounts", preset_permissions("viewer"))
+        assign_database(self.admin, self.viewer_member, self.server, "billing", preset_permissions("editor"))
         self.assertTrue(self.allowed(self.viewer, "read"))
-        self.assertTrue(self.allowed(self.viewer, "export"))
         self.assertFalse(self.allowed(self.viewer, "insert"))
-        self.assertFalse(self.allowed(self.viewer, "delete"))
+        self.assertTrue(permits(self.viewer, "insert", server=self.server, database="billing"))
+        self.assertFalse(permits(self.viewer, "drop", server=self.server, database="billing"))
+        self.assertFalse(permits(self.viewer, "read", server=self.server, database="other"))
+
+    def test_levels_are_recognised_from_the_flags(self):
+        from access_control.policy import level_of, preset_permissions
+        for level in ("viewer", "editor", "designer"):
+            grant = assign_database(self.admin, self.viewer_member, self.server, "lv", preset_permissions(level))
+            self.assertEqual(level_of(grant), level)
+        grant = assign_database(self.admin, self.viewer_member, self.server, "lv", {"read": True, "drop": True})
+        self.assertEqual(level_of(grant), "custom")
+
+    def test_the_refusal_says_which_access_the_person_has_and_what_to_ask_for(self):
+        from access_control.policy import preset_permissions, require
+        assign_database(self.admin, self.viewer_member, self.server, "accounts", preset_permissions("viewer"))
+        with self.assertRaisesMessage(PermissionDenied, "your access to 'accounts' on") as raised:
+            require(self.viewer, "insert", server=self.server, database="accounts")
+        self.assertIn("is Viewer", str(raised.exception))
+        self.assertIn("PGDAS blocked this", str(raised.exception))
+        with self.assertRaisesMessage(PermissionDenied, "you have no access to"):
+            require(self.viewer, "read", server=self.server, database="secret")
+        with self.assertRaisesMessage(PermissionDenied, "reserved for Super Users"):
+            require(self.viewer, "servers_manage", organization=self.org)
 
     def test_deactivation_and_revocation_apply_to_existing_user_object(self):
         assign_database(self.admin, self.editor_member, self.server, "accounts")
@@ -121,7 +144,7 @@ class PermissionPolicyTests(TestCase):
             assign_database(self.editor, self.viewer_member, self.server, "accounts")
         with self.assertRaises(PermissionDenied):
             assign_database(self.admin, self.viewer_member, self.other_server, "accounts")
-        for permissions in ({"unknown": True}, {"read": "false"}, {"read": True, "delete": True}):
+        for permissions in ({"unknown": True}, {"read": "false"}):
             with self.assertRaises(ValidationError):
                 assign_database(self.admin, self.viewer_member, self.server, "accounts", permissions)
         self.assertFalse(DatabaseGrant.objects.exists())

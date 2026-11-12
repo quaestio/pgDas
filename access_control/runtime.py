@@ -40,10 +40,14 @@ def execution_server(server, database):
     if is_admin():
         return server
     grant = DatabaseGrant.objects.get(membership=membership_for(user()), server=server, database=database)
-    if not grant.execution_username:
-        from explorer.pg import PgError
-        raise PgError("A Super User must configure a restricted PostgreSQL execution login for this database assignment.")
     result = copy(server)
+    if not grant.execution_username:
+        # No restricted login for this assignment: PGDAS itself is the gate. It connects with the login saved on the server and has already
+        # checked the employee's permission (first gate); PostgreSQL still refuses whatever that saved login may not do (second gate).
+        result.pgdas_enforced = True
+        result.database = database
+        return result
+    result.pgdas_enforced = False
     result.username = grant.execution_username
     result.password_encrypted = grant.execution_password
     result.database = database

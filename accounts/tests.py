@@ -170,8 +170,9 @@ class WorkflowTests(TestCase):
         from types import SimpleNamespace
         token = runtime.request_context.set(SimpleNamespace(user=self.editor))
         try:
-            with self.assertRaises(PgError):
-                runtime.execution_server(self.server, "allowed")
+            result = runtime.execution_server(self.server, "allowed")           # no restricted login: PGDAS is the gate, the server login is used
+            self.assertTrue(result.pgdas_enforced)
+            self.assertEqual(result.username, self.server.username)
         finally:
             runtime.request_context.reset(token)
 

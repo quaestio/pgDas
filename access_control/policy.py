@@ -42,15 +42,58 @@ def permits(user, action, *, server=None, database=None, organization=None):
         return True
     if action in ADMIN_ACTIONS or action == "restore":
         return False
-    if member.role == Membership.Role.VIEWER and action not in VIEWER_ACTIONS:
-        return False
     grant = DatabaseGrant.objects.filter(membership=member, server=server, database=database, read=True).first()
     return bool(grant and getattr(grant, action, False))
 
 
+ACTION_WORDS = {"read": "view data", "insert": "add rows", "update": "change rows", "delete": "delete rows", "truncate": "empty tables",
+               "create": "create objects", "alter": "alter objects", "drop": "drop objects", "export": "export data",
+               "backup_create": "create backups", "backup_download": "download backups", "restore": "restore a backup"}
+# What a person can be given on one database. Viewer and Editor are not people: the same employee can be a viewer on one database and an
+# editor on another. "custom" is any other combination of the tick boxes.
+PRESETS = {
+    "viewer": {"read", "export"},
+    "editor": {"read", "export", "insert", "update", "delete"},
+    "designer": {"read", "export", "insert", "update", "delete", "truncate", "create", "alter", "drop"},
+}
+LEVEL_LABELS = {"viewer": "Viewer", "editor": "Editor", "designer": "Designer", "custom": "Custom"}
+
+
+def preset_permissions(level):
+    allowed = PRESETS[level]
+    return {action: action in allowed for action in GRANT_ACTIONS}
+
+
+def level_of(grant):
+    """The preset a grant matches exactly, else "custom"."""
+    have = {action for action in GRANT_ACTIONS if getattr(grant, action, False)}
+    for level, allowed in PRESETS.items():
+        if have == allowed:
+            return level
+    return "custom"
+
+
+def refusal_message(user, action, *, server=None, database=None, organization=None):
+    """Why PGDAS (the first gate) refuses: worded so the person knows what to ask for. The second gate is PostgreSQL itself (see explorer.pg)."""
+    member = membership_for(user)
+    where = f"{database!r} on {server.name!r}" if server is not None and database else "this server" if server is not None else "this organization"
+    if member is None:
+        return "Your account has no active membership in an organization. Contact your Super User."
+    if action in ADMIN_ACTIONS:
+        return "PGDAS blocked this: it is reserved for Super Users of your organization."
+    if action == "restore":
+        return "PGDAS blocked this: restoring a backup is reserved for Super Users."
+    grant = DatabaseGrant.objects.filter(membership=member, server=server, database=database).first() if server is not None and database else None
+    if grant is None or not grant.read:
+        return f"PGDAS blocked this: you have no access to {where}. Ask a Super User to give you access."
+    level = LEVEL_LABELS[level_of(grant)]
+    return (f"PGDAS blocked this: your access to {where} is {level}, which does not allow this ({ACTION_WORDS.get(action, action)}). "
+            "Ask a Super User to change your access.")
+
+
 def require(user, action, **scope):
     if not permits(user, action, **scope):
-        raise PermissionDenied("You are not permitted to perform this action in the selected scope.")
+        raise PermissionDenied(refusal_message(user, action, **scope))
 
 
 def require_all(user, actions, **scope):
