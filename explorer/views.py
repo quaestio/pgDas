@@ -12,7 +12,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from audit.models import AuditEntry, record
 from servers.models import ServerConnection
 from access_control import runtime
-from access_control.policy import require, permits, filter_databases
+from access_control.policy import require, permits, filter_databases, refusal_message
 from access_control.sql_policy import authorize
 from django.core.exceptions import PermissionDenied
 
@@ -90,7 +90,7 @@ def _relation_context(conn, node, request):
     elif tab == "triggers":
         context["triggers"] = pg.table_triggers(conn, schema, name)
     elif tab == "data":
-        editable = info["relkind"] == "r" and _can_structure(request.user, None)
+        editable = info["relkind"] == "r" and _can_rows(request.user, tree.get_server(node), node["db"])
         context["data"] = pg.fetch_rows(conn, schema, name, request.GET.get("page"), raw=editable)
         if editable:
             pk = changes._primary_key(conn, schema, name)
@@ -213,13 +213,13 @@ def detail(request):
                     context["owner"] = owners.get(schema, "")
                     context["folder"] = "Tables"
                     context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in FOLDERS["tables"][1]]
-                    if kind == "schema" and _can_structure(request.user, server):
+                    if kind == "schema" and _can_structure(request.user, server, db):
                         context["structure"] = _structure_json(server, db, schema)
         elif kind in FOLDERS:
             context["folder"], kinds = FOLDERS[kind]
             with pg.connect(server, db) as conn:
                 context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in kinds]
-            if kind == "tables" and _can_structure(request.user, server):
+            if kind == "tables" and _can_structure(request.user, server, db):
                 context["structure"] = _structure_json(server, db, schema)
         elif kind in ("functions", "procedures"):
             context["folder"] = kind.capitalize()
@@ -233,7 +233,7 @@ def detail(request):
             with pg.connect(server, db) as conn:
                 context.update(_relation_context(conn, node, request))
             context["can_export"] = context.get("tab") == "data" and _can_export(request.user, server, db)
-            if context.get("relation_kind") in ("table", "partitioned table") and _can_structure(request.user, server):
+            if context.get("relation_kind") in ("table", "partitioned table") and _can_structure(request.user, server, db):
                 context["structure"] = _structure_json(server, db, schema, node["table"])
         elif kind in ("function", "procedure"):
             with pg.connect(server, db) as conn:
@@ -251,7 +251,24 @@ def _can_write(user, server):
     return runtime.is_admin(user)
 
 
-_can_structure = _can_admin = _can_write
+_can_admin = _can_write
+
+
+def _can_structure(user, server, database=None):
+    """Super Users anywhere; anyone else only on a database where their access lets them create, alter or drop (the policy checks each
+    statement again when it is sent)."""
+    if runtime.is_admin(user):
+        return True
+    return bool(server is not None and database and any(permits(user, action, server=server, database=database)
+                                                        for action in ("create", "alter", "drop", "views", "sequences", "schemas")))
+
+
+def _can_rows(user, server, database=None):
+    """Whether the data grid can be edited: Super Users, or someone who may insert, update or delete in that database."""
+    if runtime.is_admin(user):
+        return True
+    return bool(server is not None and database and any(permits(user, action, server=server, database=database)
+                                                        for action in ("insert", "update", "delete")))
 
 
 def _admin_json(server, roles, databases):
@@ -378,8 +395,8 @@ def _rows_request(request, pk):
     database = str(data.get("db") or "") or server.database_name
     try:
         require(request.user, "read", server=server, database=database)
-        if not runtime.is_admin(request.user):
-            raise PermissionDenied("Only Super Users can edit rows in the grid.")
+        if not _can_rows(request.user, server, database):
+            raise PermissionDenied(refusal_message(request.user, "update", server=server, database=database))
     except PermissionDenied as error:
         return None, None, _refuse(str(error) or "Not allowed.")
     request.pgdas_database = database
@@ -478,7 +495,7 @@ def sql_runner(request, pk):
     require(request.user, "read", server=server, database=db)
     request.pgdas_database = db
     context = {"server": server, "sql": "", "db": db, "can_write": _can_write(request.user, server),
-               "can_structure": _can_structure(request.user, server), "can_admin": _can_admin(request.user, server),
+               "can_structure": _can_structure(request.user, server, db), "can_admin": _can_admin(request.user, server),
                "confirm_words": changes.CONFIRM_WORDS}
     context["can_write"] = any(permits(request.user, action, server=server, database=db) for action in ("insert", "update", "delete", "truncate", "create", "alter", "drop"))
     context["can_export"] = permits(request.user, "export", server=server, database=db)

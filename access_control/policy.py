@@ -9,11 +9,15 @@ from django.core.exceptions import PermissionDenied
 from .models import DatabaseGrant, Membership, OrganizationServer
 
 DATABASE_ACTIONS = frozenset({"read", "insert", "update", "delete", "truncate", "create", "alter", "drop",
-                              "export", "backup_create", "backup_download", "restore"})
+                              "export", "backup_create", "backup_download", "restore",
+                              "run_sql", "views", "sequences", "schemas", "functions", "triggers", "extensions"})
 ADMIN_ACTIONS = frozenset({"employees_manage", "permissions_manage", "servers_manage", "databases_manage",
                          "postgres_roles_manage", "postgres_grants_manage", "server_settings",
                          "monitor_server", "sessions_manage", "audit_all"})
 VIEWER_ACTIONS = frozenset({"read", "export"})
+# Function bodies, triggers and extensions run with the connecting login's power and cannot be read by PGDAS: they take effect only on an
+# assignment that has its own restricted PostgreSQL login (so PostgreSQL itself limits what they can do).
+NEEDS_RESTRICTED_LOGIN = frozenset({"functions", "triggers", "extensions"})
 GRANT_ACTIONS = DATABASE_ACTIONS - {"restore"}
 
 
@@ -43,30 +47,37 @@ def permits(user, action, *, server=None, database=None, organization=None):
     if action in ADMIN_ACTIONS or action == "restore":
         return False
     grant = DatabaseGrant.objects.filter(membership=member, server=server, database=database, read=True).first()
+    if grant and action in NEEDS_RESTRICTED_LOGIN and not grant.execution_username:
+        return False
     return bool(grant and getattr(grant, action, False))
 
 
 ACTION_WORDS = {"read": "view data", "insert": "add rows", "update": "change rows", "delete": "delete rows", "truncate": "empty tables",
                "create": "create objects", "alter": "alter objects", "drop": "drop objects", "export": "export data",
-               "backup_create": "create backups", "backup_download": "download backups", "restore": "restore a backup"}
+               "backup_create": "create backups", "backup_download": "download backups", "restore": "restore a backup",
+               "run_sql": "run your own SQL", "views": "create or drop views", "sequences": "create or change sequences",
+               "schemas": "create or drop schemas", "functions": "create or change functions", "triggers": "create or drop triggers",
+               "extensions": "create or drop extensions"}
 # What a person can be given on one database. Viewer and Editor are not people: the same employee can be a viewer on one database and an
 # editor on another. "custom" is any other combination of the tick boxes.
 PRESETS = {
     "viewer": {"read", "export"},
     "editor": {"read", "export", "insert", "update", "delete"},
-    "designer": {"read", "export", "insert", "update", "delete", "truncate", "create", "alter", "drop"},
+    "designer": {"read", "export", "insert", "update", "delete", "truncate", "create", "alter", "drop", "views", "sequences", "schemas"},
 }
+# Ticked next to a level, not part of it: running one's own SQL, and the three that need a restricted login.
+EXTRAS = frozenset({"run_sql", "functions", "triggers", "extensions"})
 LEVEL_LABELS = {"viewer": "Viewer", "editor": "Editor", "designer": "Designer", "custom": "Custom"}
 
 
 def preset_permissions(level):
     allowed = PRESETS[level]
-    return {action: action in allowed for action in GRANT_ACTIONS}
+    return {action: action in allowed for action in GRANT_ACTIONS if action not in EXTRAS}
 
 
 def level_of(grant):
     """The preset a grant matches exactly, else "custom"."""
-    have = {action for action in GRANT_ACTIONS if getattr(grant, action, False)}
+    have = {action for action in GRANT_ACTIONS if action not in EXTRAS and getattr(grant, action, False)}
     for level, allowed in PRESETS.items():
         if have == allowed:
             return level
@@ -86,6 +97,9 @@ def refusal_message(user, action, *, server=None, database=None, organization=No
     grant = DatabaseGrant.objects.filter(membership=member, server=server, database=database).first() if server is not None and database else None
     if grant is None or not grant.read:
         return f"PGDAS blocked this: you have no access to {where}. Ask a Super User to give you access."
+    if action in NEEDS_RESTRICTED_LOGIN and getattr(grant, action, False) and not grant.execution_username:
+        return (f"PGDAS blocked this: {ACTION_WORDS[action]} needs a restricted PostgreSQL login on {where}, because PGDAS cannot check what a function, "
+                "trigger or extension does. Ask a Super User to set a restricted login for your access.")
     level = LEVEL_LABELS[level_of(grant)]
     return (f"PGDAS blocked this: your access to {where} is {level}, which does not allow this ({ACTION_WORDS.get(action, action)}). "
             "Ask a Super User to change your access.")

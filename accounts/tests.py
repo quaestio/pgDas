@@ -124,6 +124,9 @@ class WorkflowTests(TestCase):
 
     def test_sql_parser_handles_comments_quotes_and_independent_permissions(self):
         authorize(self.editor, self.server, "allowed", "/* SELECT fake */ INSERT INTO people(name) VALUES ('DELETE; DROP')", write=True)
+        with self.assertRaisesMessage(PermissionDenied, "run your own SQL"):               # typing one's own SQL is a permission of its own
+            authorize(self.viewer, self.server, "allowed", "SELECT count(*) FROM public.people")
+        DatabaseGrant.objects.filter(membership=self.viewer.pgdas_membership).update(run_sql=True)
         authorize(self.viewer, self.server, "allowed", "SELECT count(*) FROM public.people")
         with self.assertRaises(PermissionDenied):
             authorize(self.editor, self.server, "allowed", "INSERT INTO people VALUES (1) ON CONFLICT(id) DO UPDATE SET id=2", write=True)

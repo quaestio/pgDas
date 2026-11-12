@@ -208,6 +208,7 @@ def access(request, pk):
         names = sorted(set(names) | {db for (sid, db) in current if sid == server.pk}, key=str.lower)
         sections.append({"server": server, "error": error, "rows": [
             {"index": i, "name": name, "grant": current.get((server.pk, name)),
+             "run_sql": bool(current.get((server.pk, name)) and current[(server.pk, name)].run_sql),
              "level": level_of(current[(server.pk, name)]) if (server.pk, name) in current else "none"} for i, name in enumerate(names)]})
     if request.method == "POST":
         applied = removed = 0
@@ -218,13 +219,21 @@ def access(request, pk):
                     everything = request.POST.get(f"all-{server.pk}", "")
                     for row in section["rows"]:
                         level = everything or request.POST.get(f"lvl-{server.pk}-{row['index']}", row["level"])
-                        if level == "custom" or level == row["level"]:
+                        sql = f"sql-{server.pk}-{row['index']}" in request.POST
+                        if level == "custom" or (level == row["level"] and sql == row["run_sql"]):
+                            if level == "custom" and row["grant"] is not None and sql != row["run_sql"]:
+                                row["grant"].run_sql = sql                  # a hand-made combination keeps its ticks; only "Run SQL" is set here
+                                row["grant"].save(update_fields=["run_sql"])
                             continue                                  # unchanged, or a hand-made combination that is only edited under "Advanced"
                         if level == "none":
                             revoke_database(request.user, employee, server, row["name"])
                             removed += 1
                         elif level in PRESETS:
-                            assign_database(request.user, employee, server, row["name"], preset_permissions(level))
+                            values = preset_permissions(level)
+                            values["run_sql"] = sql
+                            if row["grant"] is not None:                # the three that need a restricted login are set under "Advanced": keep them
+                                values.update(functions=row["grant"].functions, triggers=row["grant"].triggers, extensions=row["grant"].extensions)
+                            assign_database(request.user, employee, server, row["name"], values)
                             applied += 1
         except ValidationError as error:
             messages.error(request, "; ".join(error.messages))

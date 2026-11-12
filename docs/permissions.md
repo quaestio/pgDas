@@ -96,3 +96,11 @@ Automated tests cover setup tokens/locking, employee creation/editing, password 
 - **Gate 2: PostgreSQL.** PGDAS then connects with the login saved on the server (or the optional restricted login of the grant), and PostgreSQL applies that login's privileges. If it refuses, the message says "PostgreSQL blocked this", names the login, and says PGDAS had allowed it. So a server saved with a read-only login stays read-only for everybody, Super Users included.
 - The audit log records which gate stopped a refused SQL statement (`blocked_by`: `pgdas` or `postgresql`).
 - Employee SQL is still limited by PGDAS to the reviewed statement forms and safe functions, whichever login is used; avoid saving a superuser login on servers where employees have access.
+
+### Permissions beyond the level (Stage 2)
+
+- **Run SQL** (per database, off by default): may type and run their own read-only SQL. Browsing, exporting and the screens do not need it.
+- **Views, Sequences, Schemas**: part of *Designer*; they can also be ticked on their own under Advanced.
+- **Functions, Triggers, Extensions**: ticked under Advanced, and they take effect **only when the assignment has its own restricted PostgreSQL login**. PGDAS cannot read what a function body, trigger or extension does, and with the server's saved login it would run with that login's full power, so PostgreSQL has to be the one limiting it. Without a restricted login PGDAS says so when it refuses. `SECURITY DEFINER` and `CREATE SCHEMA ... AUTHORIZATION` stay Super User only.
+- **The screens follow the level for the database being viewed:** the data grid can be edited by someone who may insert, update or delete there, and the structure tools appear for someone who may create, alter or drop there. Each statement is still checked again when it is sent.
+- Existing assignments keep working: when these permissions were added, existing grants were given Run SQL, and views and sequences where they already had create, alter or drop.

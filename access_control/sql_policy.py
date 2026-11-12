@@ -7,8 +7,20 @@ from . import runtime
 
 READ_TYPES = {"SelectStmt", "VariableShowStmt", "ExplainStmt"}
 ACTIONS = {"InsertStmt": "insert", "UpdateStmt": "update", "DeleteStmt": "delete", "TruncateStmt": "truncate",
-           "CreateStmt": "create", "IndexStmt": "create", "ViewStmt": "create", "CreateSeqStmt": "create",
-           "AlterTableStmt": "alter", "AlterSeqStmt": "alter", "RenameStmt": "alter", "DropStmt": "drop"}
+           "CreateStmt": "create", "IndexStmt": "create", "ViewStmt": "views", "CreateSeqStmt": "sequences",
+           "AlterTableStmt": "alter", "AlterSeqStmt": "sequences", "RenameStmt": "alter", "DropStmt": "drop",
+           "CreateSchemaStmt": "schemas", "CreateFunctionStmt": "functions", "AlterFunctionStmt": "functions",
+           "CreateTrigStmt": "triggers", "CreateExtensionStmt": "extensions"}
+# What a DROP removes decides which permission it needs.
+DROP_ACTIONS = {"OBJECT_TABLE": "drop", "OBJECT_INDEX": "drop", "OBJECT_VIEW": "views", "OBJECT_MATVIEW": "views", "OBJECT_SEQUENCE": "sequences",
+                "OBJECT_SCHEMA": "schemas", "OBJECT_FUNCTION": "functions", "OBJECT_PROCEDURE": "functions", "OBJECT_TRIGGER": "triggers",
+                "OBJECT_EXTENSION": "extensions"}
+
+
+def action_for(kind, value):
+    if kind == "DropStmt":
+        return DROP_ACTIONS.get(value.get("removeType"), "drop")
+    return ACTIONS[kind]
 SAFE_FUNCTIONS = {"count", "sum", "avg", "min", "max", "lower", "upper", "length", "char_length", "abs", "round", "ceil",
                   "floor", "concat", "concat_ws", "substring", "replace", "trim", "btrim", "ltrim", "rtrim", "date_part",
                   "date_trunc", "now", "current_date", "array_agg", "string_agg", "json_agg", "jsonb_agg", "to_char"}
@@ -36,6 +48,8 @@ def walk(value):
 
 def authorize(actor, server, database, text, *, write=False):
     require(actor, "read", server=server, database=database)
+    if not write:
+        require(actor, "run_sql", server=server, database=database)           # typing one's own SQL is a permission of its own
     statement = parsed(text)
     top = next(iter(statement))
     admin = runtime.is_admin(actor)
@@ -52,7 +66,7 @@ def authorize(actor, server, database, text, *, write=False):
                 if kind in ACTIONS:
                     if not write:
                         raise PermissionDenied("Read queries cannot contain data-changing statements.")
-                    require(actor, ACTIONS[kind], server=server, database=database)
+                    require(actor, action_for(kind, value), server=server, database=database)
                 elif kind not in READ_TYPES:
                     raise PermissionDenied("Unsupported nested SQL operation.")
             if not admin:
@@ -71,14 +85,16 @@ def authorize(actor, server, database, text, *, write=False):
                 if kind == "RangeVar" or (kind == "relation" and isinstance(value, dict)):
                     if value.get("catalogname") or value.get("schemaname", "").startswith("pg_") or value.get("schemaname") == "information_schema" or value.get("relname", "").startswith("pg_"):
                         raise PermissionDenied("Employee SQL cannot access server catalogs or another database.")
-                if kind in {"CreateStmt", "ViewStmt", "AlterTableStmt", "IndexStmt", "CreateSeqStmt", "AlterSeqStmt", "RenameStmt", "DropStmt"}:
+                if kind in {"CreateStmt", "ViewStmt", "AlterTableStmt", "IndexStmt", "CreateSeqStmt", "AlterSeqStmt", "RenameStmt", "DropStmt", "CreateSchemaStmt"}:
                     # Structure changes can invoke extension hooks, ownership changes or privileged expressions.
                     # Limit to ordinary table/index/view/sequence operations; privileges still apply below.
-                    if kind == "DropStmt" and value.get("removeType") not in {"OBJECT_TABLE", "OBJECT_INDEX", "OBJECT_VIEW", "OBJECT_SEQUENCE"}:
-                        raise PermissionDenied("Only ordinary table, index, view and sequence drops are available to Editors.")
+                    if kind == "DropStmt" and value.get("removeType") not in DROP_ACTIONS:
+                        raise PermissionDenied("This kind of DROP is reserved for Super Users.")
                     if kind == "AlterTableStmt" and any(c.get("AlterTableCmd", {}).get("subtype") not in {"AT_AddColumn", "AT_DropColumn", "AT_SetNotNull", "AT_DropNotNull"} for c in value.get("cmds", [])):
                         raise PermissionDenied("This ALTER operation requires a Super User.")
-                if kind == "DefElem" and value.get("defname") in {"security_definer", "trusted", "connection", "password"}:
+                if kind == "CreateSchemaStmt" and value.get("authrole"):
+                    raise PermissionDenied("CREATE SCHEMA ... AUTHORIZATION (another owner) is reserved for Super Users.")
+                if kind == "DefElem" and value.get("defname") in {"security_definer", "security", "trusted", "connection", "password"}:
                     raise PermissionDenied("Privileged SQL options are not allowed.")
 
 

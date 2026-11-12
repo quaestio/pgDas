@@ -49,6 +49,15 @@ class DatabaseGrant(models.Model):
     export = models.BooleanField(default=False)
     backup_create = models.BooleanField(default=False)
     backup_download = models.BooleanField(default=False)
+    run_sql = models.BooleanField(default=False)               # may type and run their own (read-only) SQL
+    views = models.BooleanField(default=False)                 # create / drop views and materialized views
+    sequences = models.BooleanField(default=False)
+    schemas = models.BooleanField(default=False)
+    # Function bodies, triggers and extensions run with the login's own power and PGDAS cannot read what they do, so these three only
+    # take effect on an assignment that has its own restricted PostgreSQL login.
+    functions = models.BooleanField(default=False)
+    triggers = models.BooleanField(default=False)
+    extensions = models.BooleanField(default=False)
     execution_username = models.CharField(max_length=100, blank=True)
     execution_password = models.TextField(blank=True)
 

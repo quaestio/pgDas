@@ -113,3 +113,18 @@ class AccessMatrixTests(TestCase):
 
     def test_the_employee_list_links_to_it(self):
         self.assertContains(self.client.get(reverse("employee_list")), reverse("employee_access", args=[self.person.pk]))
+
+    def test_run_sql_is_a_checkbox_per_database_and_keeps_the_level_and_the_restricted_login_extras(self):
+        index = {r["name"]: r["index"] for r in self.client.get(self.url()).context["sections"][0]["rows"]}
+        key = f"{self.alpha.pk}-{index['sales']}"
+        self.client.post(self.url(), {f"lvl-{key}": "editor", f"sql-{key}": "on"})
+        grant = DatabaseGrant.objects.get(membership=self.member, database="sales")
+        self.assertEqual((level_of(grant), grant.run_sql), ("editor", True))
+        DatabaseGrant.objects.filter(pk=grant.pk).update(functions=True)                     # set under Advanced
+        self.client.post(self.url(), {f"lvl-{key}": "designer", f"sql-{key}": "on"})
+        grant.refresh_from_db()
+        self.assertEqual((level_of(grant), grant.run_sql, grant.functions), ("designer", True, True))
+        self.client.post(self.url(), {f"lvl-{key}": "designer"})                              # box cleared
+        grant.refresh_from_db()
+        self.assertEqual((level_of(grant), grant.run_sql), ("designer", False))
+        self.assertContains(self.client.get(self.url()), "Run SQL")
