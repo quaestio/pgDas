@@ -19,6 +19,7 @@ from audit.models import record
 from .registration import _page
 
 SALT = "pgdas.email-verification"
+SESSION_KEY = "pgdas_unverified_user"
 
 
 def required(user):
@@ -55,3 +56,23 @@ def verify(request, token):
         messages.success(request, f"{user.email} is verified. Sign in below.")
         return redirect("login")
     return _page(request, register_active=False, verify_email=user.email)
+
+def start(request, user):
+    """The password was right but the address is unverified: remember who (in the session) and show the verification page."""
+    request.session[SESSION_KEY] = user.pk
+    return redirect("email_verify_pending")
+
+
+def pending(request):
+    """The page that says the address must be verified, with a button to send the link again. Only reachable right after a correct password."""
+    user = get_user_model().objects.filter(pk=request.session.get(SESSION_KEY), deleted_at__isnull=True).first()
+    if user is None or user.email_verified or not mode.can_send_email():
+        request.session.pop(SESSION_KEY, None)
+        return redirect("login")
+    if request.method == "POST":
+        if send_link(request, user):
+            messages.success(request, f"A new verification link was sent to {user.email}.")
+        else:
+            messages.info(request, f"A link was sent a moment ago. You can ask for another after {settings.EMAIL_VERIFICATION_RESEND_MINUTES} minutes.")
+        return redirect("email_verify_pending")
+    return _page(request, register_active=False, verify_pending=user.email)

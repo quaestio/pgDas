@@ -18,6 +18,12 @@
         {{ confirm_form.new_password2 }}{{ confirm_form.new_password2.errors }}
         <button type="submit" class="cyber-primary">CONFIRM <span>↗</span></button>
       </form>
+    {% elif verify_pending %}
+      <h2 class="verify-title">Verify your email address</h2>
+      <p>Your password is correct, but <strong>{{ verify_pending }}</strong> has not been verified yet. We sent a verification link to that address. Open it, press <strong>Verify</strong>, then sign in.</p>
+      <p class="login-caution">Nothing arrived? Check your spam folder, then ask for a new link below.</p>
+      <form method="post" action="{% url 'email_verify_pending' %}">{% csrf_token %}<button type="submit" class="cyber-primary">RESEND VERIFICATION EMAIL <span>↗</span></button></form>
+      <p class="login-register"><a href="{% url 'login' %}">Back to sign in</a></p>
     {% elif verify_email %}
       <p>Verify <strong>{{ verify_email }}</strong> as your sign-in address.</p>
       <form method="post">{% csrf_token %}<button type="submit" class="cyber-primary">VERIFY <span>↗</span></button></form>

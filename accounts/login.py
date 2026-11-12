@@ -10,6 +10,13 @@ class LoginView(auth_views.LoginView):
     template_name = "registration/login.html"
     authentication_form = EmailAuthenticationForm
 
+    def form_invalid(self, form):
+        user = getattr(form, "unverified_user", None)
+        if user is not None:                                 # right password, address never verified: a page of its own, with a resend button
+            from . import verification
+            return verification.start(self.request, user)
+        return super().form_invalid(form)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["registration_open"] = mode.registration_open()          # offer "Register your organization" only when it works

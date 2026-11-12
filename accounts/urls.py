@@ -7,6 +7,7 @@ urlpatterns = [
     path("register/", registration.register, name="register"),
     path("terms/", views.terms, name="terms"),
     path("register/confirm/<str:token>/", registration.confirm, name="register_confirm"),
+    path("verify-email/", verification.pending, name="email_verify_pending"),
     path("verify-email/<str:token>/", verification.verify, name="email_verify"),
     path("invitation/<str:token>/", invitations.accept, name="invitation_accept"),
     path("employees/", views.employees, name="employee_list"),

@@ -19,9 +19,9 @@ class EmailAuthenticationForm(AuthenticationForm):
         super().confirm_login_allowed(user)
         from . import verification
         if verification.required(user):                      # the password was right, but this address was never proved to be theirs
-            sent = verification.send_link(self.request, user)
-            raise ValidationError("Your email address is not verified yet. " + ("We sent a verification link to it; open it, then sign in." if sent else
-                                  "A verification link was sent a moment ago; open it, then sign in."), code="unverified")
+            verification.send_link(self.request, user)
+            self.unverified_user = user                      # the sign-in view sends them to the verification page
+            raise ValidationError("Your email address is not verified yet.", code="unverified")
 
     def clean(self):
         email = self.cleaned_data.get("username")

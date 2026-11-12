@@ -32,17 +32,42 @@ class VerificationTests(TestCase):
     def link(self):
         return re.search(r"http://\S+/verify-email/\S+/", mail.outbox[-1].body).group(0).replace("http://testserver", "")
 
-    def test_an_unverified_account_is_refused_and_sent_a_link_even_with_the_right_password(self):
-        response = self.sign_in()
-        self.assertContains(response, "Your email address is not verified yet")
-        self.assertNotIn("_auth_user_id", response.wsgi_request.session)
+    def test_an_unverified_account_is_sent_to_the_verification_page_and_a_link_is_emailed(self):
+        client = Client()
+        response = self.sign_in(client)
+        self.assertRedirects(response, reverse("email_verify_pending"), fetch_redirect_response=False)
+        self.assertNotIn("_auth_user_id", client.session)
         self.assertEqual(mail.outbox[-1].to, ["old@org.test"])
+        page = client.get(reverse("email_verify_pending"))
+        self.assertContains(page, "Verify your email address")
+        self.assertContains(page, "old@org.test")
+        self.assertContains(page, "RESEND VERIFICATION EMAIL")
 
-    def test_the_link_is_not_sent_again_within_a_few_minutes(self):
-        self.sign_in()
-        again = self.sign_in()
+    def test_the_resend_button_sends_again_but_not_within_a_few_minutes(self):
+        client = Client()
+        self.sign_in(client)
+        self.assertEqual(len(mail.outbox), 1)
+        again = client.post(reverse("email_verify_pending"), follow=True)
         self.assertContains(again, "sent a moment ago")
         self.assertEqual(len(mail.outbox), 1)
+        cache.clear()                                                  # (the few minutes have passed)
+        sent = client.post(reverse("email_verify_pending"), follow=True)
+        self.assertContains(sent, "A new verification link was sent")
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_the_page_is_only_for_someone_who_just_gave_the_right_password(self):
+        self.assertRedirects(Client().get(reverse("email_verify_pending")), reverse("login"), fetch_redirect_response=False)
+        self.assertEqual(Client().post(reverse("email_verify_pending")).status_code, 302)
+        self.assertEqual(len(mail.outbox), 0)
+        client = Client()
+        client.post(reverse("login"), {"username": "old@org.test", "password": "wrong"})            # a wrong password does not open it
+        self.assertRedirects(client.get(reverse("email_verify_pending")), reverse("login"), fetch_redirect_response=False)
+
+    def test_after_verifying_the_page_is_no_longer_offered(self):
+        client = Client()
+        self.sign_in(client)
+        get_user_model().objects.filter(pk=self.user.pk).update(email_verified=True)
+        self.assertRedirects(client.get(reverse("email_verify_pending")), reverse("login"), fetch_redirect_response=False)
 
     def test_a_wrong_password_never_sends_anything(self):
         Client().post(reverse("login"), {"username": "old@org.test", "password": "wrong"})
