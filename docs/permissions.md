@@ -104,3 +104,10 @@ Automated tests cover setup tokens/locking, employee creation/editing, password 
 - **Functions, Triggers, Extensions**: ticked under Advanced, and they take effect **only when the assignment has its own restricted PostgreSQL login**. PGDAS cannot read what a function body, trigger or extension does, and with the server's saved login it would run with that login's full power, so PostgreSQL has to be the one limiting it. Without a restricted login PGDAS says so when it refuses. `SECURITY DEFINER` and `CREATE SCHEMA ... AUTHORIZATION` stay Super User only.
 - **The screens follow the level for the database being viewed:** the data grid can be edited by someone who may insert, update or delete there, and the structure tools appear for someone who may create, alter or drop there. Each statement is still checked again when it is sent.
 - Existing assignments keep working: when these permissions were added, existing grants were given Run SQL, and views and sequences where they already had create, alter or drop.
+
+## When a remote database refuses PGDAS
+
+The remote PostgreSQL decides who may connect: it must allow the address of the machine PGDAS runs on. When it does not, PGDAS says so in plain words, with the user, database and address filled in:
+- **PostgreSQL refused this address** (`no pg_hba.conf entry`): the message names the address PostgreSQL saw and gives the exact `pg_hba.conf` line to add, the reload command, the `listen_addresses` setting and the firewall rule.
+- **Timeout / refused / no route:** the address or port is wrong, PostgreSQL is not listening for outside connections, or a firewall does not allow PGDAS's address. Set `PGDAS_PUBLIC_IP` in `.env` so the message can show PGDAS's address when PostgreSQL does not report it.
+- **Wrong user name or password**, and **host name not found**, are worded plainly too.

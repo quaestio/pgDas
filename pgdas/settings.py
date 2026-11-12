@@ -226,6 +226,8 @@ EMAIL_HOST_PASSWORD = os.getenv("PGDAS_EMAIL_PASSWORD", "")
 EMAIL_USE_SSL = os.getenv("PGDAS_EMAIL_SSL", "0") == "1"                           # port 465 style
 EMAIL_USE_TLS = os.getenv("PGDAS_EMAIL_TLS", "1") == "1" and not EMAIL_USE_SSL     # STARTTLS, port 587 style
 EMAIL_TIMEOUT = 15
+# The public IP address of this PGDAS machine, shown in the help for people who must allow it in their database's firewall / pg_hba.conf.
+PUBLIC_IP = (os.getenv("PGDAS_PUBLIC_IP") or "").strip()
 EMAIL_VERIFICATION_RESEND_MINUTES = int(os.getenv("PGDAS_EMAIL_VERIFICATION_RESEND_MINUTES") or 5)
 INVITATION_HOURS = int(os.getenv("PGDAS_INVITATION_HOURS") or 72)             # how long an emailed employee invitation works
 if sys.argv[1:2] == ["test"]:
