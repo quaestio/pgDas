@@ -107,6 +107,8 @@ class SetupForm(EmployeeForm):
         super().__init__(*args, **kwargs)
         self.fields.pop("role")
         self.fields.pop("is_active")
+        self.fields["organization"].label = "Organization name"
+        self.order_fields(["organization", "name", "designation", "email", "password", "password_confirm", "installation_token"])
 
 
 class NewOrganizationForm(SetupForm):
