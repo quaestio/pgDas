@@ -190,6 +190,26 @@ def permissions(request, pk):
                   "grants": employee.database_grants.select_related("server")})
 
 
+def _follow(request, employee, section, everything):
+    """"Also on databases created later": keep a server-wide entry for this server, or remove it. A database left on None while it is on is set apart."""
+    from access_control import serverwide
+    from access_control.models import ServerWideAccess
+    server = section["server"]
+    entry = section["wide"]
+    if f"follow-{server.pk}" not in request.POST:
+        if entry is not None:
+            entry.delete()
+        return False
+    level = everything if everything in PRESETS else (entry.level if entry is not None else "")
+    if level not in PRESETS:
+        raise ValidationError(f"Choose the level for every database on {server.name} (\"Set every database on this server to\") to follow new databases.")
+    sql = any(f"sql-{server.pk}-{row['index']}" in request.POST for row in section["rows"]) if not everything else entry.run_sql if entry is not None else False
+    excluded = [] if everything else sorted({row["name"] for row in section["rows"] if request.POST.get(f"lvl-{server.pk}-{row['index']}", row["level"]) == "none"})
+    entry, _ = ServerWideAccess.objects.update_or_create(membership=employee, server=server, defaults={"level": level, "run_sql": sql, "excluded": excluded})
+    serverwide.sync_entry(entry, names=[row["name"] for row in section["rows"]])
+    return True
+
+
 @login_required
 def access(request, pk):
     """One page for what a person may reach: every server, every database on it, and the level (none / Viewer / Editor / Designer) for each.
@@ -200,6 +220,7 @@ def access(request, pk):
     if employee.role == "super_user":
         return render(request, "accounts/access.html", {"employee": employee, "superuser": True})
     current = {(g.server_id, g.database): g for g in employee.database_grants.all()}
+    wide = {w.server_id: w for w in employee.server_wide.all()}
     sections = []
     for server in visible_servers(request.user).order_by("name"):
         names, error = [], ""
@@ -209,9 +230,10 @@ def access(request, pk):
         except pg.PgError as problem:
             error = str(problem)
         names = sorted(set(names) | {db for (sid, db) in current if sid == server.pk}, key=str.lower)
-        sections.append({"server": server, "error": error, "rows": [
+        sections.append({"server": server, "error": error, "wide": wide.get(server.pk), "rows": [
             {"index": i, "name": name, "grant": current.get((server.pk, name)),
              "run_sql": bool(current.get((server.pk, name)) and current[(server.pk, name)].run_sql),
+             "maintenance": bool(current.get((server.pk, name)) and current[(server.pk, name)].maintenance),
              "level": level_of(current[(server.pk, name)]) if (server.pk, name) in current else "none"} for i, name in enumerate(names)]})
     if request.method == "POST":
         applied = removed = 0
@@ -223,21 +245,23 @@ def access(request, pk):
                     for row in section["rows"]:
                         level = everything or request.POST.get(f"lvl-{server.pk}-{row['index']}", row["level"])
                         sql = f"sql-{server.pk}-{row['index']}" in request.POST
-                        if level == "custom" or (level == row["level"] and sql == row["run_sql"]):
-                            if level == "custom" and row["grant"] is not None and sql != row["run_sql"]:
-                                row["grant"].run_sql = sql                  # a hand-made combination keeps its ticks; only "Run SQL" is set here
-                                row["grant"].save(update_fields=["run_sql"])
+                        maint = f"maint-{server.pk}-{row['index']}" in request.POST
+                        if level == "custom" or (level == row["level"] and sql == row["run_sql"] and maint == row["maintenance"]):
+                            if level == "custom" and row["grant"] is not None and (sql != row["run_sql"] or maint != row["maintenance"]):
+                                row["grant"].run_sql, row["grant"].maintenance = sql, maint        # a hand-made combination keeps its ticks; only these two are set here
+                                row["grant"].save(update_fields=["run_sql", "maintenance"])
                             continue                                  # unchanged, or a hand-made combination that is only edited under "Advanced"
                         if level == "none":
                             revoke_database(request.user, employee, server, row["name"])
                             removed += 1
                         elif level in PRESETS:
                             values = preset_permissions(level)
-                            values["run_sql"] = sql
+                            values["run_sql"], values["maintenance"] = sql, maint
                             if row["grant"] is not None:                # the three that need a restricted login are set under "Advanced": keep them
                                 values.update(functions=row["grant"].functions, triggers=row["grant"].triggers, extensions=row["grant"].extensions)
                             assign_database(request.user, employee, server, row["name"], values)
                             applied += 1
+                    followed = _follow(request, employee, section, everything)
         except ValidationError as error:
             messages.error(request, "; ".join(error.messages))
         else:

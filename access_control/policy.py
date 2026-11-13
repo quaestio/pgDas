@@ -10,7 +10,7 @@ from .models import DatabaseGrant, Membership, OrganizationServer
 
 DATABASE_ACTIONS = frozenset({"read", "insert", "update", "delete", "truncate", "create", "alter", "drop",
                               "export", "backup_create", "backup_download", "restore",
-                              "run_sql", "views", "sequences", "schemas", "functions", "triggers", "extensions"})
+                              "run_sql", "views", "sequences", "schemas", "functions", "triggers", "extensions", "maintenance"})
 ADMIN_ACTIONS = frozenset({"employees_manage", "permissions_manage", "servers_manage", "databases_manage",
                          "postgres_roles_manage", "postgres_grants_manage", "server_settings",
                          "monitor_server", "sessions_manage", "audit_all"})
@@ -57,7 +57,7 @@ ACTION_WORDS = {"read": "view data", "insert": "add rows", "update": "change row
                "backup_create": "create backups", "backup_download": "download backups", "restore": "restore a backup",
                "run_sql": "run your own SQL", "views": "create or drop views", "sequences": "create or change sequences",
                "schemas": "create or drop schemas", "functions": "create or change functions", "triggers": "create or drop triggers",
-               "extensions": "create or drop extensions"}
+               "extensions": "create or drop extensions", "maintenance": "run maintenance (vacuum, analyze, reindex)"}
 # What a person can be given on one database. Viewer and Editor are not people: the same employee can be a viewer on one database and an
 # editor on another. "custom" is any other combination of the tick boxes.
 PRESETS = {
@@ -66,7 +66,7 @@ PRESETS = {
     "designer": {"read", "export", "insert", "update", "delete", "truncate", "create", "alter", "drop", "views", "sequences", "schemas"},
 }
 # Ticked next to a level, not part of it: running one's own SQL, and the three that need a restricted login.
-EXTRAS = frozenset({"run_sql", "functions", "triggers", "extensions"})
+EXTRAS = frozenset({"run_sql", "functions", "triggers", "extensions", "maintenance"})
 LEVEL_LABELS = {"viewer": "Viewer", "editor": "Editor", "designer": "Designer", "custom": "Custom"}
 
 

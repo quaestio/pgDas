@@ -49,7 +49,8 @@ class DatabaseGrant(models.Model):
     export = models.BooleanField(default=False)
     backup_create = models.BooleanField(default=False)
     backup_download = models.BooleanField(default=False)
-    run_sql = models.BooleanField(default=False)               # may type and run their own (read-only) SQL
+    run_sql = models.BooleanField(default=False)               # may type and run their own SQL
+    maintenance = models.BooleanField(default=False)           # VACUUM, ANALYZE, REINDEX on tables of this database
     views = models.BooleanField(default=False)                 # create / drop views and materialized views
     sequences = models.BooleanField(default=False)
     schemas = models.BooleanField(default=False)
@@ -71,6 +72,20 @@ class DatabaseGrant(models.Model):
             raise ValidationError("The employee and server must belong to the same organization.")
         if not self.database or "\x00" in self.database or len(self.database.encode("utf-8")) > 63:
             raise ValidationError("Use an exact PostgreSQL database name of at most 63 UTF-8 bytes.")
+
+
+class ServerWideAccess(models.Model):
+    """"Every database on this server at this level", including databases created later: the grants are kept in step (see serverwide.py).
+    A database the Super User set apart is listed in `excluded` and is left alone."""
+    membership = models.ForeignKey(Membership, on_delete=models.CASCADE, related_name="server_wide")
+    server = models.ForeignKey("servers.ServerConnection", on_delete=models.CASCADE)
+    level = models.CharField(max_length=20)
+    run_sql = models.BooleanField(default=False)
+    excluded = models.JSONField(default=list, blank=True)
+    synced_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["membership", "server"], name="unique_server_wide_access")]
 
 
 class SignInFailure(models.Model):

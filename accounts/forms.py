@@ -183,8 +183,8 @@ class GrantForm(forms.ModelForm):
         model = DatabaseGrant
         fields = ["server", "database", "execution_username", "password", "read", "insert", "update", "delete", "truncate",
                   "create", "alter", "drop", "export", "backup_create", "backup_download",
-                  "run_sql", "views", "sequences", "schemas", "functions", "triggers", "extensions"]
+                  "run_sql", "maintenance", "views", "sequences", "schemas", "functions", "triggers", "extensions"]
         labels = {"execution_username": "Restricted PostgreSQL login", "database": "Exact database name",
-                  "run_sql": "Run own SQL (read-only)", "views": "Views", "sequences": "Sequences", "schemas": "Schemas",
+                  "run_sql": "Run own SQL", "maintenance": "Maintenance (vacuum, analyze, reindex)", "views": "Views", "sequences": "Sequences", "schemas": "Schemas",
                   "functions": "Functions (needs a restricted login)", "triggers": "Triggers (needs a restricted login)",
                   "extensions": "Extensions (needs a restricted login)"}
