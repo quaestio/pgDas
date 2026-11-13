@@ -7,7 +7,7 @@
 <div id="servers-overview"{% if deep_link %} hidden{% endif %} data-url="{% url 'dashboard_data' %}" data-add-url="{% url 'server_add' %}">
   <form id="dCsrf" hidden>{% csrf_token %}</form>
   <div class="title-row">
-    <div><div class="eyebrow">OPERATIONS / <span>DASHBOARD</span></div><h1>Command Overview</h1>
+    <div><div class="eyebrow">OPERATIONS / <span>DASHBOARD</span></div><h1>Server(s) Overview</h1>
       <p class="muted">Your PostgreSQL servers at a glance, read live from the servers themselves. Pick an object in the sidebar to browse it. Refreshes every 30 seconds.</p></div>
     <div class="title-actions"><span class="live"><span class="dot"></span> <span id="dStatus">LOADING…</span></span>
       {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}</div>

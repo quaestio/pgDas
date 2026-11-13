@@ -108,7 +108,7 @@ class HomePageTests(WriteFixture, TestCase):
         client.force_login(self.staff)
         html = client.get("/", {"type": "servers", "system": "1"}).content.decode()
         block = html[html.index('id="servers-overview"'):html.index('id="explorer"')]
-        for text in ("Command Overview", "SERVER STATUS", "RESOURCE USAGE", "LARGEST DATABASES", "RECENT ACTIVITY", "NEEDS ATTENTION",
+        for text in ("Server(s) Overview", "SERVER STATUS", "RESOURCE USAGE", "LARGEST DATABASES", "RECENT ACTIVITY", "NEEDS ATTENTION",
                      'id="mServers"', 'id="mDatabases"', 'id="mUsers"', 'id="mAlerts"', "Add server"):
             self.assertIn(text, block)
         self.assertNotIn("TOTAL SIZE", html)

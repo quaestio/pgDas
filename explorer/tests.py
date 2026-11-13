@@ -625,7 +625,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.user.save()
         plain = self.client.get(reverse("server_list")).content.decode()
         block = plain[plain.index('id="servers-overview"'):plain.index('id="explorer"')]
-        for text in ("Command Overview</h1>", "Add server", "SERVER STATUS", "RESOURCE USAGE"):
+        for text in ("Server(s) Overview</h1>", "Add server", "SERVER STATUS", "RESOURCE USAGE"):
             self.assertIn(text, block)
             self.assertNotIn(text, plain[plain.index('id="explorer"'):])  # nothing of it outside that block
         self.assertNotIn('id="servers-overview" hidden', plain)
