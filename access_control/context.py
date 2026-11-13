@@ -21,4 +21,5 @@ def installation(request):
     can_edit = False
     if member is not None:
         can_edit = member.role == "super_user" or member.database_grants.filter(read=True).filter(_any_write()).exists()
-    return {"pgdas_shared": mode.is_shared(), "pgdas_organization": member.organization.name if member is not None else "", "pgdas_can_edit": can_edit}
+    from servers.models import ServerConnection
+    return {"ssl_modes": [value for value, _ in ServerConnection.SSL_MODES], "pgdas_shared": mode.is_shared(), "pgdas_organization": member.organization.name if member is not None else "", "pgdas_can_edit": can_edit}

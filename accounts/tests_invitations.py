@@ -32,7 +32,7 @@ class InvitationTests(TestCase):
 
     def test_the_form_asks_for_no_password_and_no_active_switch(self):
         page = self.client.get(reverse("employee_add"))
-        self.assertNotContains(page, 'name="password"')
+        self.assertNotContains(page, 'id="id_password"')           # (the Add server popup, on every page, has its own password field)
         self.assertNotContains(page, 'name="is_active"')
         self.assertContains(page, "A link to confirm it")
 

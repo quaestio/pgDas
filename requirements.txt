@@ -5,3 +5,4 @@ whitenoise>=6.7
 waitress>=3.0
 python-dotenv>=1.0
 pglast>=7,<8
+paramiko>=3.4

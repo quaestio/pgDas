@@ -17,6 +17,7 @@ class PgError(Exception):
 
 
 _target = ContextVar("pgdas_pg_target", default=("", 5432, "", ""))      # (host, port, login, database) of the connection being made
+_via = ContextVar("pgdas_pg_via", default="")             # the SSH server the connection goes through, if any
 _login = ContextVar("pgdas_pg_login", default="")          # the PostgreSQL login of the connection in use, for the messages below
 
 
@@ -43,7 +44,7 @@ def _message(error):
     # keep just the server's reason, e.g. `database "x" does not exist`.
     from .connection_help import friendly
     host, port, user, database = _target.get()
-    helped = friendly(text, host=host, port=port, user=user, database=database)
+    helped = friendly(text, host=host, port=port, user=user, database=database, via=_via.get())
     if helped:
         return helped
     reason = re.search(r"FATAL:\s*(.*?)(?=\s*(?:Multiple connection attempts|- host:|\n|$))", text)
@@ -59,17 +60,41 @@ def _open(server, dbname):
     from access_control import runtime
     from servers import netpolicy
     server = runtime.execution_server(server, dbname)
-    try:
-        pinned = netpolicy.check(server.host)            # the address that was checked is the address connected to
-    except netpolicy.AddressNotAllowed as error:
-        raise PgError(str(error))
+    from servers import tunnel as ssh
+    tunnel, host, port, pinned = None, server.host, server.port, ""
+    if getattr(server, "ssh_enabled", False):
+        try:
+            tunnel = ssh.open_tunnel(server)               # the SSH server is checked by the address rule; the PostgreSQL host is its business
+        except ssh.SSHError as error:
+            raise PgError(str(error))
+        host, port = "127.0.0.1", tunnel.local_port
+    else:
+        try:
+            pinned = netpolicy.check(server.host)            # the address that was checked is the address connected to
+        except netpolicy.AddressNotAllowed as error:
+            raise PgError(str(error))
     _login.set(server.username)
     _target.set((server.host, server.port, server.username, dbname))
-    conn = psycopg.connect(
-        host=server.host, port=server.port, dbname=dbname, user=server.username, **({"hostaddr": pinned} if pinned else {}),
-        password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
-        application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
-    )
+    _via.set(f"{server.ssh_host}:{server.ssh_port}" if tunnel else "")
+    try:
+        conn = psycopg.connect(
+            host=host, port=port, dbname=dbname, user=server.username, **({"hostaddr": pinned} if pinned else {}),
+            password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
+            application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
+        )
+    except BaseException:
+        if tunnel:
+            tunnel.close()
+        raise
+    if tunnel:
+        original_close = conn.close
+
+        def close_with_tunnel():
+            try:
+                original_close()
+            finally:
+                tunnel.close()
+        conn.close = close_with_tunnel
     if runtime.user() and not runtime.is_admin() and not getattr(server, "pgdas_enforced", False):
         try:
             # Check inherited memberships too: a non-superuser login may still SET ROLE to a privileged role.

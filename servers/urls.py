@@ -5,6 +5,8 @@ from . import views
 urlpatterns = [
     path("", views.server_list, name="server_list"),
     path("servers/add/", views.server_add, name="server_add"),
+    path("servers/test-draft/", views.server_test_draft, name="server_test_draft"),
+    path("servers/create/", views.server_create, name="server_create"),
     path("servers/<int:pk>/edit/", views.server_edit, name="server_edit"),
     path("servers/<int:pk>/delete/", views.server_delete, name="server_delete"),
     path("servers/<int:pk>/test/", views.server_test, name="server_test"),

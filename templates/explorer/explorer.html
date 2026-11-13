@@ -10,7 +10,7 @@
     <div><div class="eyebrow">OPERATIONS / <span>DASHBOARD</span></div><h1>Server(s) Overview</h1>
       <p class="muted">Your PostgreSQL servers at a glance, read live from the servers themselves. Pick an object in the sidebar to browse it. Refreshes every 30 seconds.</p></div>
     <div class="title-actions"><span class="live"><span class="dot"></span> <span id="dStatus">LOADING…</span></span>
-      {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}">Add server</a>{% endif %}</div>
+      {% if user.is_staff %}<a class="btn primary" href="{% url 'server_add' %}" data-server-dialog>Add server</a>{% endif %}</div>
   </div>
 
   <div class="metrics">

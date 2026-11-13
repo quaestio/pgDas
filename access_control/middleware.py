@@ -76,7 +76,7 @@ class AccessMiddleware(MiddlewareMixin):
                 return self._address_refused(request, address)
         if name in {"dashboard", "dashboard_data"} and not runtime.is_admin():
             return redirect("server_list") if name == "dashboard" else JsonResponse({"ok": False, "error": "Server-wide dashboard is restricted to Super Users."}, status=403)
-        admin_names = {"server_add", "server_edit", "server_delete", "server_test", "monitor", "monitor_data", "monitor_stop",
+        admin_names = {"server_add", "server_test_draft", "server_create", "server_edit", "server_delete", "server_test", "monitor", "monitor_data", "monitor_stop",
                        "monitor_features", "monitor_feature_change", "watch", "watch_data", "watch_sample", "watch_test_notify",
                        "backup_delete", "backup_restore", "schedule_save", "schedule_delete", "audit_reinsert", "audit_undo"}
         if name in admin_names:

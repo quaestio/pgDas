@@ -40,6 +40,8 @@ def tool(name):
 def _environment(server):
     from servers import netpolicy
     env = dict(os.environ, PGPASSWORD=server.get_password(), PGSSLMODE=server.sslmode, PGCONNECT_TIMEOUT="15")
+    if getattr(server, "ssh_enabled", False):
+        return env                                      # through an SSH tunnel (see _run): the SSH server is checked there, not the database host
     try:
         pinned = netpolicy.check(server.host)           # the same rule as every other connection; pg_dump connects to the checked address
     except netpolicy.AddressNotAllowed as error:
@@ -113,13 +115,27 @@ def _option_args(options):
 
 
 def _run(args, server, tolerate=False, output=False):
+    from servers import tunnel as ssh
+    tunnel = None
+    environment = _environment(server)
+    if getattr(server, "ssh_enabled", False):
+        try:
+            tunnel = ssh.open_tunnel(server)
+        except ssh.SSHError as error:
+            raise PgError(str(error))
+        args = list(args)
+        args[args.index("-h") + 1] = "127.0.0.1"          # pg_dump / pg_restore talk to the local end of the tunnel
+        args[args.index("-p") + 1] = str(tunnel.local_port)
     try:
-        done = subprocess.run(args, env=_environment(server), capture_output=True, text=True, timeout=DUMP_TIMEOUT,
+        done = subprocess.run(args, env=environment, capture_output=True, text=True, timeout=DUMP_TIMEOUT,
                               stdin=subprocess.DEVNULL, errors="replace")
     except subprocess.TimeoutExpired:
         raise PgError("The operation took too long and was stopped.")
     except OSError as error:
         raise PgError(str(error))
+    finally:
+        if tunnel:
+            tunnel.close()
     if done.returncode == 1 and tolerate and "errors ignored on restore" in (done.stderr or ""):
         return done.stderr                                          # a partial backup: some objects needed what was left out
     if done.returncode:

@@ -1,0 +1,44 @@
+{% comment %}Add server, as a popup with two tabs (Connection / SSH tunnel). static/server_dialog.js drives it: Test connects with what was typed and saves
+   nothing; Save becomes available only after a successful test of exactly those details. Super Users only.{% endcomment %}
+<div id="dlgAddServer" class="cyber-modal" hidden data-server-dialog-box data-test-url="{% url 'server_test_draft' %}" data-create-url="{% url 'server_create' %}">
+  <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgAddServerTitle">
+    <div class="modal-top"><span id="dlgAddServerTitle">ADD — SERVER</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <form id="addServerForm" autocomplete="off" novalidate>{% csrf_token %}
+      <div class="dlg-tabs" role="tablist">
+        <button type="button" class="dlg-tab active" data-tab="connection">Connection</button>
+        <button type="button" class="dlg-tab" data-tab="ssh">SSH tunnel</button>
+      </div>
+      <div class="dlg-panel" data-panel="connection">
+        <div class="dlg-row"><label for="asName">Name</label><input type="text" id="asName" name="name" maxlength="100" required><small class="dlg-err" data-error-for="name"></small></div>
+        <div class="dlg-row"><label for="asHost">Host</label><input type="text" id="asHost" name="host" maxlength="255" spellcheck="false" placeholder="db.example.com or an IP address" required><small class="dlg-err" data-error-for="host"></small></div>
+        <div class="dlg-row"><label for="asPort">Port</label><input type="number" id="asPort" name="port" value="5432" min="1" max="65535" required><small class="dlg-err" data-error-for="port"></small></div>
+        <div class="dlg-row"><label for="asUser">Username</label><input type="text" id="asUser" name="username" maxlength="100" spellcheck="false" required><small class="dlg-err" data-error-for="username"></small></div>
+        <div class="dlg-row"><label for="asPassword">Password</label><input type="password" id="asPassword" name="password" autocomplete="new-password"><small class="dlg-err" data-error-for="password"></small></div>
+        <div class="dlg-row"><label for="asSsl">SSL mode</label>
+          <select id="asSsl" name="sslmode">{% for value in ssl_modes %}<option value="{{ value }}"{% if value == "prefer" %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+      </div>
+      <div class="dlg-panel" data-panel="ssh" hidden>
+        <p class="muted dlg-hint">Use this when PostgreSQL is not reachable directly, only through an SSH server. PGDAS signs in to the SSH server and reaches PostgreSQL from there, so on the Connection tab the host and port are as that SSH server sees them (for example <code>127.0.0.1</code> when PostgreSQL runs on the SSH server itself).</p>
+        <div class="dlg-row"><label for="asSshOn">Use an SSH tunnel</label><input type="checkbox" id="asSshOn" name="ssh_enabled" value="on"></div>
+        <div data-ssh-fields hidden>
+          <div class="dlg-row"><label for="asSshHost">SSH host</label><input type="text" id="asSshHost" name="ssh_host" maxlength="255" spellcheck="false" placeholder="bastion.example.com"><small class="dlg-err" data-error-for="ssh_host"></small></div>
+          <div class="dlg-row"><label for="asSshPort">SSH port</label><input type="number" id="asSshPort" name="ssh_port" value="22" min="1" max="65535"><small class="dlg-err" data-error-for="ssh_port"></small></div>
+          <div class="dlg-row"><label for="asSshUser">SSH user name</label><input type="text" id="asSshUser" name="ssh_username" maxlength="100" spellcheck="false"><small class="dlg-err" data-error-for="ssh_username"></small></div>
+          <div class="dlg-row"><label for="asSshAuth">Sign in with</label>
+            <select id="asSshAuth" name="ssh_auth"><option value="password">Password</option><option value="key">Private key</option></select></div>
+          <div class="dlg-row" data-ssh-auth="password"><label for="asSshPassword">SSH password</label><input type="password" id="asSshPassword" name="ssh_password" autocomplete="new-password"><small class="dlg-err" data-error-for="ssh_password"></small></div>
+          <div class="dlg-row" data-ssh-auth="key" hidden><label for="asSshKey">Private key</label><textarea id="asSshKey" name="ssh_key" rows="6" spellcheck="false" autocomplete="off" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea><small class="dlg-err" data-error-for="ssh_key"></small></div>
+          <div class="dlg-row" data-ssh-auth="key" hidden><label for="asSshPass">Key passphrase</label><input type="password" id="asSshPass" name="ssh_passphrase" autocomplete="new-password"><small class="dlg-err" data-error-for="ssh_passphrase"></small></div>
+          <p class="muted dlg-hint">The SSH server's key is remembered the first time and must be the same afterwards. The password or key is stored encrypted.</p>
+        </div>
+      </div>
+      <input type="hidden" name="test_token" value="">
+      <p class="dlg-status" role="status" data-status></p>
+      <div class="dlg-actions modal-buttons">
+        <button type="button" class="btn" data-server-test>Test connection</button>
+        <button type="button" class="btn primary" data-server-save disabled title="Available after a successful test">Save</button>
+        <button type="button" class="btn" data-dlg-close>Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>

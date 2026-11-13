@@ -34,7 +34,7 @@ def default_database(server):
 
 
 def execution_server(server, database):
-    if not user():
+    if not user() or getattr(server, "pgdas_draft", False):          # a draft: the Super User testing a server before saving it
         return server
     require(user(), "read", server=server, database=database)
     if is_admin():

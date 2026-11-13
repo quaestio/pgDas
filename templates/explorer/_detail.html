@@ -19,7 +19,7 @@
         </td>
       </tr>
     {% empty %}
-      <tr><td colspan="4" class="muted">No servers yet.{% if user.is_staff %} <a href="{% url 'server_add' %}">Add your first PostgreSQL server.</a>{% else %} Ask an administrator to add one.{% endif %}</td></tr>
+      <tr><td colspan="4" class="muted">No servers yet.{% if user.is_staff %} <a href="{% url 'server_add' %}" data-server-dialog>Add your first PostgreSQL server.</a>{% else %} Ask an administrator to add one.{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>

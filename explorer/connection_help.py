@@ -20,8 +20,12 @@ def _where(address):
     return f"this PGDAS server ({address})" if address else "this PGDAS server (ask the person who runs PGDAS for its public IP address)"
 
 
-def friendly(text, *, host="", port=5432, user="", database=""):
+def friendly(text, *, host="", port=5432, user="", database="", via=""):
     """A worded explanation for a failed connection, or None when the error is something else."""
+    if via and any(word in text.lower() for word in ("closed the connection", "connection refused", "timeout expired", "timed out", "could not connect", "connection reset")):
+        return (f"The SSH connection to {via} worked, but from there PostgreSQL at {host}:{port} could not be reached. In the Connection tab, the host and port "
+                "must be as the SSH server sees them (for example 127.0.0.1 if PostgreSQL runs on the SSH server itself, or the database machine's private address). "
+                "Also check that PostgreSQL is running and listening on that port.")
     found = PG_HBA.search(text)
     if found:
         address, who, db = found.group(1), found.group(2) or user, found.group(3) or database

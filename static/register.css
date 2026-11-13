@@ -32,3 +32,12 @@
 .setup-hint { display: block; margin: 4px 0 0; font-size: 11px; color: #9cd4f5; }
 .login-card .setup-form label { margin: 14px 0 6px; }
 @media (max-width: 520px) { .setup-tag { display: none; } .setup-header { padding: 10px 14px; } .login-card.setup-card { padding: 22px 16px; } }
+/* Add server popup */
+#dlgAddServer .dlg-row textarea { width: 100%; font-family: monospace; font-size: 12px; }
+#dlgAddServer .dlg-err { display: block; color: #ff8a8a; min-height: 0; }
+#dlgAddServer .dlg-status { min-height: 1.4em; margin: 10px 0 4px; font-size: 13px; }
+#dlgAddServer .dlg-status.ok { color: #6be59a; }
+#dlgAddServer .dlg-status.err { color: #ff8a8a; }
+#dlgAddServer .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+#dlgAddServer [data-server-save]:disabled { opacity: .45; cursor: not-allowed; }
+#dlgAddServer .cyber-dialog { max-height: 92vh; overflow-y: auto; }
