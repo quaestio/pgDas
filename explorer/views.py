@@ -235,6 +235,8 @@ def detail(request):
             context["can_export"] = context.get("tab") == "data" and _can_export(request.user, server, db)
             if context.get("relation_kind") in ("table", "partitioned table") and _can_structure(request.user, server, db):
                 context["structure"] = _structure_json(server, db, schema, node["table"])
+            if context.get("relation_kind") in ("table", "partitioned table", "materialized view") and permits(request.user, "maintenance", server=server, database=db):
+                context["maintenance"] = json.dumps({"url": reverse("maintenance_run", args=[server.pk]), "db": db, "schema": schema, "table": node["table"]})
         elif kind in ("function", "procedure"):
             with pg.connect(server, db) as conn:
                 context.update(_function_context(conn, node, request))
@@ -281,6 +283,29 @@ def _structure_json(server, db, schema, table=""):
     return json.dumps({"server": server.pk, "db": db, "schema": schema, "table": table,
                        "types_url": reverse("column_types", args=[server.pk]) + "?" + urlencode({"db": db}),
                        "tables_url": reverse("database_tables", args=[server.pk]) + "?" + urlencode({"db": db})})
+
+
+@login_required
+@require_POST
+def maintenance_run(request, pk):
+    """VACUUM / ANALYZE / REINDEX of one table, for Super Users and for people with the Maintenance permission on that database."""
+    server = get_object_or_404(ServerConnection, pk=pk)
+    try:
+        data = json.loads(request.body or b"{}")
+        database, schema, table, operation = (str(data.get(key) or "") for key in ("db", "schema", "table", "operation"))
+        if not (database and schema and table):
+            raise ValueError
+    except (ValueError, AttributeError):
+        return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+    require(request.user, "maintenance", server=server, database=database)
+    request.pgdas_database = database
+    try:
+        message = pg.run_maintenance(server, database, schema, table, operation)
+    except pg.PgError as error:
+        record(request.user, f"maintenance.{operation}", server, f"{schema}.{table}", ok=False, payload={"database": database})
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    record(request.user, f"maintenance.{operation}", server, f"{schema}.{table}", ok=True, payload={"database": database})
+    return JsonResponse({"ok": True, "message": message})
 
 
 @login_required
@@ -336,8 +361,9 @@ def _write_request(request, pk):
         if table_rebuild.is_reorder_statement(str(data.get("sql") or "")):
             # PGDAS's own statement (not PostgreSQL SQL, so it cannot be parsed for the policy): a rebuild is for Super Users only.
             require(request.user, "read", server=server, database=database)
-            if not runtime.is_admin(request.user):
-                raise PermissionDenied("Changing the order of the columns rebuilds the table and requires a Super User.")
+            # The table is dropped and created again with its rows put back, so it takes every one of these on that database.
+            for action in ("create", "alter", "drop", "insert"):
+                require(request.user, action, server=server, database=database)
         elif kind == "create" and changes.table_script_statements(str(data.get("sql") or "")):
             # A new table with its owner, comments and privileges: several statements, so the one-statement policy parser cannot read them.
             # Setting an owner and privileges is for Super Users; the engine accepts only CREATE TABLE plus those statements for that table.

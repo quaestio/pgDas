@@ -794,6 +794,33 @@ def fetch_rows(conn, schema, table, page, raw=False):
     return result
 
 
+MAINTENANCE = {"vacuum": ("VACUUM {}", "Vacuum"), "analyze": ("ANALYZE {}", "Analyze"), "vacuum_analyze": ("VACUUM (ANALYZE) {}", "Vacuum and analyze"),
+               "reindex": ("REINDEX TABLE {}", "Reindex")}
+
+
+def run_maintenance(server, database, schema, table, operation):
+    """VACUUM / ANALYZE / REINDEX of one table. These cannot run inside a transaction block, so this connection is in autocommit mode; the
+    statement is built from the fixed list above and the table name is quoted as an identifier."""
+    if operation not in MAINTENANCE:
+        raise PgError("That maintenance operation is not available.")
+    template, label = MAINTENANCE[operation]
+    try:
+        conn = _open(server, database)
+    except psycopg.Error as error:
+        raise PgError(_message(error))
+    except ValueError as error:
+        raise PgError(str(error))
+    try:
+        conn.autocommit = True
+        conn.execute("SET statement_timeout = '600s'")            # maintenance may take much longer than a query
+        conn.execute(sql.SQL(template).format(sql.Identifier(schema, table)))
+    except psycopg.Error as error:
+        raise PgError(_message(error))
+    finally:
+        conn.close()
+    return f"{label} finished on {schema}.{table}."
+
+
 def run_sql(server, statement, database=None):
     """Run user SQL in a read-only transaction with a timeout and a row cap."""
     started = time.monotonic()

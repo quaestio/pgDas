@@ -125,6 +125,10 @@
 {% elif tabs %}
   <div {% if structure %}data-structure="{{ structure }}"{% endif %}>
   <h2>{{ title }}{% if structure %} <span class="table-actions"><button type="button" class="btn" data-table-dialog="rename-table">Rename</button> <button type="button" class="btn danger" data-table-dialog="drop-table">Drop</button></span>{% endif %}</h2>
+  {% if maintenance %}<div class="maintenance" data-maintenance="{{ maintenance }}"><span class="muted">Maintenance:</span>
+    <button type="button" class="btn" data-maint="vacuum">Vacuum</button> <button type="button" class="btn" data-maint="analyze">Analyze</button>
+    <button type="button" class="btn" data-maint="vacuum_analyze">Vacuum + analyze</button> <button type="button" class="btn" data-maint="reindex">Reindex</button>
+    <span class="maintenance-status" role="status"></span></div>{% endif %}
   <div class="tabs">{% for key, label in tabs %}<a href="#" data-detail="{{ base }}&tab={{ key }}" class="{% if key == tab %}active{% endif %}">{{ label }}</a>{% endfor %}</div>
   {% if tab == "properties" and object_kind == "role" %}
     <dl class="props">

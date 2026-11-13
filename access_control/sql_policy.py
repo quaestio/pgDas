@@ -10,7 +10,7 @@ ACTIONS = {"InsertStmt": "insert", "UpdateStmt": "update", "DeleteStmt": "delete
            "CreateStmt": "create", "IndexStmt": "create", "ViewStmt": "views", "CreateSeqStmt": "sequences",
            "AlterTableStmt": "alter", "AlterSeqStmt": "sequences", "RenameStmt": "alter", "DropStmt": "drop",
            "CreateSchemaStmt": "schemas", "CreateFunctionStmt": "functions", "AlterFunctionStmt": "functions",
-           "CreateTrigStmt": "triggers", "CreateExtensionStmt": "extensions"}
+           "CreateTrigStmt": "triggers", "CreateExtensionStmt": "extensions", "ReindexStmt": "maintenance"}
 # What a DROP removes decides which permission it needs.
 DROP_ACTIONS = {"OBJECT_TABLE": "drop", "OBJECT_INDEX": "drop", "OBJECT_VIEW": "views", "OBJECT_MATVIEW": "views", "OBJECT_SEQUENCE": "sequences",
                 "OBJECT_SCHEMA": "schemas", "OBJECT_FUNCTION": "functions", "OBJECT_PROCEDURE": "functions", "OBJECT_TRIGGER": "triggers",
@@ -90,8 +90,11 @@ def authorize(actor, server, database, text, *, write=False):
                     # Limit to ordinary table/index/view/sequence operations; privileges still apply below.
                     if kind == "DropStmt" and value.get("removeType") not in DROP_ACTIONS:
                         raise PermissionDenied("This kind of DROP is reserved for Super Users.")
-                    if kind == "AlterTableStmt" and any(c.get("AlterTableCmd", {}).get("subtype") not in {"AT_AddColumn", "AT_DropColumn", "AT_SetNotNull", "AT_DropNotNull"} for c in value.get("cmds", [])):
+                    if kind == "AlterTableStmt" and any(c.get("AlterTableCmd", {}).get("subtype") not in {"AT_AddColumn", "AT_DropColumn", "AT_SetNotNull", "AT_DropNotNull", "AT_AlterColumnType", "AT_ColumnDefault",
+                                                                                                                                    "AT_AddConstraint", "AT_DropConstraint", "AT_ValidateConstraint", "AT_AttachPartition", "AT_DetachPartition"} for c in value.get("cmds", [])):
                         raise PermissionDenied("This ALTER operation requires a Super User.")
+                if kind == "ReindexStmt" and value.get("kind") not in {"REINDEX_OBJECT_INDEX", "REINDEX_OBJECT_TABLE", "REINDEX_OBJECT_SCHEMA"}:
+                    raise PermissionDenied("REINDEX of a whole database or the system catalogs is reserved for Super Users.")
                 if kind == "CreateSchemaStmt" and value.get("authrole"):
                     raise PermissionDenied("CREATE SCHEMA ... AUTHORIZATION (another owner) is reserved for Super Users.")
                 if kind == "DefElem" and value.get("defname") in {"security_definer", "security", "trusted", "connection", "password"}:

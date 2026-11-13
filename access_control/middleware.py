@@ -84,7 +84,7 @@ class AccessMiddleware(MiddlewareMixin):
         server_id = request.GET.get("server") or request.POST.get("server")
         if server_id and not str(server_id).isdigit():
             raise Http404("Unknown server.")                       # not a server number: not found, not a crash
-        if name in {"server_edit", "server_delete", "server_test", "explorer", "sql_runner", "write_preview", "write_execute", "sql_export"}:
+        if name in {"server_edit", "server_delete", "server_test", "explorer", "sql_runner", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
             server_id = kwargs.get("pk")
         if server_id:
             get_object_or_404(runtime.servers(), pk=server_id)
