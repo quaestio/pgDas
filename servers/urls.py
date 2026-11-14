@@ -10,4 +10,6 @@ urlpatterns = [
     path("servers/<int:pk>/edit/", views.server_edit, name="server_edit"),
     path("servers/<int:pk>/delete/", views.server_delete, name="server_delete"),
     path("servers/<int:pk>/test/", views.server_test, name="server_test"),
+    path("servers/<int:pk>/unlock/", views.server_unlock, name="server_unlock"),
+    path("servers/<int:pk>/lock/", views.server_lock, name="server_lock"),
 ]

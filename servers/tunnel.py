@@ -17,7 +17,7 @@ import threading
 
 import paramiko
 
-from . import netpolicy
+from . import netpolicy, unlock
 
 
 class SSHError(Exception):
@@ -140,7 +140,11 @@ def open_tunnel(server):
                 type(server).objects.filter(pk=server.pk).update(ssh_host_key=seen)
         try:
             if server.ssh_auth == "key":
-                transport.auth_publickey(server.ssh_username, _load_private_key(secret, server.get_ssh_passphrase()))
+                try:
+                    passphrase = server.get_ssh_passphrase()
+                except unlock.SSHLocked as locked:
+                    raise SSHError(str(locked))
+                transport.auth_publickey(server.ssh_username, _load_private_key(secret, passphrase))
             else:
                 transport.auth_password(server.ssh_username, secret)
         except paramiko.AuthenticationException:

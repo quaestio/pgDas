@@ -13,6 +13,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         while True:
+            from servers import unlock
+            unlock.purge()                                  # SSH passphrases whose unlock time is over are deleted here too
             for backup in dump.run_due():
                 line = f"{backup.server_name} / {backup.database}: {backup.status}" + (f" ({backup.error})" if backup.error else "")
                 self.stdout.write(line)

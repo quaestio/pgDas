@@ -7,6 +7,15 @@ from . import crypto
 DEFAULT_DATABASE = "postgres"
 
 
+class SSHUnlock(models.Model):
+    """The passphrase of a server's SSH key, kept (encrypted) only until `expires_at`. Shared by every process, so web workers, backups and
+    alerts all see the same unlock. Expired rows are deleted when they are looked at."""
+    server = models.OneToOneField("ServerConnection", on_delete=models.CASCADE, related_name="ssh_unlock")
+    passphrase_encrypted = models.TextField()
+    unlocked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
+    expires_at = models.DateTimeField()
+
+
 class ServerConnection(models.Model):
     SSL_MODES = [(mode, mode) for mode in ("disable", "allow", "prefer", "require", "verify-ca", "verify-full")]
 
@@ -28,6 +37,8 @@ class ServerConnection(models.Model):
     ssh_auth = models.CharField(max_length=10, choices=[("password", "Password"), ("key", "Private key")], default="password")
     ssh_secret_encrypted = models.TextField(blank=True)             # the SSH password, or the private key text
     ssh_passphrase_encrypted = models.TextField(blank=True)
+    # "Ask for the passphrase": it is not kept. A Super User unlocks the server for a while (see unlock.py) and it locks again.
+    ssh_prompt_passphrase = models.BooleanField(default=False)
     ssh_host_key = models.TextField(blank=True)                      # "type base64": the SSH server's key, trusted when first connected to
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -59,4 +70,21 @@ class ServerConnection(models.Model):
         self.ssh_passphrase_encrypted = crypto.encrypt(raw) if raw else ""
 
     def get_ssh_passphrase(self):
+        typed = getattr(self, "_typed_ssh_passphrase", None)          # just typed in the Add server popup, for the test
+        if typed is not None:
+            return typed
+        if self.ssh_prompt_passphrase:
+            from . import unlock
+            value = unlock.current(self)
+            if value is None:
+                raise unlock.SSHLocked(unlock.LOCKED_MESSAGE)
+            return value
         return crypto.decrypt(self.ssh_passphrase_encrypted) if self.ssh_passphrase_encrypted else ""
+
+    @property
+    def ssh_unlocked_until(self):
+        """When the SSH key is unlocked until, for a server that asks for its passphrase; None when it is locked (or does not ask)."""
+        if not self.ssh_prompt_passphrase or not self.pk:
+            return None
+        from . import unlock
+        return unlock.until(self)

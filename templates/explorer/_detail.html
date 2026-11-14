@@ -13,6 +13,7 @@
         <td style="text-align:right; white-space:nowrap">
           <a class="btn" href="#" data-open-server="{{ s.pk }}">Open</a>
           <a class="btn" href="{% url 'sql_runner' s.pk %}">SQL</a>
+          {% include "servers/_unlock_buttons.html" %}
           <form method="post" action="{% url 'server_test' s.pk %}" style="display:inline">{% csrf_token %}<button class="btn" type="submit">Test</button></form>
           {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' s.pk %}">Edit</a>
           <a class="btn danger" href="{% url 'server_delete' s.pk %}">Remove</a>{% endif %}
@@ -35,6 +36,7 @@
   <p style="margin-top:18px">
     <a class="btn" href="{% url 'sql_runner' server.pk %}">SQL runner</a>
     {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' server.pk %}">Edit server</a>{% endif %}
+    {% include "servers/_unlock_buttons.html" with s=server %}
   </p>
   <p class="muted">Expand <strong>Databases</strong> in the tree to browse schemas, tables, columns, constraints and indexes.</p>
 {% elif kind == "databases" %}

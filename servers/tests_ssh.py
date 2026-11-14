@@ -285,3 +285,123 @@ class PopupEndpointTests(TestCase):
         with override_settings(SERVER_TESTS_PER_10_MINUTES=1), mock.patch("servers.views.pg.test_connection", return_value="18"):
             self.assertEqual(self.test().status_code, 200)
             self.assertEqual(self.test().status_code, 429)
+
+
+def key_with_passphrase(passphrase="open sesame"):
+    import io
+    key = paramiko.ECDSAKey.generate()
+    out = io.StringIO()
+    key.write_private_key(out, password=passphrase)
+    return key, out.getvalue()
+
+
+@override_settings(SERVER_NETWORKS="any", ALLOWED_SERVER_HOSTS=[])
+class PromptPassphraseTests(SSHFixture):
+    """A key whose passphrase is not stored: a Super User unlocks the server for a while."""
+
+    def setUp(self):
+        super().setUp()
+        self.key, self.text = key_with_passphrase()
+        self.fake.authorized_key = self.key
+        Installation.objects.update_or_create(pk=1, defaults={"completed": True})
+        self.org = Organization.objects.create(name="Org")
+        self.admin = get_user_model().objects.create_user("a", email="a@o.test", password="pw-12345-abc", is_staff=True, is_superuser=True)
+        Membership.objects.create(user=self.admin, organization=self.org, role="super_user")
+        self.client = Client()
+        self.client.force_login(self.admin)
+
+    def locked_server(self):
+        server = self.server(ssh_auth="key", secret=self.text, ssh_prompt_passphrase=True)
+        OrganizationServer.objects.get_or_create(server=server, defaults={"organization": self.org})
+        return server
+
+    def test_locked_until_a_super_user_unlocks_it_and_locked_again_when_the_time_is_over(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from servers import unlock
+        from servers.models import SSHUnlock
+        server = self.locked_server()
+        with self.assertRaisesMessage(pg.PgError, "SSH key of this server is locked"):
+            pg.test_connection(server)
+        unlock.unlock(server, "open sesame", self.admin)
+        self.assertRegex(pg.test_connection(server), r"^\d+")
+        SSHUnlock.objects.update(expires_at=timezone.now() - timedelta(minutes=1))
+        with self.assertRaisesMessage(pg.PgError, "locked"):
+            pg.test_connection(server)
+        self.assertFalse(SSHUnlock.objects.exists())                                 # the expired passphrase is deleted, not just ignored
+
+    def test_the_unlock_endpoint_checks_the_passphrase_and_keeps_it_encrypted(self):
+        from servers.models import SSHUnlock
+        server = self.locked_server()
+        url = reverse("server_unlock", args=[server.pk])
+        wrong = self.client.post(url, {"passphrase": "nope"})
+        self.assertEqual(wrong.status_code, 400)
+        self.assertIn("does not open", wrong.json()["error"])
+        self.assertFalse(SSHUnlock.objects.exists())
+        self.assertTrue(AuditEntry.objects.filter(action="server.unlock", ok=False).exists())
+        right = self.client.post(url, {"passphrase": "open sesame"})
+        self.assertEqual((right.status_code, right.json()["ok"]), (200, True))
+        row = SSHUnlock.objects.get(server=server)
+        self.assertNotIn("open sesame", row.passphrase_encrypted)
+        self.assertAlmostEqual((row.expires_at - __import__("django.utils.timezone", fromlist=["now"]).now()).total_seconds(), 8 * 3600, delta=60)
+        self.assertTrue(AuditEntry.objects.filter(action="server.unlock", ok=True).exists())
+        self.assertIsNotNone(ServerConnection.objects.get(pk=server.pk).ssh_unlocked_until)
+
+    def test_locking_by_hand(self):
+        from servers import unlock
+        server = self.locked_server()
+        unlock.unlock(server, "open sesame", self.admin)
+        self.assertEqual(self.client.post(reverse("server_lock", args=[server.pk])).status_code, 200)
+        self.assertIsNone(unlock.current(server))
+
+    def test_only_super_users_can_unlock_and_only_servers_that_ask(self):
+        person = get_user_model().objects.create_user("p", email="p@o.test", password="pw-12345-abc")
+        Membership.objects.create(user=person, organization=self.org, role="editor")
+        server = self.locked_server()
+        other = Client()
+        other.force_login(person)
+        self.assertEqual(other.post(reverse("server_unlock", args=[server.pk]), {"passphrase": "open sesame"}, HTTP_X_REQUESTED_WITH="fetch").status_code, 403)
+        plain = self.server(name="plain")
+        OrganizationServer.objects.get_or_create(server=plain, defaults={"organization": self.org})
+        self.assertEqual(self.client.post(reverse("server_unlock", args=[plain.pk]), {"passphrase": "x"}).status_code, 400)
+
+    def test_the_buttons_show_the_state_on_the_servers_list(self):
+        from servers import unlock
+        server = self.locked_server()
+        page = self.client.get(reverse("detail") + "?type=servers")
+        self.assertContains(page, f'data-server-unlock="{server.pk}"')
+        unlock.unlock(server, "open sesame", self.admin)
+        page = self.client.get(reverse("detail") + "?type=servers")
+        self.assertContains(page, f'data-server-lock="{server.pk}"')
+        self.assertNotContains(page, f'data-server-unlock="{server.pk}"')
+
+    def test_the_popup_tests_with_the_typed_passphrase_saves_without_it_and_starts_unlocked(self):
+        from servers import unlock
+        data = {"name": "Via key", "host": shared.TARGET["HOST"], "port": shared.TARGET["PORT"], "username": shared.TARGET["USER"],
+                "password": shared.TARGET["PASSWORD"], "sslmode": "prefer", "ssh_enabled": "on", "ssh_host": "127.0.0.1", "ssh_port": str(self.fake.port),
+                "ssh_username": "tunneller", "ssh_auth": "key", "ssh_key": self.text, "ssh_passphrase": "open sesame", "ssh_prompt_passphrase": "on"}
+        tested = self.client.post(reverse("server_test_draft"), data)
+        self.assertTrue(tested.json()["ok"], tested.content)
+        saved = self.client.post(reverse("server_create"), {**data, "test_token": tested.json()["token"]})
+        self.assertEqual(saved.status_code, 200, saved.content)
+        server = ServerConnection.objects.get(name="Via key")
+        self.assertEqual(server.ssh_passphrase_encrypted, "")                         # never stored
+        self.assertTrue(server.ssh_prompt_passphrase)
+        self.assertIsNotNone(server.ssh_unlocked_until)                               # proven by the test, so it starts unlocked
+        self.assertRegex(pg.test_connection(server), r"^\d+")
+        unlock.lock(server)
+        with self.assertRaisesMessage(pg.PgError, "locked"):
+            pg.test_connection(server)
+
+    def test_asking_for_a_passphrase_needs_a_key_and_the_passphrase_once(self):
+        base = {"name": "X", "host": "10.1.1.1", "port": "5432", "username": "u", "password": "p", "ssh_enabled": "on", "ssh_host": "93.184.216.34",
+                "ssh_username": "u", "ssh_prompt_passphrase": "on"}
+        errors = self.client.post(reverse("server_test_draft"), {**base, "ssh_auth": "password", "ssh_password": "x"}).json()["errors"]
+        self.assertIn("ssh_prompt_passphrase", errors)
+        errors = self.client.post(reverse("server_test_draft"), {**base, "ssh_auth": "key", "ssh_key": self.text}).json()["errors"]
+        self.assertIn("ssh_passphrase", errors)
+
+    def test_the_popup_offers_the_key_file_and_the_prompt_option(self):
+        page = self.client.get(reverse("server_list"))
+        for needle in ("data-key-file", "ssh_prompt_passphrase", "dlgUnlock", "Choose a key file"):
+            self.assertContains(page, needle)

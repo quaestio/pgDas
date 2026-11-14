@@ -228,6 +228,8 @@ EMAIL_USE_TLS = os.getenv("PGDAS_EMAIL_TLS", "1") == "1" and not EMAIL_USE_SSL  
 EMAIL_TIMEOUT = 15
 # The public IP address of this PGDAS machine, shown in the help for people who must allow it in their database's firewall / pg_hba.conf.
 PUBLIC_IP = (os.getenv("PGDAS_PUBLIC_IP") or "").strip()
+# A server whose SSH key is set to "ask for the passphrase" is unlocked by a Super User for this many hours; then it locks again.
+SSH_UNLOCK_HOURS = float(os.getenv("PGDAS_SSH_UNLOCK_HOURS") or 8)
 EMAIL_VERIFICATION_RESEND_MINUTES = int(os.getenv("PGDAS_EMAIL_VERIFICATION_RESEND_MINUTES") or 5)
 INVITATION_HOURS = int(os.getenv("PGDAS_INVITATION_HOURS") or 72)             # how long an emailed employee invitation works
 if sys.argv[1:2] == ["test"]:

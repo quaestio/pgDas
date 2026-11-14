@@ -20,14 +20,14 @@ class ServerForm(forms.ModelForm):
         model = ServerConnection
         # No Database field: PGDAS picks a database this login can open (see explorer.pg.connect),
         # and the tree lists only the databases the login is allowed to connect to.
-        fields = ["name", "host", "port", "username", "password", "sslmode", "ssh_enabled", "ssh_host", "ssh_port", "ssh_username", "ssh_auth"]
-        labels = {"ssh_enabled": "Connect through an SSH tunnel", "ssh_host": "SSH host", "ssh_port": "SSH port", "ssh_username": "SSH user name",
+        fields = ["name", "host", "port", "username", "password", "sslmode", "ssh_enabled", "ssh_host", "ssh_port", "ssh_username", "ssh_auth", "ssh_prompt_passphrase"]
+        labels = {"ssh_prompt_passphrase": "Ask for the passphrase (do not store it)", "ssh_enabled": "Connect through an SSH tunnel", "ssh_host": "SSH host", "ssh_port": "SSH port", "ssh_username": "SSH user name",
                   "ssh_auth": "SSH sign-in with"}
         help_texts = {"host": "With an SSH tunnel: as the SSH server sees it (for example 127.0.0.1 if PostgreSQL runs on the SSH server)."}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for name in ("ssh_host", "ssh_port", "ssh_username", "ssh_auth"):
+        for name in ("ssh_host", "ssh_port", "ssh_username", "ssh_auth", "ssh_prompt_passphrase"):
             self.fields[name].required = False                  # only needed when the tunnel is switched on (see clean)
 
     def _host_rule(self, field, host):
@@ -72,6 +72,11 @@ class ServerForm(forms.ModelForm):
                 self.add_error("ssh_key", "Paste the SSH private key.")
             if auth == "password" and not data.get("ssh_password") and not saved_same:
                 self.add_error("ssh_password", "Enter the SSH password.")
+            if data.get("ssh_prompt_passphrase"):
+                if auth != "key":
+                    self.add_error("ssh_prompt_passphrase", "Asking for a passphrase applies to a private key only.")
+                elif not data.get("ssh_passphrase") and not self.instance.pk:
+                    self.add_error("ssh_passphrase", "Enter the passphrase once: it is used for the test and to unlock the server, and is not stored.")
         elif host:
             self._host_rule("host", host)
         return data
@@ -86,8 +91,13 @@ class ServerForm(forms.ModelForm):
                 server.set_ssh_secret(self.cleaned_data["ssh_key"].strip() + "\n")
             elif server.ssh_auth == "password" and self.cleaned_data.get("ssh_password"):
                 server.set_ssh_secret(self.cleaned_data["ssh_password"])
-            if self.cleaned_data.get("ssh_passphrase"):
-                server.set_ssh_passphrase(self.cleaned_data["ssh_passphrase"])
+            typed = self.cleaned_data.get("ssh_passphrase")
+            if server.ssh_prompt_passphrase and server.ssh_auth == "key":
+                server.set_ssh_passphrase("")                # not kept: a Super User unlocks the server instead (see unlock.py)
+                if typed is not None and typed != "":
+                    server._typed_ssh_passphrase = typed     # only for the test right now
+            elif typed:
+                server.set_ssh_passphrase(typed)
             elif server.ssh_auth == "password":
                 server.set_ssh_passphrase("")
             if "ssh_host" in self.changed_data or "ssh_port" in self.changed_data:

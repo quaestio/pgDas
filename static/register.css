@@ -41,3 +41,9 @@
 #dlgAddServer .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 #dlgAddServer [data-server-save]:disabled { opacity: .45; cursor: not-allowed; }
 #dlgAddServer .cyber-dialog { max-height: 92vh; overflow-y: auto; }
+#dlgAddServer .dlg-stack { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+#dlgAddServer .dlg-file { align-self: flex-start; cursor: pointer; }
+#dlgUnlock .dlg-status { min-height: 1.4em; margin: 10px 0 4px; font-size: 13px; }
+#dlgUnlock .dlg-status.err { color: #ff8a8a; }
+#dlgUnlock .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.badge.warn { background: rgba(255, 193, 7, 0.15); color: #ffc107; border: 1px solid #b8860b; }

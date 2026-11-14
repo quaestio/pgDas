@@ -87,3 +87,59 @@
     }).catch(function () { say("The request did not complete. Try again.", "err"); saveButton.disabled = false; });
   });
 })();
+
+// ---- reading a key file in the browser (the file itself is never sent anywhere; its text goes into the box) ----
+(function () {
+  "use strict";
+  var picker = document.querySelector("[data-key-file]");
+  if (!picker) { return; }
+  picker.addEventListener("change", function () {
+    var file = picker.files && picker.files[0];
+    if (!file) { return; }
+    var slot = document.querySelector('#dlgAddServer [data-error-for="ssh_key"]');
+    if (file.size > 65536) { slot.textContent = "That file is too large to be a private key."; picker.value = ""; return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var box = document.getElementById("asSshKey");
+      box.value = String(reader.result || "");
+      slot.textContent = "";
+      box.dispatchEvent(new Event("input", {bubbles: true}));
+      picker.value = "";
+    };
+    reader.readAsText(file);
+  });
+})();
+
+// ---- Unlock / Lock for a server whose SSH key asks for its passphrase ----
+(function () {
+  "use strict";
+  var box = document.querySelector("[data-unlock-box]");
+  if (!box) { return; }
+  var form = box.querySelector("form"), status = box.querySelector("[data-status]"), current = null;
+  function csrf() { return (form.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || ""; }
+  function say(text, kind) { status.textContent = text || ""; status.className = "dlg-status" + (kind ? " " + kind : ""); }
+  function send(url, body) {
+    return fetch(url, {method: "POST", credentials: "same-origin", body: body, headers: {"X-CSRFToken": csrf(), "X-Requested-With": "fetch"}})
+      .then(function (r) { return r.json().catch(function () { return {ok: false, error: "The server answered something unexpected."}; }); });
+  }
+  document.addEventListener("click", function (event) {
+    var open = event.target.closest("[data-server-unlock]"), lock = event.target.closest("[data-server-lock]");
+    if (open) {
+      current = open.getAttribute("data-url");
+      box.querySelector("[data-unlock-intro]").textContent = "Enter the passphrase of the SSH key of " + open.getAttribute("data-name") +
+        ". It is kept (encrypted) for a few hours so employees, backups and alerts can use the server, then it is deleted and the server locks again.";
+      form.reset(); say(""); box.hidden = false; form.elements.passphrase.focus();
+    } else if (lock) {
+      send(lock.getAttribute("data-url"), new FormData()).then(function () { window.location.reload(); });
+    }
+  });
+  box.addEventListener("click", function (event) {
+    if (event.target.closest("[data-dlg-close]") || event.target === box) { box.hidden = true; return; }
+    if (!event.target.closest("[data-unlock-go]")) { return; }
+    say("Checking…");
+    send(current, new FormData(form)).then(function (answer) {
+      if (answer.ok) { window.location.reload(); } else { say(answer.error || "Not unlocked.", "err"); }
+    }).catch(function () { say("The request did not complete. Try again.", "err"); });
+  });
+  form.addEventListener("keydown", function (event) { if (event.key === "Enter") { event.preventDefault(); box.querySelector("[data-unlock-go]").click(); } });
+})();

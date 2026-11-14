@@ -7,6 +7,7 @@ from django.views.decorators.http import require_POST
 from audit.models import AuditEntry, record
 from explorer import pg
 
+from . import unlock
 from .forms import ServerForm
 from .models import ServerConnection
 from access_control import runtime
@@ -80,7 +81,7 @@ def _too_many_tests(request):
 
 TEST_SALT = "pgdas.server-draft-test"
 DRAFT_FIELDS = ("name", "host", "port", "username", "password", "sslmode", "ssh_enabled", "ssh_host", "ssh_port", "ssh_username", "ssh_auth",
-                "ssh_password", "ssh_key", "ssh_passphrase")
+                "ssh_password", "ssh_key", "ssh_passphrase", "ssh_prompt_passphrase")
 
 
 def _fingerprint(form):
@@ -140,12 +141,49 @@ def server_create(request):
     server = form.save(commit=False)
     server.created_by = request.user
     server.ssh_host_key = tested.get("key", "") if server.ssh_enabled else ""
+    typed = getattr(server, "_typed_ssh_passphrase", None)
     server.save()
+    if server.ssh_enabled and server.ssh_prompt_passphrase and typed:
+        unlock.unlock(server, typed, request.user)                  # the passphrase was just proven by the test: the server starts unlocked
     OrganizationServer.objects.get_or_create(server=server, defaults={"organization": request.pgdas_member.organization})
     via = f" via SSH {server.ssh_username}@{server.ssh_host}:{server.ssh_port}" if server.ssh_enabled else ""
     record(request.user, "server.add", server, f"{server.username}@{server.host}:{server.port}{via}")
     messages.success(request, f"Server {server.name} saved.")
     return JsonResponse({"ok": True, "message": f"Server {server.name} saved."})
+
+
+@login_required
+@staff_required
+@require_POST
+def server_unlock(request, pk):
+    """Unlock a server whose SSH key asks for its passphrase. The passphrase must open the key; it is kept (encrypted) for a few hours."""
+    from django.http import JsonResponse
+    from . import tunnel
+    server = get_object_or_404(ServerConnection, pk=pk)
+    if not (server.ssh_enabled and server.ssh_prompt_passphrase):
+        return JsonResponse({"ok": False, "error": "This server does not ask for an SSH passphrase."}, status=400)
+    passphrase = request.POST.get("passphrase", "")
+    if not passphrase:
+        return JsonResponse({"ok": False, "error": "Enter the passphrase of the SSH key."}, status=400)
+    try:
+        tunnel._load_private_key(server.get_ssh_secret(), passphrase)
+    except tunnel.SSHError:
+        record(request.user, "server.unlock", server, "wrong SSH key passphrase", ok=False)
+        return JsonResponse({"ok": False, "error": "That passphrase does not open this server's SSH key."}, status=400)
+    expires = unlock.unlock(server, passphrase, request.user)
+    record(request.user, "server.unlock", server, f"SSH key unlocked until {expires:%Y-%m-%d %H:%M} UTC")
+    return JsonResponse({"ok": True, "message": f"{server.name} is unlocked until {expires:%H:%M} UTC.", "until": expires.isoformat()})
+
+
+@login_required
+@staff_required
+@require_POST
+def server_lock(request, pk):
+    from django.http import JsonResponse
+    server = get_object_or_404(ServerConnection, pk=pk)
+    unlock.lock(server)
+    record(request.user, "server.lock", server, "SSH key locked")
+    return JsonResponse({"ok": True, "message": f"{server.name} is locked."})
 
 
 @login_required

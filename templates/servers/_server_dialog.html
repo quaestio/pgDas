@@ -27,8 +27,15 @@
           <div class="dlg-row"><label for="asSshAuth">Sign in with</label>
             <select id="asSshAuth" name="ssh_auth"><option value="password">Password</option><option value="key">Private key</option></select></div>
           <div class="dlg-row" data-ssh-auth="password"><label for="asSshPassword">SSH password</label><input type="password" id="asSshPassword" name="ssh_password" autocomplete="new-password"><small class="dlg-err" data-error-for="ssh_password"></small></div>
-          <div class="dlg-row" data-ssh-auth="key" hidden><label for="asSshKey">Private key</label><textarea id="asSshKey" name="ssh_key" rows="6" spellcheck="false" autocomplete="off" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea><small class="dlg-err" data-error-for="ssh_key"></small></div>
+          <div class="dlg-row" data-ssh-auth="key" hidden><label for="asSshKey">Private key</label>
+            <div class="dlg-stack"><textarea id="asSshKey" name="ssh_key" rows="6" spellcheck="false" autocomplete="off" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+              <label class="dlg-file btn">Choose a key file… <input type="file" data-key-file hidden></label> <small class="muted">or paste the key above. The file is read in your browser; only its text is kept, encrypted.</small>
+              <small class="dlg-err" data-error-for="ssh_key"></small></div></div>
           <div class="dlg-row" data-ssh-auth="key" hidden><label for="asSshPass">Key passphrase</label><input type="password" id="asSshPass" name="ssh_passphrase" autocomplete="new-password"><small class="dlg-err" data-error-for="ssh_passphrase"></small></div>
+          <div class="dlg-row" data-ssh-auth="key" hidden><label for="asSshPrompt">Ask for the passphrase</label>
+            <div class="dlg-stack"><label><input type="checkbox" id="asSshPrompt" name="ssh_prompt_passphrase" value="on"> do not store the passphrase</label>
+              <small class="muted">The passphrase above is used for this test and to unlock the server now, and is not saved. After a few hours the server locks again and a Super User must press Unlock and enter it. While locked, backups and alerts for this server pause.</small>
+              <small class="dlg-err" data-error-for="ssh_prompt_passphrase"></small></div></div>
           <p class="muted dlg-hint">The SSH server's key is remembered the first time and must be the same afterwards. The password or key is stored encrypted.</p>
         </div>
       </div>
@@ -39,6 +46,18 @@
         <button type="button" class="btn primary" data-server-save disabled title="Available after a successful test">Save</button>
         <button type="button" class="btn" data-dlg-close>Cancel</button>
       </div>
+    </form>
+  </div>
+</div>
+
+<div id="dlgUnlock" class="cyber-modal" hidden data-unlock-box>
+  <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgUnlockTitle">
+    <div class="modal-top"><span id="dlgUnlockTitle">UNLOCK — SSH KEY</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <form autocomplete="off" novalidate>{% csrf_token %}
+      <p class="muted dlg-hint" data-unlock-intro></p>
+      <div class="dlg-row"><label for="ulPass">Passphrase</label><input type="password" id="ulPass" name="passphrase" autocomplete="new-password"></div>
+      <p class="dlg-status" role="status" data-status></p>
+      <div class="dlg-actions modal-buttons"><button type="button" class="btn primary" data-unlock-go>Unlock</button><button type="button" class="btn" data-dlg-close>Cancel</button></div>
     </form>
   </div>
 </div>
