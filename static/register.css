@@ -47,3 +47,8 @@
 #dlgUnlock .dlg-status.err { color: #ff8a8a; }
 #dlgUnlock .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 .badge.warn { background: rgba(255, 193, 7, 0.15); color: #ffc107; border: 1px solid #b8860b; }
+#dlgAddServer .dlg-inline { display: flex; gap: 8px; }
+#dlgAddServer .dlg-inline input { flex: 1; min-width: 0; }
+#dlgAddServer .dlg-note { display: block; min-height: 0; font-size: 12px; }
+#dlgAddServer .dlg-note.ok { color: #6be59a; }
+#dlgAddServer .dlg-note.err { color: #ff8a8a; }

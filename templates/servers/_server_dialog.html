@@ -9,6 +9,9 @@
         <button type="button" class="dlg-tab" data-tab="ssh">SSH tunnel</button>
       </div>
       <div class="dlg-panel" data-panel="connection">
+        <div class="dlg-row"><label for="asString">Connection string</label>
+          <div class="dlg-stack"><div class="dlg-inline"><input type="text" id="asString" data-connection-string autocomplete="off" spellcheck="false" placeholder="postgresql://user:password@host:5432/db?sslmode=require"> <button type="button" class="btn" data-connection-fill>Fill in</button></div>
+            <small class="muted">Optional. Paste one and the fields below are filled in; the string itself is not kept.</small><small class="dlg-note" data-string-note></small></div></div>
         <div class="dlg-row"><label for="asName">Name</label><input type="text" id="asName" name="name" maxlength="100" required><small class="dlg-err" data-error-for="name"></small></div>
         <div class="dlg-row"><label for="asHost">Host</label><input type="text" id="asHost" name="host" maxlength="255" spellcheck="false" placeholder="db.example.com or an IP address" required><small class="dlg-err" data-error-for="host"></small></div>
         <div class="dlg-row"><label for="asPort">Port</label><input type="number" id="asPort" name="port" value="5432" min="1" max="65535" required><small class="dlg-err" data-error-for="port"></small></div>

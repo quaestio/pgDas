@@ -143,3 +143,29 @@
   });
   form.addEventListener("keydown", function (event) { if (event.key === "Enter") { event.preventDefault(); box.querySelector("[data-unlock-go]").click(); } });
 })();
+
+// ---- Connection string: fills the Connection tab (and the SSL mode); the string is cleared afterwards, it is never saved ----
+(function () {
+  "use strict";
+  var box = document.querySelector("[data-server-dialog-box]");
+  if (!box || !window.pgdasParseConnection) { return; }
+  var input = box.querySelector("[data-connection-string]"), note = box.querySelector("[data-string-note]"), form = box.querySelector("form");
+  function fill() {
+    var result = window.pgdasParseConnection(input.value);
+    if (result.error) { note.textContent = result.error; note.className = "dlg-note err"; return; }
+    var labels = {host: "host", port: "port", username: "user", password: "password", sslmode: "SSL mode"}, done = [];
+    Object.keys(result.values).forEach(function (name) {
+      var field = form.elements[name];
+      if (!field) { return; }
+      field.value = result.values[name];
+      field.dispatchEvent(new Event("input", {bubbles: true}));    // a changed field switches Save off until the next test
+      done.push(labels[name]);
+    });
+    input.value = "";
+    note.className = "dlg-note ok";
+    note.textContent = "Filled in: " + done.join(", ") + "." + (result.ignored.length ? " Left out: " + result.ignored.join("; ") + "." : "") + " Enter the name, then press Test connection.";
+  }
+  box.querySelector("[data-connection-fill]").addEventListener("click", fill);
+  input.addEventListener("keydown", function (event) { if (event.key === "Enter") { event.preventDefault(); fill(); } });
+  input.addEventListener("paste", function () { setTimeout(function () { if (/^\s*(jdbc:)?postgres(ql)?:\/\//i.test(input.value)) { fill(); } }, 0); });
+})();
