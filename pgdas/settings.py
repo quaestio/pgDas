@@ -230,6 +230,9 @@ EMAIL_TIMEOUT = 15
 PUBLIC_IP = (os.getenv("PGDAS_PUBLIC_IP") or "").strip()
 # A server whose SSH key is set to "ask for the passphrase" is unlocked by a Super User for this many hours; then it locks again.
 SSH_UNLOCK_HOURS = float(os.getenv("PGDAS_SSH_UNLOCK_HOURS") or 8)
+# Kerberos (GSSAPI) sign-in to PostgreSQL uses the identity of THIS machine's PGDAS process (its ticket cache or keytab, set up by whoever runs
+# PGDAS), so it is off unless switched on here. On a shared installation every organization would use that same identity: see the check W006.
+KERBEROS = os.getenv("PGDAS_KERBEROS", "0") == "1"
 EMAIL_VERIFICATION_RESEND_MINUTES = int(os.getenv("PGDAS_EMAIL_VERIFICATION_RESEND_MINUTES") or 5)
 INVITATION_HOURS = int(os.getenv("PGDAS_INVITATION_HOURS") or 72)             # how long an emailed employee invitation works
 if sys.argv[1:2] == ["test"]:

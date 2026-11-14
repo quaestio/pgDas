@@ -336,7 +336,7 @@ class PromptPassphraseTests(SSHFixture):
         url = reverse("server_unlock", args=[server.pk])
         wrong = self.client.post(url, {"passphrase": "nope"})
         self.assertEqual(wrong.status_code, 400)
-        self.assertIn("does not open", wrong.json()["error"])
+        self.assertIn("check the passphrase", wrong.json()["error"])
         self.assertFalse(SSHUnlock.objects.exists())
         self.assertTrue(AuditEntry.objects.filter(action="server.unlock", ok=False).exists())
         right = self.client.post(url, {"passphrase": "open sesame"})
@@ -405,3 +405,147 @@ class PromptPassphraseTests(SSHFixture):
         page = self.client.get(reverse("server_list"))
         for needle in ("data-key-file", "ssh_prompt_passphrase", "dlgUnlock", "Choose a key file"):
             self.assertContains(page, needle)
+
+
+@override_settings(SERVER_NETWORKS="any", ALLOWED_SERVER_HOSTS=[])
+class SavePasswordTests(shared.PgFixture, TestCase):
+    """"Save password" off: the PostgreSQL password is not kept; a Super User unlocks the server with it."""
+
+    def setUp(self):
+        Installation.objects.update_or_create(pk=1, defaults={"completed": True})
+        self.org = Organization.objects.create(name="Org")
+        self.admin = get_user_model().objects.create_user("a", email="a@o.test", password="pw-12345-abc", is_staff=True, is_superuser=True)
+        Membership.objects.create(user=self.admin, organization=self.org, role="super_user")
+        self.client = Client()
+        self.client.force_login(self.admin)
+        self.data = {"name": "No saved pw", "host": shared.TARGET["HOST"], "port": shared.TARGET["PORT"], "username": shared.TARGET["USER"],
+                     "password": shared.TARGET["PASSWORD"], "sslmode": "prefer", "save_password": "0"}
+
+    def created(self):
+        tested = self.client.post(reverse("server_test_draft"), self.data)
+        self.assertTrue(tested.json()["ok"], tested.content)
+        saved = self.client.post(reverse("server_create"), {**self.data, "test_token": tested.json()["token"]})
+        self.assertEqual(saved.status_code, 200, saved.content)
+        server = ServerConnection.objects.get(name="No saved pw")
+        OrganizationServer.objects.get_or_create(server=server, defaults={"organization": self.org})
+        return server
+
+    def test_the_password_is_tested_but_not_stored_and_the_server_starts_unlocked(self):
+        from servers.models import SSHUnlock
+        server = self.created()
+        self.assertEqual((server.save_password, server.password_encrypted), (False, ""))
+        self.assertIsNotNone(server.unlocked_until)
+        self.assertRegex(pg.test_connection(server), r"^\d+")
+        row = SSHUnlock.objects.get(server=server)
+        self.assertNotIn(shared.TARGET["PASSWORD"] or "unlikely", row.password_encrypted)
+
+    def test_locked_servers_say_so_and_unlocking_tests_the_password(self):
+        from servers import unlock
+        server = self.created()
+        unlock.lock(server)
+        with self.assertRaisesMessage(pg.PgError, "its password is not saved"):
+            pg.test_connection(server)
+        url = reverse("server_unlock", args=[server.pk])
+        wrong = self.client.post(url, {"password": "definitely-wrong"})
+        self.assertEqual(wrong.status_code, 400)
+        self.assertNotIn("definitely-wrong", wrong.json()["error"])
+        self.assertIsNone(ServerConnection.objects.get(pk=server.pk).unlocked_until)
+        self.assertEqual(self.client.post(url, {}).status_code, 400)                       # nothing typed
+        right = self.client.post(url, {"password": shared.TARGET["PASSWORD"]})
+        self.assertEqual((right.status_code, right.json()["ok"]), (200, True), right.content)
+        self.assertRegex(pg.test_connection(ServerConnection.objects.get(pk=server.pk)), r"^\d+")
+
+    def test_pg_dump_is_refused_while_locked_and_gets_the_password_when_unlocked(self):
+        from backups import dump
+        from servers import unlock
+        server = self.created()
+        self.assertEqual(dump._environment(server)["PGPASSWORD"], shared.TARGET["PASSWORD"])
+        unlock.lock(server)
+        with self.assertRaisesMessage(pg.PgError, "its password is not saved"):
+            dump._environment(server)
+
+    def test_the_buttons_ask_for_the_password(self):
+        from servers import unlock
+        server = self.created()
+        unlock.lock(server)
+        self.assertContains(self.client.get(reverse("detail") + "?type=servers"), 'data-needs-password="1"')
+
+    def test_a_password_is_still_needed_once_for_the_test(self):
+        data = {**self.data, "password": ""}
+        errors = self.client.post(reverse("server_test_draft"), data).json()["errors"]
+        self.assertIn("not saved", errors["password"][0])
+
+
+@override_settings(SERVER_NETWORKS="any", ALLOWED_SERVER_HOSTS=[])
+class KerberosTests(TestCase):
+    def setUp(self):
+        Installation.objects.update_or_create(pk=1, defaults={"completed": True})
+        self.org = Organization.objects.create(name="Org")
+        self.admin = get_user_model().objects.create_user("a", email="a@o.test", password="pw-12345-abc", is_staff=True, is_superuser=True)
+        Membership.objects.create(user=self.admin, organization=self.org, role="super_user")
+        self.client = Client()
+        self.client.force_login(self.admin)
+        self.data = {"name": "Kerb", "host": "db.example.com", "port": "5432", "username": "svc@EXAMPLE.COM", "sslmode": "prefer", "kerberos": "on", "krbsrvname": "pgsvc"}
+
+    def server(self):
+        return ServerConnection.objects.create(name="Kerb", host="db.example.com", username="svc@EXAMPLE.COM", kerberos=True, krbsrvname="pgsvc")
+
+    def test_it_is_refused_unless_the_person_who_runs_pgdas_switched_it_on(self):
+        with override_settings(KERBEROS=False):
+            errors = self.client.post(reverse("server_test_draft"), self.data).json()["errors"]
+        self.assertIn("PGDAS_KERBEROS=1", errors["kerberos"][0])
+        with override_settings(KERBEROS=False), self.assertRaisesMessage(pg.PgError, "not switched on"):
+            pg.test_connection(self.server())
+
+    def test_no_password_is_asked_for_or_sent_and_the_service_name_is_passed(self):
+        with override_settings(KERBEROS=True):
+            response = self.client.post(reverse("server_test_draft"), self.data)
+            self.assertNotIn("password", response.json().get("errors", {}))
+            with mock.patch("explorer.pg.psycopg.connect") as connect:
+                connect.return_value.execute.return_value.fetchone.return_value = ("18.0",)
+                pg.test_connection(self.server())
+        kwargs = connect.call_args.kwargs
+        self.assertNotIn("password", kwargs)
+        self.assertEqual((kwargs["krbsrvname"], kwargs["gssencmode"], kwargs["user"]), ("pgsvc", "prefer", "svc@EXAMPLE.COM"))
+
+    def test_pg_dump_uses_the_machines_ticket_not_a_password(self):
+        from backups import dump
+        server = self.server()
+        with override_settings(KERBEROS=True), mock.patch.dict("os.environ", {"PGPASSWORD": ""}, clear=False):
+            env = dump._environment(server)
+        self.assertEqual(env["PGKRBSRVNAME"], "pgsvc")
+        self.assertFalse(env.get("PGPASSWORD"))
+        self.assertFalse(server.password_encrypted)
+
+    def test_saving_keeps_no_password_and_the_default_service_name(self):
+        with override_settings(KERBEROS=True), mock.patch("servers.views.pg.test_connection", return_value="18.0"):
+            data = {**self.data, "password": "ignored"}
+            data.pop("krbsrvname")
+            tested = self.client.post(reverse("server_test_draft"), data).json()
+            self.assertTrue(tested.get("ok"), tested)
+            self.client.post(reverse("server_create"), {**data, "test_token": tested["token"]})
+        saved = ServerConnection.objects.get(name="Kerb")
+        self.assertEqual((saved.kerberos, saved.password_encrypted, saved.krb_service), (True, "", "postgres"))
+
+    def test_the_check_warns_on_a_shared_installation(self):
+        from django.core.checks import run_checks
+        with override_settings(MODE="shared", KERBEROS=True):
+            self.assertEqual(len([w for w in run_checks() if w.id == "access_control.W006"]), 1)
+        with override_settings(MODE="shared", KERBEROS=False):
+            self.assertEqual([w for w in run_checks() if w.id == "access_control.W006"], [])
+
+
+class CommentsAndDatabaseTests(TestCase):
+    def test_comments_and_the_first_database_are_saved(self):
+        Installation.objects.update_or_create(pk=1, defaults={"completed": True})
+        org = Organization.objects.create(name="Org")
+        admin = get_user_model().objects.create_user("a", email="a@o.test", password="pw-12345-abc", is_staff=True, is_superuser=True)
+        Membership.objects.create(user=admin, organization=org, role="super_user")
+        client = Client()
+        client.force_login(admin)
+        data = {"name": "C", "host": "10.1.1.1", "port": "5432", "username": "u", "password": "p", "sslmode": "prefer", "comments": "Reporting replica", "database": "reports"}
+        with mock.patch("servers.views.pg.test_connection", return_value="18"):
+            token = client.post(reverse("server_test_draft"), data).json()["token"]
+            client.post(reverse("server_create"), {**data, "test_token": token})
+        saved = ServerConnection.objects.get(name="C")
+        self.assertEqual((saved.comments, saved.database, saved.save_password), ("Reporting replica", "reports", True))

@@ -10,6 +10,7 @@ from .models import ServerConnection
 
 FORM = {"name": "prod", "host": "db.example.test", "port": 5432, "database": "app", "username": "reader",
         "password": "s3cret-value", "sslmode": "require"}
+NO_DB = {key: value for key, value in FORM.items() if key != "database"}          # (the form no longer needs a database; it is optional)
 
 
 class CryptoTests(TestCase):
@@ -49,28 +50,24 @@ class ServerViewTests(TestCase):
         self.assertEqual((entry.username, entry.server_name), ("admin", "prod"))
         self.assertNotIn("s3cret-value", entry.detail)
 
-    def test_the_form_has_no_database_field_and_ignores_one(self):
+    def test_the_database_to_connect_to_first_is_optional(self):
         self.client.force_login(self.staff)
-        for url in (reverse("server_add"),):
-            page = self.client.get(url)
-            self.assertNotContains(page, 'name="database"')
-            self.assertNotContains(page, "id_database")
-        # A posted `database` (an old form, a script) is ignored: the server is saved with the default.
-        response = self.client.post(reverse("server_add"), {**FORM, "database": "should_be_ignored"})
-        self.assertRedirects(response, reverse("server_list"))
-        server = ServerConnection.objects.get(name="prod")
-        self.assertEqual(server.database, "postgres")
-        self.assertNotIn("should_be_ignored", AuditEntry.objects.get(action="server.add").detail)
-        self.assertEqual(AuditEntry.objects.get(action="server.add").detail, "reader@db.example.test:5432")
-
+        page = self.client.get(reverse("server_add"))
+        self.assertContains(page, 'name="database"')
+        self.assertContains(page, "Database to connect to first")
+        self.client.post(reverse("server_add"), {**NO_DB, "database": "sales_db"})
+        self.assertEqual(ServerConnection.objects.get(name="prod").database, "sales_db")
+        ServerConnection.objects.all().delete()
+        self.client.post(reverse("server_add"), NO_DB)                                  # left out: the default, which means "pick one automatically"
+        self.assertEqual(ServerConnection.objects.get(name="prod").database_name, "postgres")
     def test_editing_keeps_the_database_an_older_entry_already_had(self):
         self.client.force_login(self.staff)
         server = ServerConnection(name="old", host="h", username="u", database="legacy_db")
         server.set_password("pw")
         server.save()
         page = self.client.get(reverse("server_edit", args=[server.pk]))
-        self.assertNotContains(page, 'name="database"')
-        self.client.post(reverse("server_edit", args=[server.pk]), {**FORM, "name": "old", "password": ""})
+        self.assertContains(page, 'legacy_db')                                       # shown now, and kept when the form is posted without it
+        self.client.post(reverse("server_edit", args=[server.pk]), {**NO_DB, "name": "old", "password": ""})
         server.refresh_from_db()
         self.assertEqual(server.database, "legacy_db")     # the hidden value is untouched by an edit
 

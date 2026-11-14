@@ -55,10 +55,11 @@
 
 <div id="dlgUnlock" class="cyber-modal" hidden data-unlock-box>
   <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgUnlockTitle">
-    <div class="modal-top"><span id="dlgUnlockTitle">UNLOCK — SSH KEY</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <div class="modal-top"><span id="dlgUnlockTitle">UNLOCK — SERVER</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
     <form autocomplete="off" novalidate>{% csrf_token %}
       <p class="muted dlg-hint" data-unlock-intro></p>
-      <div class="dlg-row"><label for="ulPass">Passphrase</label><input type="password" id="ulPass" name="passphrase" autocomplete="new-password"></div>
+      <div class="dlg-row" data-unlock-field="password" hidden><label for="ulPw">Password</label><input type="password" id="ulPw" name="password" autocomplete="new-password"></div>
+      <div class="dlg-row" data-unlock-field="passphrase" hidden><label for="ulPass">SSH key passphrase</label><input type="password" id="ulPass" name="passphrase" autocomplete="new-password"></div>
       <p class="dlg-status" role="status" data-status></p>
       <div class="dlg-actions modal-buttons"><button type="button" class="btn primary" data-unlock-go>Unlock</button><button type="button" class="btn" data-dlg-close>Cancel</button></div>
     </form>

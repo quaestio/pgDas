@@ -141,10 +141,11 @@ def server_create(request):
     server = form.save(commit=False)
     server.created_by = request.user
     server.ssh_host_key = tested.get("key", "") if server.ssh_enabled else ""
-    typed = getattr(server, "_typed_ssh_passphrase", None)
+    typed_passphrase = getattr(server, "_typed_ssh_passphrase", None) if server.ssh_enabled and server.ssh_prompt_passphrase else None
+    typed_password = getattr(server, "_typed_password", None) if server.needs_password_unlock else None
     server.save()
-    if server.ssh_enabled and server.ssh_prompt_passphrase and typed:
-        unlock.unlock(server, typed, request.user)                  # the passphrase was just proven by the test: the server starts unlocked
+    if typed_passphrase or typed_password:
+        unlock.unlock(server, typed_passphrase, request.user, password=typed_password)       # just proven by the test: the server starts unlocked
     OrganizationServer.objects.get_or_create(server=server, defaults={"organization": request.pgdas_member.organization})
     via = f" via SSH {server.ssh_username}@{server.ssh_host}:{server.ssh_port}" if server.ssh_enabled else ""
     record(request.user, "server.add", server, f"{server.username}@{server.host}:{server.port}{via}")
@@ -156,24 +157,34 @@ def server_create(request):
 @staff_required
 @require_POST
 def server_unlock(request, pk):
-    """Unlock a server whose SSH key asks for its passphrase. The passphrase must open the key; it is kept (encrypted) for a few hours."""
+    """Unlock a server whose password and/or SSH key passphrase are not saved. What is typed is tried with a real connection; the secrets are then
+    kept (encrypted) for a few hours and deleted."""
+    from copy import copy
     from django.http import JsonResponse
-    from . import tunnel
     server = get_object_or_404(ServerConnection, pk=pk)
-    if not (server.ssh_enabled and server.ssh_prompt_passphrase):
-        return JsonResponse({"ok": False, "error": "This server does not ask for an SSH passphrase."}, status=400)
-    passphrase = request.POST.get("passphrase", "")
-    if not passphrase:
+    if not server.asks_for_secret:
+        return JsonResponse({"ok": False, "error": "This server does not ask for a password or passphrase."}, status=400)
+    password, passphrase = request.POST.get("password", ""), request.POST.get("passphrase", "")
+    asks_password = server.needs_password_unlock
+    asks_passphrase = server.ssh_enabled and server.ssh_prompt_passphrase
+    if asks_password and not password:
+        return JsonResponse({"ok": False, "error": "Enter the password of this server."}, status=400)
+    if asks_passphrase and not passphrase:
         return JsonResponse({"ok": False, "error": "Enter the passphrase of the SSH key."}, status=400)
+    candidate = copy(server)
+    candidate.pgdas_draft = True
+    if asks_password:
+        candidate._typed_password = password
+    if asks_passphrase:
+        candidate._typed_ssh_passphrase = passphrase
     try:
-        tunnel._load_private_key(server.get_ssh_secret(), passphrase)
-    except tunnel.SSHError:
-        record(request.user, "server.unlock", server, "wrong SSH key passphrase", ok=False)
-        return JsonResponse({"ok": False, "error": "That passphrase does not open this server's SSH key."}, status=400)
-    expires = unlock.unlock(server, passphrase, request.user)
-    record(request.user, "server.unlock", server, f"SSH key unlocked until {expires:%Y-%m-%d %H:%M} UTC")
+        pg.test_connection(candidate)                              # the real thing: tunnel (if any), sign-in, one query
+    except pg.PgError as error:
+        record(request.user, "server.unlock", server, "unlock refused: the connection failed", ok=False)
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    expires = unlock.unlock(server, passphrase if asks_passphrase else None, request.user, password=password if asks_password else None)
+    record(request.user, "server.unlock", server, f"unlocked until {expires:%Y-%m-%d %H:%M} UTC")
     return JsonResponse({"ok": True, "message": f"{server.name} is unlocked until {expires:%H:%M} UTC.", "until": expires.isoformat()})
-
 
 @login_required
 @staff_required

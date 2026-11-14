@@ -61,6 +61,14 @@ def _open(server, dbname):
     from servers import netpolicy
     server = runtime.execution_server(server, dbname)
     from servers import tunnel as ssh
+    from servers import unlock
+    if getattr(server, "kerberos", False) and not settings.KERBEROS:
+        raise PgError("Kerberos sign-in is not switched on for this installation. The person who runs PGDAS sets PGDAS_KERBEROS=1 in .env, and the machine "
+                      "needs a Kerberos ticket or keytab for PGDAS.")
+    try:
+        password = server.get_password()                   # raises when the password is not saved and the server is locked
+    except unlock.SSHLocked as locked:
+        raise PgError(str(locked))
     tunnel, host, port, pinned = None, server.host, server.port, ""
     if getattr(server, "ssh_enabled", False):
         try:
@@ -79,7 +87,8 @@ def _open(server, dbname):
     try:
         conn = psycopg.connect(
             host=host, port=port, dbname=dbname, user=server.username, **({"hostaddr": pinned} if pinned else {}),
-            password=server.get_password(), sslmode=server.sslmode, connect_timeout=10,
+            **({"krbsrvname": server.krb_service, "gssencmode": "prefer"} if getattr(server, "kerberos", False) else {"password": password}),
+            sslmode=server.sslmode, connect_timeout=10,
             application_name="PGDAS", options=f"-c statement_timeout={int(settings.STATEMENT_TIMEOUT_MS)}",
         )
     except BaseException:

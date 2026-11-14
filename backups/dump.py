@@ -39,7 +39,18 @@ def tool(name):
 
 def _environment(server):
     from servers import netpolicy
-    env = dict(os.environ, PGPASSWORD=server.get_password(), PGSSLMODE=server.sslmode, PGCONNECT_TIMEOUT="15")
+    from servers import unlock
+    from django.conf import settings
+    env = dict(os.environ, PGSSLMODE=server.sslmode, PGCONNECT_TIMEOUT="15")
+    if server.kerberos:
+        if not settings.KERBEROS:
+            raise PgError("Kerberos sign-in is not switched on for this installation (PGDAS_KERBEROS=1 in .env).")
+        env["PGKRBSRVNAME"] = server.krb_service            # the ticket or keytab of this machine is used; no password
+    else:
+        try:
+            env["PGPASSWORD"] = server.get_password()       # raises when the password is not saved and the server is locked
+        except unlock.SSHLocked as locked:
+            raise PgError(str(locked))
     if getattr(server, "ssh_enabled", False):
         return env                                      # through an SSH tunnel (see _run): the SSH server is checked there, not the database host
     try:

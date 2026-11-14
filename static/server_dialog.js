@@ -126,9 +126,13 @@
     var open = event.target.closest("[data-server-unlock]"), lock = event.target.closest("[data-server-lock]");
     if (open) {
       current = open.getAttribute("data-url");
-      box.querySelector("[data-unlock-intro]").textContent = "Enter the passphrase of the SSH key of " + open.getAttribute("data-name") +
-        ". It is kept (encrypted) for a few hours so employees, backups and alerts can use the server, then it is deleted and the server locks again.";
-      form.reset(); say(""); box.hidden = false; form.elements.passphrase.focus();
+      var wantsPassword = open.hasAttribute("data-needs-password"), wantsPassphrase = open.hasAttribute("data-needs-passphrase");
+      box.querySelector("[data-unlock-intro]").textContent = "Enter " + (wantsPassword && wantsPassphrase ? "the password and the SSH key passphrase" : wantsPassword ? "the password" : "the passphrase of the SSH key") +
+        " of " + open.getAttribute("data-name") + ". It is tested with a real connection, kept (encrypted) for a few hours so employees, backups and alerts can use the server, then deleted: the server locks again.";
+      form.reset(); say("");
+      box.querySelector('[data-unlock-field="password"]').hidden = !wantsPassword;
+      box.querySelector('[data-unlock-field="passphrase"]').hidden = !wantsPassphrase;
+      box.hidden = false; (wantsPassword ? form.elements.password : form.elements.passphrase).focus();
     } else if (lock) {
       send(lock.getAttribute("data-url"), new FormData()).then(function () { window.location.reload(); });
     }

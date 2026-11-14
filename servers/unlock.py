@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from . import crypto
 
+PASSWORD_LOCKED_MESSAGE = ("This server is locked: its password is not saved. A Super User must unlock it (open Servers, press Unlock next to the server and enter the "
+                           "password). It stays unlocked for a few hours and then locks again.")
 LOCKED_MESSAGE = ("The SSH key of this server is locked. A Super User must unlock it (open Servers, press Unlock next to the server and enter the key's "
                   "passphrase). It stays unlocked for a few hours and then locks again.")
 
@@ -29,9 +31,15 @@ def _row(server):
 
 
 def current(server):
-    """The passphrase while unlocked, else None."""
+    """The SSH key passphrase while unlocked, else None."""
     row = _row(server) if server.pk else None
-    return crypto.decrypt(row.passphrase_encrypted) if row is not None else None
+    return crypto.decrypt(row.passphrase_encrypted) if row is not None and row.passphrase_encrypted else None
+
+
+def current_password(server):
+    """The PostgreSQL password while unlocked, else None."""
+    row = _row(server) if server.pk else None
+    return crypto.decrypt(row.password_encrypted) if row is not None and row.password_encrypted else None
 
 
 def until(server):
@@ -39,10 +47,13 @@ def until(server):
     return row.expires_at if row is not None else None
 
 
-def unlock(server, passphrase, user=None, hours=None):
+def unlock(server, passphrase=None, user=None, hours=None, password=None):
+    """Keep whichever secrets were given (the SSH key passphrase and/or the PostgreSQL password) until the unlock time is over."""
     from .models import SSHUnlock
     expires = timezone.now() + timedelta(hours=hours or settings.SSH_UNLOCK_HOURS)
-    SSHUnlock.objects.update_or_create(server=server, defaults={"passphrase_encrypted": crypto.encrypt(passphrase), "unlocked_by": user, "expires_at": expires})
+    SSHUnlock.objects.update_or_create(server=server, defaults={
+        "passphrase_encrypted": crypto.encrypt(passphrase) if passphrase else "", "password_encrypted": crypto.encrypt(password) if password else "",
+        "unlocked_by": user, "expires_at": expires})
     return expires
 
 

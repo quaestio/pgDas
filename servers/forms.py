@@ -7,6 +7,9 @@ from .models import ServerConnection
 class ServerForm(forms.ModelForm):
     password = forms.CharField(widget=forms.PasswordInput(render_value=False), required=False, strip=False,
                                help_text="Leave blank to keep the saved password.")
+    # "1" (or nothing) = the password is saved; "0" = it is not: a Super User unlocks the server with it for a few hours (see unlock.py).
+    save_password = forms.ChoiceField(choices=[("1", "Save the password"), ("0", "Do not save it (a Super User enters it to unlock the server)")],
+                                      required=False, initial="1", label="Save password")
     # SSH tunnel (all optional): reach the server through an SSH server instead of directly.
     ssh_password = forms.CharField(widget=forms.PasswordInput(render_value=False), required=False, strip=False, label="SSH password",
                                    help_text="Leave blank to keep the saved one.")
@@ -20,15 +23,19 @@ class ServerForm(forms.ModelForm):
         model = ServerConnection
         # No Database field: PGDAS picks a database this login can open (see explorer.pg.connect),
         # and the tree lists only the databases the login is allowed to connect to.
-        fields = ["name", "host", "port", "username", "password", "sslmode", "ssh_enabled", "ssh_host", "ssh_port", "ssh_username", "ssh_auth", "ssh_prompt_passphrase"]
-        labels = {"ssh_prompt_passphrase": "Ask for the passphrase (do not store it)", "ssh_enabled": "Connect through an SSH tunnel", "ssh_host": "SSH host", "ssh_port": "SSH port", "ssh_username": "SSH user name",
+        fields = ["name", "comments", "host", "port", "database", "username", "password", "kerberos", "krbsrvname", "sslmode", "ssh_enabled", "ssh_host", "ssh_port", "ssh_username", "ssh_auth", "ssh_prompt_passphrase"]
+        labels = {"database": "Database to connect to first", "kerberos": "Kerberos authentication", "krbsrvname": "Kerberos service name",
+                  "ssh_prompt_passphrase": "Ask for the passphrase (do not store it)", "ssh_enabled": "Connect through an SSH tunnel", "ssh_host": "SSH host", "ssh_port": "SSH port", "ssh_username": "SSH user name",
                   "ssh_auth": "SSH sign-in with"}
-        help_texts = {"host": "With an SSH tunnel: as the SSH server sees it (for example 127.0.0.1 if PostgreSQL runs on the SSH server)."}
+        help_texts = {"database": "Optional. Leave empty and PGDAS picks a database the login can open.",
+                      "krbsrvname": "Only if PostgreSQL's Kerberos service is not called postgres.", "host": "With an SSH tunnel: as the SSH server sees it (for example 127.0.0.1 if PostgreSQL runs on the SSH server)."}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for name in ("ssh_host", "ssh_port", "ssh_username", "ssh_auth", "ssh_prompt_passphrase"):
+        for name in ("ssh_host", "ssh_port", "ssh_username", "ssh_auth", "ssh_prompt_passphrase", "database", "kerberos", "krbsrvname", "comments"):
             self.fields[name].required = False                  # only needed when the tunnel is switched on (see clean)
+        if self.instance.pk:
+            self.initial["save_password"] = "1" if self.instance.save_password else "0"
 
     def _host_rule(self, field, host):
         """The address rule of this installation for a host that PGDAS itself connects to."""
@@ -51,10 +58,19 @@ class ServerForm(forms.ModelForm):
             raise forms.ValidationError(str(error))
         return host.strip()
 
+    def clean_save_password(self):
+        return self.cleaned_data.get("save_password") != "0"                     # not sent at all counts as "save"
+
     def clean(self):
         data = super().clean()
-        if not self.instance.pk and not data.get("password"):
-            self.add_error("password", "Enter the password for this server.")
+        data["save_password"] = data.get("save_password", True) is not False
+        if data.get("kerberos"):
+            from django.conf import settings
+            if not settings.KERBEROS:
+                self.add_error("kerberos", "Kerberos sign-in is not switched on for this installation (the person who runs PGDAS sets PGDAS_KERBEROS=1 in .env).")
+        elif not self.instance.pk and not data.get("password"):
+            self.add_error("password", "Enter the password for this server." if data.get("save_password") is not False else
+                           "Enter the password once: it is used for the test and to unlock the server, and is not saved.")
         host = data.get("host")
         if data.get("ssh_enabled"):
             # The PostgreSQL host is looked up by the SSH server, so it may be a private address there; the SSH server is what PGDAS reaches.
@@ -84,7 +100,14 @@ class ServerForm(forms.ModelForm):
     def save(self, commit=True):
         server = super().save(commit=False)
         password = self.cleaned_data.get("password")
-        if password:
+        server.save_password = self.cleaned_data.get("save_password") is not False
+        if server.kerberos:
+            server.password_encrypted = ""                       # Kerberos: there is no password
+        elif not server.save_password:
+            server.password_encrypted = ""                       # not kept: the Super User unlocks the server instead
+            if password:
+                server._typed_password = password                # only for the test right now
+        elif password:
             server.set_password(password)
         if server.ssh_enabled:
             if server.ssh_auth == "key" and self.cleaned_data.get("ssh_key"):

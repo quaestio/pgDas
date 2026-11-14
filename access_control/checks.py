@@ -58,3 +58,14 @@ def every_organization_has_a_super_user(app_configs, **kwargs):
         return []                                   # the tables are not there yet (before the first migrate)
     return [Warning(f"The organization {name!r} has no active Super User.", hint=f"Run: python manage.py create_superuser --organization \"{name}\"",
                     id="access_control.W001") for name in lonely]
+
+@register()
+def kerberos_on_a_shared_installation(app_configs, **kwargs):
+    from django.conf import settings
+    from . import mode
+    if mode.is_shared() and getattr(settings, "KERBEROS", False):
+        return [Warning("Kerberos sign-in is on for a shared installation.",
+                        hint="Every organization would connect to PostgreSQL servers as this machine's own Kerberos identity, so any organization could reach any "
+                             "server that identity may reach. Keep PGDAS_KERBEROS off here, or accept that every organization shares the identity.",
+                        id="access_control.W006")]
+    return []

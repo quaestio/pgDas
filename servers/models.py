@@ -8,10 +8,11 @@ DEFAULT_DATABASE = "postgres"
 
 
 class SSHUnlock(models.Model):
-    """The passphrase of a server's SSH key, kept (encrypted) only until `expires_at`. Shared by every process, so web workers, backups and
+    """The secrets of a server that are not kept with it (the PostgreSQL password with "Save password" off, the SSH key's passphrase), held (encrypted) only until `expires_at`. Shared by every process, so web workers, backups and
     alerts all see the same unlock. Expired rows are deleted when they are looked at."""
     server = models.OneToOneField("ServerConnection", on_delete=models.CASCADE, related_name="ssh_unlock")
-    passphrase_encrypted = models.TextField()
+    passphrase_encrypted = models.TextField(blank=True)            # the SSH key's passphrase, when the key asks for it
+    password_encrypted = models.TextField(blank=True)              # the PostgreSQL password, when "Save password" is off
     unlocked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     expires_at = models.DateTimeField()
 
@@ -27,6 +28,12 @@ class ServerConnection(models.Model):
     database = models.CharField(max_length=100, blank=True, default=DEFAULT_DATABASE)
     username = models.CharField(max_length=100)
     password_encrypted = models.TextField(blank=True)
+    # "Save password" off: the password is not kept; a Super User unlocks the server for a while (see unlock.py), like an SSH key passphrase.
+    save_password = models.BooleanField(default=True)
+    # Kerberos (GSSAPI) instead of a password: PostgreSQL authenticates the PGDAS process's own Kerberos identity. Needs PGDAS_KERBEROS=1.
+    kerberos = models.BooleanField(default=False)
+    krbsrvname = models.CharField(max_length=50, blank=True)          # the PostgreSQL service name, when it is not "postgres"
+    comments = models.TextField(blank=True)
     sslmode = models.CharField(max_length=20, choices=SSL_MODES, default="prefer")
     # Reaching the server through an SSH server (a "bastion") instead of directly. The host/port above are then as the SSH server sees them
     # (often a private address). The SSH password or private key and its passphrase are stored encrypted, like the PostgreSQL password.
@@ -58,7 +65,38 @@ class ServerConnection(models.Model):
         self.password_encrypted = crypto.encrypt(raw)
 
     def get_password(self):
+        typed = getattr(self, "_typed_password", None)                # just typed in the Add server popup, for the test
+        if typed is not None:
+            return typed
+        if self.kerberos:
+            return ""                                                  # no password: Kerberos
+        if not self.save_password:
+            from . import unlock
+            value = unlock.current_password(self)
+            if value is None:
+                raise unlock.SSHLocked(unlock.PASSWORD_LOCKED_MESSAGE)
+            return value
         return crypto.decrypt(self.password_encrypted) if self.password_encrypted else ""
+
+    @property
+    def asks_for_secret(self):
+        """True when something is not kept with the server (the password, or the SSH key passphrase) and a Super User must unlock it."""
+        return bool((not self.save_password and not self.kerberos) or (self.ssh_enabled and self.ssh_prompt_passphrase))
+
+    @property
+    def unlocked_until(self):
+        if not self.asks_for_secret or not self.pk:
+            return None
+        from . import unlock
+        return unlock.until(self)
+
+    @property
+    def needs_password_unlock(self):
+        return not self.save_password and not self.kerberos
+
+    @property
+    def krb_service(self):
+        return (self.krbsrvname or "").strip() or "postgres"
 
     def set_ssh_secret(self, raw):
         self.ssh_secret_encrypted = crypto.encrypt(raw) if raw else ""
