@@ -52,3 +52,5 @@
 #dlgAddServer .dlg-note { display: block; min-height: 0; font-size: 12px; }
 #dlgAddServer .dlg-note.ok { color: #6be59a; }
 #dlgAddServer .dlg-note.err { color: #ff8a8a; }
+#dlgAddServer .dlg-tab.has-error::after { content: ""; display: inline-block; width: 8px; height: 8px; margin-left: 6px; border-radius: 50%; background: #ff5c5c; vertical-align: middle; }
+#dlgAddServer .dlg-row textarea[name=comments] { font-family: inherit; }

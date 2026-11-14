@@ -136,7 +136,7 @@ def open_tunnel(server):
                            "edit the server and clear the saved SSH host key; otherwise somebody may be standing in for that server.")
         if not stored:
             server.ssh_host_key = seen
-            if server.pk:
+            if server.pk and not getattr(server, "pgdas_draft", False):
                 type(server).objects.filter(pk=server.pk).update(ssh_host_key=seen)
         try:
             if server.ssh_auth == "key":

@@ -76,7 +76,7 @@ class AccessMiddleware(MiddlewareMixin):
                 return self._address_refused(request, address)
         if name in {"dashboard", "dashboard_data"} and not runtime.is_admin():
             return redirect("server_list") if name == "dashboard" else JsonResponse({"ok": False, "error": "Server-wide dashboard is restricted to Super Users."}, status=403)
-        admin_names = {"server_add", "server_test_draft", "server_create", "server_unlock", "server_lock", "server_edit", "server_delete", "server_test", "monitor", "monitor_data", "monitor_stop",
+        admin_names = {"server_add", "server_test_draft", "server_create", "server_json", "server_update", "server_unlock", "server_lock", "server_edit", "server_delete", "server_test", "monitor", "monitor_data", "monitor_stop",
                        "monitor_features", "monitor_feature_change", "watch", "watch_data", "watch_sample", "watch_test_notify",
                        "backup_delete", "backup_restore", "schedule_save", "schedule_delete", "audit_reinsert", "audit_undo"}
         if name in admin_names:
@@ -84,7 +84,7 @@ class AccessMiddleware(MiddlewareMixin):
         server_id = request.GET.get("server") or request.POST.get("server")
         if server_id and not str(server_id).isdigit():
             raise Http404("Unknown server.")                       # not a server number: not found, not a crash
-        if name in {"server_edit", "server_delete", "server_test", "server_unlock", "server_lock", "explorer", "sql_runner", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
+        if name in {"server_edit", "server_json", "server_update", "server_delete", "server_test", "server_unlock", "server_lock", "explorer", "sql_runner", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
             server_id = kwargs.get("pk")
         if server_id:
             get_object_or_404(runtime.servers(), pk=server_id)

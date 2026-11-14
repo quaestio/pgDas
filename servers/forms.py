@@ -4,11 +4,18 @@ from . import netpolicy
 from .models import ServerConnection
 
 
+class SaveChoice(forms.ChoiceField):
+    """"1" = save the password, "0" = do not. Not sent at all counts as "1", so it does not look like a change."""
+
+    def has_changed(self, initial, data):
+        return (initial or "1") != (data or "1")
+
+
 class ServerForm(forms.ModelForm):
     password = forms.CharField(widget=forms.PasswordInput(render_value=False), required=False, strip=False,
                                help_text="Leave blank to keep the saved password.")
     # "1" (or nothing) = the password is saved; "0" = it is not: a Super User unlocks the server with it for a few hours (see unlock.py).
-    save_password = forms.ChoiceField(choices=[("1", "Save the password"), ("0", "Do not save it (a Super User enters it to unlock the server)")],
+    save_password = SaveChoice(choices=[("1", "Save the password"), ("0", "Do not save it (a Super User enters it to unlock the server)")],
                                       required=False, initial="1", label="Save password")
     # SSH tunnel (all optional): reach the server through an SSH server instead of directly.
     ssh_password = forms.CharField(widget=forms.PasswordInput(render_value=False), required=False, strip=False, label="SSH password",
@@ -36,6 +43,8 @@ class ServerForm(forms.ModelForm):
             self.fields[name].required = False                  # only needed when the tunnel is switched on (see clean)
         if self.instance.pk:
             self.initial["save_password"] = "1" if self.instance.save_password else "0"
+            if self.instance.database == "postgres":
+                self.initial["database"] = ""                      # the default means "pick one automatically": shown (and compared) as empty
 
     def _host_rule(self, field, host):
         """The address rule of this installation for a host that PGDAS itself connects to."""

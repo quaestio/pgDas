@@ -549,3 +549,116 @@ class CommentsAndDatabaseTests(TestCase):
             client.post(reverse("server_create"), {**data, "test_token": token})
         saved = ServerConnection.objects.get(name="C")
         self.assertEqual((saved.comments, saved.database, saved.save_password), ("Reporting replica", "reports", True))
+
+
+class EditPopupTests(TestCase):
+    """Edit server in the popup: JSON of the settings (no secrets), a test only when connecting changes, secrets kept when left blank."""
+
+    def setUp(self):
+        Installation.objects.update_or_create(pk=1, defaults={"completed": True})
+        self.org = Organization.objects.create(name="Org")
+        self.admin = get_user_model().objects.create_user("a", email="a@o.test", password="pw-12345-abc", is_staff=True, is_superuser=True)
+        Membership.objects.create(user=self.admin, organization=self.org, role="super_user")
+        self.client = Client()
+        self.client.force_login(self.admin)
+        self.server = ServerConnection(name="Prod", host="10.1.2.3", port=5432, username="pgdas", sslmode="prefer", comments="old note",
+                                       ssh_enabled=True, ssh_host="93.184.216.34", ssh_port=22, ssh_username="jump", ssh_auth="password",
+                                       ssh_host_key="ecdsa-sha2-nistp256 AAAA")
+        self.server.set_password("db-secret")
+        self.server.set_ssh_secret("ssh-secret")
+        self.server.save()
+        OrganizationServer.objects.create(server=self.server, organization=self.org)
+        self.post = {"name": "Prod", "comments": "old note", "host": "10.1.2.3", "port": "5432", "username": "pgdas", "sslmode": "prefer", "database": "",
+                     "ssh_enabled": "on", "ssh_host": "93.184.216.34", "ssh_port": "22", "ssh_username": "jump", "ssh_auth": "password", "save_password": "1"}
+
+    def update(self, token="", **extra):
+        return self.client.post(reverse("server_update", args=[self.server.pk]), {**self.post, "test_token": token, **extra})
+
+    def test_the_json_has_every_setting_and_no_secret(self):
+        data = self.client.get(reverse("server_json", args=[self.server.pk])).json()
+        self.assertEqual(data["values"]["host"], "10.1.2.3")
+        self.assertEqual(data["values"]["ssh_username"], "jump")
+        self.assertEqual(data["saved"]["password"], True)
+        self.assertTrue(data["saved"]["ssh_host_key"].startswith("SHA256:") or data["saved"]["ssh_host_key"] == "")
+        text = str(data)
+        self.assertNotIn("db-secret", text)
+        self.assertNotIn("ssh-secret", text)
+
+    def test_renaming_and_comments_need_no_test(self):
+        response = self.update(name="Production", comments="new note")
+        self.assertEqual((response.status_code, response.json()["ok"]), (200, True), response.content)
+        self.server.refresh_from_db()
+        self.assertEqual((self.server.name, self.server.comments), ("Production", "new note"))
+        self.assertEqual(self.server.get_password(), "db-secret")                          # nothing typed: kept
+        self.assertEqual(self.server.get_ssh_secret(), "ssh-secret")
+        self.assertTrue(AuditEntry.objects.filter(action="server.edit").exists())
+
+    def test_changing_how_it_connects_needs_a_test_of_exactly_that(self):
+        refused = self.update(host="10.9.9.9")
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn("press Test connection first", refused.json()["error"])
+        with mock.patch("servers.views.pg.test_connection", return_value="18.0") as tester:
+            tested = self.client.post(reverse("server_test_draft"), {**self.post, "server_id": self.server.pk, "host": "10.9.9.9"})
+        self.assertTrue(tested.json()["ok"], tested.content)
+        self.assertEqual(tester.call_args.args[0].get_password(), "db-secret")            # the saved password is used for the test
+        wrong = self.update(tested.json()["token"], host="10.8.8.8")
+        self.assertEqual(wrong.status_code, 400)
+        saved = self.update(tested.json()["token"], host="10.9.9.9")
+        self.assertEqual(saved.status_code, 200, saved.content)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.host, "10.9.9.9")
+
+    def test_a_typed_password_replaces_the_saved_one_after_a_test(self):
+        with mock.patch("servers.views.pg.test_connection", return_value="18.0"):
+            tested = self.client.post(reverse("server_test_draft"), {**self.post, "server_id": self.server.pk, "password": "new-secret"})
+        self.assertEqual(self.update(tested.json()["token"], password="new-secret").status_code, 200)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.get_password(), "new-secret")
+
+    def test_a_test_does_not_change_the_saved_server_or_its_remembered_key(self):
+        def tester(server):
+            server.ssh_host_key = "ecdsa-sha2-nistp256 BBBB"
+            return "18.0"
+        with mock.patch("servers.views.pg.test_connection", side_effect=tester):
+            self.client.post(reverse("server_test_draft"), {**self.post, "server_id": self.server.pk, "host": "10.9.9.9"})
+        self.server.refresh_from_db()
+        self.assertEqual((self.server.host, self.server.ssh_host_key), ("10.1.2.3", "ecdsa-sha2-nistp256 AAAA"))
+
+    def test_changing_the_ssh_server_forgets_its_key_and_learns_the_new_one(self):
+        def tester(server):
+            server.ssh_host_key = "ecdsa-sha2-nistp256 CCCC"
+            return "18.0"
+        change = {"ssh_host": "93.184.216.35"}
+        with mock.patch("servers.views.pg.test_connection", side_effect=tester):
+            tested = self.client.post(reverse("server_test_draft"), {**self.post, "server_id": self.server.pk, **change})
+        self.assertEqual(self.update(tested.json()["token"], **change).status_code, 200)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.ssh_host_key, "ecdsa-sha2-nistp256 CCCC")
+
+    def test_the_name_must_stay_unique_but_may_stay_the_same(self):
+        other = ServerConnection(name="Other", host="h", username="u")
+        other.set_password("p")
+        other.save()
+        OrganizationServer.objects.create(server=other, organization=self.org)
+        self.assertEqual(self.update(name="Other").status_code, 400)
+        self.assertEqual(self.update(name="Prod").status_code, 200)
+
+    def test_only_super_users_and_only_their_own_organizations_servers(self):
+        person = get_user_model().objects.create_user("p", email="p@o.test", password="pw-12345-abc")
+        Membership.objects.create(user=person, organization=self.org, role="editor")
+        other = Client()
+        other.force_login(person)
+        self.assertEqual(other.get(reverse("server_json", args=[self.server.pk]), HTTP_X_REQUESTED_WITH="fetch").status_code, 403)
+        stranger = Organization.objects.create(name="Elsewhere")
+        foreign = ServerConnection.objects.create(name="Foreign", host="h", username="u")
+        OrganizationServer.objects.create(server=foreign, organization=stranger)
+        self.assertEqual(self.client.get(reverse("server_json", args=[foreign.pk])).status_code, 404)
+        self.assertEqual(self.client.post(reverse("server_update", args=[foreign.pk]), self.post).status_code, 404)
+
+    def test_the_popup_has_four_tabs_and_the_edit_buttons(self):
+        page = self.client.get(reverse("detail") + "?type=servers")
+        self.assertContains(page, f'data-server-edit="{self.server.pk}"')
+        shell = self.client.get(reverse("server_list"))
+        for needle in ('data-tab="general"', 'data-tab="connection"', 'data-tab="ssh"', 'data-tab="string"', "Save password", "Kerberos authentication",
+                       "Database to connect to first", 'name="comments"', "data-current-string"):
+            self.assertContains(shell, needle)

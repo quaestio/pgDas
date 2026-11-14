@@ -1,27 +1,45 @@
-{% comment %}Add server, as a popup with two tabs (Connection / SSH tunnel). static/server_dialog.js drives it: Test connects with what was typed and saves
-   nothing; Save becomes available only after a successful test of exactly those details. Super Users only.{% endcomment %}
-<div id="dlgAddServer" class="cyber-modal" hidden data-server-dialog-box data-test-url="{% url 'server_test_draft' %}" data-create-url="{% url 'server_create' %}">
+{% comment %}Add / Edit server, as a popup with four tabs: General, Connection, SSH tunnel, Connection string. static/server_dialog.js drives it. Test connection connects
+   with what was typed and saves nothing; Save is available after a successful test of exactly those details (an edit that does not change how PGDAS
+   connects needs no test). Super Users only.{% endcomment %}
+<div id="dlgAddServer" class="cyber-modal" hidden data-server-dialog-box data-test-url="{% url 'server_test_draft' %}" data-create-url="{% url 'server_create' %}" data-kerberos="{{ kerberos_enabled|yesno:'1,0' }}">
   <div class="cyber-dialog dlg" role="dialog" aria-modal="true" aria-labelledby="dlgAddServerTitle">
-    <div class="modal-top"><span id="dlgAddServerTitle">ADD — SERVER</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
+    <div class="modal-top"><span id="dlgAddServerTitle" data-title>ADD — SERVER</span><button type="button" data-dlg-close aria-label="Close">✕</button></div>
     <form id="addServerForm" autocomplete="off" novalidate>{% csrf_token %}
+      <input type="hidden" name="server_id" value="">
       <div class="dlg-tabs" role="tablist">
-        <button type="button" class="dlg-tab active" data-tab="connection">Connection</button>
+        <button type="button" class="dlg-tab active" data-tab="general">General</button>
+        <button type="button" class="dlg-tab" data-tab="connection">Connection</button>
         <button type="button" class="dlg-tab" data-tab="ssh">SSH tunnel</button>
+        <button type="button" class="dlg-tab" data-tab="string">Connection string</button>
       </div>
-      <div class="dlg-panel" data-panel="connection">
-        <div class="dlg-row"><label for="asString">Connection string</label>
-          <div class="dlg-stack"><div class="dlg-inline"><input type="text" id="asString" data-connection-string autocomplete="off" spellcheck="false" placeholder="postgresql://user:password@host:5432/db?sslmode=require"> <button type="button" class="btn" data-connection-fill>Fill in</button></div>
-            <small class="muted">Optional. Paste one and the fields below are filled in; the string itself is not kept.</small><small class="dlg-note" data-string-note></small></div></div>
+
+      <div class="dlg-panel" data-panel="general">
         <div class="dlg-row"><label for="asName">Name</label><input type="text" id="asName" name="name" maxlength="100" required><small class="dlg-err" data-error-for="name"></small></div>
-        <div class="dlg-row"><label for="asHost">Host</label><input type="text" id="asHost" name="host" maxlength="255" spellcheck="false" placeholder="db.example.com or an IP address" required><small class="dlg-err" data-error-for="host"></small></div>
+        <div class="dlg-row"><label for="asComments">Comments</label><textarea id="asComments" name="comments" rows="4" placeholder="Optional: what this server is for"></textarea><small class="dlg-err" data-error-for="comments"></small></div>
+      </div>
+
+      <div class="dlg-panel" data-panel="connection" hidden>
+        <div class="dlg-row"><label for="asHost" data-host-label>Host</label><input type="text" id="asHost" name="host" maxlength="255" spellcheck="false" placeholder="db.example.com or an IP address" required><small class="dlg-err" data-error-for="host"></small></div>
+        <p class="muted dlg-hint" data-host-hint hidden>An SSH tunnel is on: give the host and port as the <strong>SSH server</strong> sees them, for example <code>127.0.0.1</code> when PostgreSQL runs on the SSH server itself.</p>
         <div class="dlg-row"><label for="asPort">Port</label><input type="number" id="asPort" name="port" value="5432" min="1" max="65535" required><small class="dlg-err" data-error-for="port"></small></div>
+        <div class="dlg-row"><label for="asDatabase">Database to connect to first</label><input type="text" id="asDatabase" name="database" maxlength="100" spellcheck="false" placeholder="optional: PGDAS picks one the login can open"><small class="dlg-err" data-error-for="database"></small></div>
         <div class="dlg-row"><label for="asUser">Username</label><input type="text" id="asUser" name="username" maxlength="100" spellcheck="false" required><small class="dlg-err" data-error-for="username"></small></div>
-        <div class="dlg-row"><label for="asPassword">Password</label><input type="password" id="asPassword" name="password" autocomplete="new-password"><small class="dlg-err" data-error-for="password"></small></div>
+        <div class="dlg-row"><label for="asKerberos">Kerberos authentication</label>
+          <div class="dlg-stack"><label><input type="checkbox" id="asKerberos" name="kerberos" value="on"> sign in with this machine's Kerberos identity instead of a password</label>
+            <small class="muted" data-kerberos-note>{% if kerberos_enabled %}PGDAS uses the Kerberos ticket or keytab of the machine it runs on. The user name is usually the principal, such as <code>name@REALM</code>.{% else %}Switched off on this installation: the person who runs PGDAS sets <code>PGDAS_KERBEROS=1</code> in .env and gives the machine a ticket or keytab.{% endif %}</small>
+            <small class="dlg-err" data-error-for="kerberos"></small></div></div>
+        <div class="dlg-row" data-kerberos-only hidden><label for="asKrb">Kerberos service name</label><input type="text" id="asKrb" name="krbsrvname" maxlength="50" spellcheck="false" placeholder="postgres"><small class="dlg-err" data-error-for="krbsrvname"></small></div>
+        <div class="dlg-row" data-password-only><label for="asPassword">Password</label><input type="password" id="asPassword" name="password" autocomplete="new-password"><small class="dlg-err" data-error-for="password"></small></div>
+        <div class="dlg-row" data-password-only><label for="asSavePw">Save password</label>
+          <div class="dlg-stack"><label><input type="checkbox" id="asSavePw" checked> keep the password (encrypted) so employees, backups and alerts can connect</label>
+            <small class="muted">Switch it off and the password is used for the test and then forgotten. A Super User then presses <strong>Unlock</strong> and enters it; it is kept for a few hours and the server locks again. While locked, backups and alerts for this server pause.</small>
+            <input type="hidden" name="save_password" value="1"></div></div>
         <div class="dlg-row"><label for="asSsl">SSL mode</label>
           <select id="asSsl" name="sslmode">{% for value in ssl_modes %}<option value="{{ value }}"{% if value == "prefer" %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
       </div>
+
       <div class="dlg-panel" data-panel="ssh" hidden>
-        <p class="muted dlg-hint">Use this when PostgreSQL is not reachable directly, only through an SSH server. PGDAS signs in to the SSH server and reaches PostgreSQL from there, so on the Connection tab the host and port are as that SSH server sees them (for example <code>127.0.0.1</code> when PostgreSQL runs on the SSH server itself).</p>
+        <p class="muted dlg-hint">Use this when PostgreSQL is not reachable directly, only through an SSH server. PGDAS signs in to the SSH server and reaches PostgreSQL from there, so on the Connection tab the host and port are as that SSH server sees them.</p>
         <div class="dlg-row"><label for="asSshOn">Use an SSH tunnel</label><input type="checkbox" id="asSshOn" name="ssh_enabled" value="on"></div>
         <div data-ssh-fields hidden>
           <div class="dlg-row"><label for="asSshHost">SSH host</label><input type="text" id="asSshHost" name="ssh_host" maxlength="255" spellcheck="false" placeholder="bastion.example.com"><small class="dlg-err" data-error-for="ssh_host"></small></div>
@@ -39,9 +57,20 @@
             <div class="dlg-stack"><label><input type="checkbox" id="asSshPrompt" name="ssh_prompt_passphrase" value="on"> do not store the passphrase</label>
               <small class="muted">The passphrase above is used for this test and to unlock the server now, and is not saved. After a few hours the server locks again and a Super User must press Unlock and enter it. While locked, backups and alerts for this server pause.</small>
               <small class="dlg-err" data-error-for="ssh_prompt_passphrase"></small></div></div>
+          <p class="muted dlg-hint" data-saved-key hidden></p>
           <p class="muted dlg-hint">The SSH server's key is remembered the first time and must be the same afterwards. The password or key is stored encrypted.</p>
         </div>
       </div>
+
+      <div class="dlg-panel" data-panel="string" hidden>
+        <div class="dlg-row"><label for="asString">Paste a string</label>
+          <div class="dlg-stack"><div class="dlg-inline"><input type="text" id="asString" data-connection-string autocomplete="off" spellcheck="false" placeholder="postgresql://user:password@host:5432/db?sslmode=require"> <button type="button" class="btn" data-connection-fill>Fill in</button></div>
+            <small class="muted">Fills in the Connection tab (host, port, user, password, SSL mode). The string itself is cleared and never kept. SSH settings are not part of a connection string.</small><small class="dlg-note" data-string-note></small></div></div>
+        <div class="dlg-row"><label for="asCurrent">Current string</label>
+          <div class="dlg-stack"><div class="dlg-inline"><input type="text" id="asCurrent" data-current-string readonly> <button type="button" class="btn" data-current-copy>Copy</button></div>
+            <small class="muted">Built from the Connection tab. The password is hidden.</small></div></div>
+      </div>
+
       <input type="hidden" name="test_token" value="">
       <p class="dlg-status" role="status" data-status></p>
       <div class="dlg-actions modal-buttons">
