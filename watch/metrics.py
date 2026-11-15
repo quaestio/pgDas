@@ -212,3 +212,20 @@ def collect(server):
         group("statements", statements)
         conn.rollback()
     return data
+
+def live(server):
+    """A light 'right now' reading for the Dashboards live strip: session counts and a few cumulative counters (the page turns the counters into rates
+    between two readings). One short query set, one connection; the view caches it so many viewers cost a server one reading per few seconds."""
+    import time
+    with pg.connect(server) as conn:
+        conn.execute("SELECT set_config('statement_timeout', %s, false), set_config('application_name', 'PGDAS monitor', false)",
+                     (str(int(settings.WATCH_SAMPLE_TIMEOUT_MS)), ))
+        data = _row(conn.execute(ACTIVITY).fetchone(), ACTIVITY_KEYS)
+        counters = conn.execute(
+            "SELECT coalesce(sum(xact_commit), 0), coalesce(sum(xact_rollback), 0), coalesce(sum(blks_hit), 0), coalesce(sum(blks_read), 0), "
+            "coalesce(sum(tup_inserted + tup_updated + tup_deleted), 0), coalesce(sum(deadlocks), 0), current_setting('max_connections')::int "
+            "FROM pg_stat_database").fetchone()
+        data.update(_row(counters, ["xact_commit", "xact_rollback", "blks_hit", "blks_read", "tup_written", "deadlocks", "conn_max"]))
+        conn.rollback()
+    data["t"] = time.time()
+    return data

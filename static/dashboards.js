@@ -4,7 +4,9 @@
   var body = document.getElementById("dashBody");
   if (!body) { return; }
   var serverSel = document.getElementById("dashServer"), dbSel = document.getElementById("dashDatabase"), rangeSel = document.getElementById("dashRange");
-  var auto = document.getElementById("dashAuto"), status = document.getElementById("dashStatus"), tilesEl = document.getElementById("dashTiles");
+  var refresh = document.getElementById("dashRefresh"), status = document.getElementById("dashStatus"), tilesEl = document.getElementById("dashTiles");
+  var liveTiles = document.getElementById("dashLiveTiles"), liveCharts = document.getElementById("dashLiveCharts"), liveNote = document.getElementById("dashLiveNote");
+  var live = null, lastLoad = 0, liveBusy = false;
   var tip = document.getElementById("dashTip"), timer = null, current = null, hidden = {};
   var PALETTE = ["#5ec8ff", "#4cc38a", "#ffd166", "#ff6b6b", "#9d8cff", "#ff9f6b", "#6bf0e0", "#e86bd0"];
   var SECTIONS = [
@@ -56,6 +58,7 @@
   }
   function clock(t, hours) {
     var d = new Date(t * 1000), pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    if (hours <= 0.5) { return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
     return hours > 36 ? pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) : pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
   function niceTicks(max) {
@@ -239,16 +242,70 @@
     body.appendChild(tables);
   }
 
+  // ---- the live strip: a direct reading of the server each time the page refreshes (counters turned into rates between two readings) -------------
+  function resetLive() {
+    live = {prev: null, tps: [], hit: [], written: [], active: [], idletx: [], blocked: []};
+    liveTiles.textContent = ""; liveCharts.textContent = ""; liveNote.textContent = "";
+    ["tps", "sessions"].forEach(function (id) { liveCharts.appendChild(el("div", {"class": "dash-panel", "data-live": id})); });
+  }
+  function keep(list, point) { list.push(point); if (list.length > 120) { list.shift(); } }
+  function renderLive() {
+    var last = function (l) { return l.length ? l[l.length - 1][1] : null; }, r = live.prev;
+    liveTiles.textContent = "";
+    var use = r.conn_max ? r.conn_total * 100 / r.conn_max : null;
+    liveTiles.appendChild(tile("Active now", String(r.conn_active), r.conn_idle_tx ? r.conn_idle_tx + " idle in transaction" : "", ""));
+    liveTiles.appendChild(tile("Connections", r.conn_total + " / " + r.conn_max, use === null ? "" : use.toFixed(0) + " % of the limit", use > 90 ? "bad" : use > 75 ? "warn" : "good"));
+    liveTiles.appendChild(tile("Blocked", String(r.blocked), "sessions waiting on locks", r.blocked ? "bad" : "good"));
+    liveTiles.appendChild(tile("Transactions", fmt("per_s", last(live.tps)), "commits + rollbacks"));
+    liveTiles.appendChild(tile("Cache hit", last(live.hit) === null ? "–" : last(live.hit).toFixed(1) + " %", "since the last reading", last(live.hit) !== null && last(live.hit) < 90 ? "warn" : ""));
+    liveTiles.appendChild(tile("Rows written", fmt("per_s", last(live.written)), "inserted + updated + deleted"));
+    liveTiles.appendChild(tile("Oldest transaction", seconds(r.oldest_xact_s), "open right now", r.oldest_xact_s > 600 ? "warn" : ""));
+    liveTiles.appendChild(tile("Longest query", seconds(r.longest_query_s), "running right now", r.longest_query_s > 60 ? "warn" : ""));
+    var start = live.tps.length ? live.tps[0][0] : r.t, end = Math.max(r.t, start + 60), range = {start: start, end: end, hours: 0.1};
+    var panels = {
+      tps: {title: "Transactions per second (live)", unit: "per_s", empty: !live.tps.length, note: "Needs two readings: wait for the next refresh.", description: "Since you opened this page.",
+            series: [{name: "commits + rollbacks", points: live.tps, color: "#4cc38a"}], stacked: false, min: null, max: null},
+      sessions: {title: "Sessions (live)", unit: "count", empty: false, note: "", description: "Since you opened this page.", stacked: false, min: null, max: null,
+                 series: [{name: "active", points: live.active, color: "#4cc38a"}, {name: "idle in transaction", points: live.idletx, color: "#ffd166"}, {name: "blocked", points: live.blocked, color: "#ff6b6b"}]}
+    };
+    liveCharts.querySelectorAll("[data-live]").forEach(function (host) { chart(host, "live-" + host.getAttribute("data-live"), panels[host.getAttribute("data-live")], range); });
+  }
+  function pollLive() {
+    if (liveBusy || !live) { return; }
+    liveBusy = true;
+    fetch(body.getAttribute("data-live-url") + "?server=" + encodeURIComponent(serverSel.value), {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
+      .then(function (r) { return r.json(); }).then(function (a) {
+        if (!a.ok) { liveNote.textContent = "could not read the server just now: " + (a.error || "no answer"); return; }
+        var r = a.reading, p = live.prev;
+        if (p && r.t > p.t) {
+          var dt = r.t - p.t, commits = (r.xact_commit + r.xact_rollback) - (p.xact_commit + p.xact_rollback), hits = r.blks_hit - p.blks_hit, reads = r.blks_read - p.blks_read, written = r.tup_written - p.tup_written;
+          if (commits >= 0) { keep(live.tps, [r.t, commits / dt]); }
+          if (hits >= 0 && reads >= 0 && hits + reads > 0) { keep(live.hit, [r.t, hits * 100 / (hits + reads)]); }
+          if (written >= 0) { keep(live.written, [r.t, written / dt]); }
+        }
+        keep(live.active, [r.t, r.conn_active]); keep(live.idletx, [r.t, r.conn_idle_tx]); keep(live.blocked, [r.t, r.blocked]);
+        live.prev = r;
+        liveNote.textContent = "updated " + new Date(r.t * 1000).toLocaleTimeString() + (refresh.value === "0" ? " (refresh is off)" : "");
+        renderLive();
+      }).catch(function () { liveNote.textContent = "could not read the server just now"; }).then(function () { liveBusy = false; });
+  }
+
   function load() {
+    lastLoad = Date.now();
     var url = body.getAttribute("data-url") + "?server=" + encodeURIComponent(serverSel.value) + "&range=" + encodeURIComponent(rangeSel.value) + "&db=" + encodeURIComponent(dbSel.value);
     fetch(url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}}).then(function (r) { return r.json(); }).then(function (d) {
       if (!d.ok) { status.textContent = d.error || "Could not load."; return; }
       render(d);
     }).catch(function () { status.textContent = "Could not load the dashboards. Try again."; });
   }
-  function schedule() { clearInterval(timer); if (auto.checked) { timer = setInterval(function () { if (!document.hidden) { load(); } }, 30000); } }
-  serverSel.addEventListener("change", function () { dbSel.value = ""; load(); });
-  dbSel.addEventListener("change", load); rangeSel.addEventListener("change", load); auto.addEventListener("change", schedule);
+  function tick() { pollLive(); if (Date.now() - lastLoad > 29000) { load(); } }          // the charts only change when a new sample arrives, so they reload at most every 30 s
+  function schedule() {
+    clearInterval(timer);
+    var seconds = parseInt(refresh.value, 10);
+    if (seconds > 0) { timer = setInterval(function () { if (!document.hidden) { tick(); } }, seconds * 1000); }
+  }
+  serverSel.addEventListener("change", function () { dbSel.value = ""; resetLive(); load(); pollLive(); });
+  dbSel.addEventListener("change", load); rangeSel.addEventListener("change", load); refresh.addEventListener("change", schedule);
   document.getElementById("dashSample").addEventListener("click", function () {
     var button = this, token = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
     button.disabled = true; status.textContent = "Sampling…";
@@ -257,5 +314,5 @@
       .then(function (r) { return r.json(); }).then(function (a) { if (!a.ok) { status.textContent = a.error || "Not sampled."; } else { load(); } })
       .catch(function () { status.textContent = "The request did not complete."; }).then(function () { button.disabled = false; });
   });
-  load(); schedule();
+  resetLive(); load(); pollLive(); schedule();
 })();

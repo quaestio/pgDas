@@ -31,4 +31,4 @@
 .dash-table code { white-space: pre-wrap; word-break: break-word; font-size: 11px; }
 .dash-wide { grid-column: 1 / -1; overflow-x: auto; }
 .dash-foot { margin-top: 18px; }
-@media (max-width: 520px) { .dash-grid { grid-template-columns: 1fr; } }
+@media (max-width: 520px) { .dash-grid { grid-template-columns: 1fr; } }.dash-live .dash-panel { min-height: 120px; }

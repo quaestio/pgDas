@@ -13,7 +13,7 @@ from audit.models import record
 from explorer.pg import PgError
 from servers.models import ServerConnection
 
-from . import alerts, notify, sampling, series
+from . import alerts, metrics, notify, sampling, series
 from .models import MetricSample
 
 staff_required = user_passes_test(lambda user: user.is_staff)
@@ -95,3 +95,18 @@ def dashboards_data(request):
         payload = {"ok": True, "server": {"id": server.pk, "name": server.name}, "databases": sorted(names), "range_key": window, "database": database, **data}
         cache.set(key, payload, 20)
     return JsonResponse(payload)
+
+@login_required
+@staff_required
+def dashboards_live(request):
+    """The right-now reading behind the live strip. Cached for a few seconds per server: ten people watching one server cost it one reading, not ten."""
+    server = get_object_or_404(runtime.servers(), pk=request.GET.get("server") or 0)
+    key = f"pgdas-live:{server.pk}"
+    reading = cache.get(key)
+    if reading is None:
+        try:
+            reading = metrics.live(server)
+        except PgError as error:
+            return JsonResponse({"ok": False, "error": str(error)}, status=502)
+        cache.set(key, reading, 8)
+    return JsonResponse({"ok": True, "reading": reading})
