@@ -1,5 +1,7 @@
-from access_control import runtime
+import json
 from datetime import timedelta
+
+from access_control import runtime
 
 from django.conf import settings
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -13,7 +15,7 @@ from audit.models import record
 from explorer.pg import PgError
 from servers.models import ServerConnection
 
-from . import alerts, metrics, notify, sampling, series
+from . import alerts, metrics, notify, sampling, series, server_settings
 from .models import MetricSample
 
 staff_required = user_passes_test(lambda user: user.is_staff)
@@ -94,7 +96,52 @@ def dashboards_data(request):
                      .exclude(database="").order_by().values_list("database", flat=True).distinct())
         payload = {"ok": True, "server": {"id": server.pk, "name": server.name}, "databases": sorted(names), "range_key": window, "database": database, **data}
         cache.set(key, payload, 20)
-    return JsonResponse(payload)
+    return JsonResponse({**payload, "can_edit_settings": runtime.is_admin(request.user)})          # who is looking is not part of the cached answer
+
+
+def _setting_request(request):
+    """(server, name, value, reset) of a change to a server setting, or a JsonResponse that refuses it. Super Users only."""
+    if not runtime.is_admin(request.user):
+        return JsonResponse({"ok": False, "error": "Only a Super User may change server settings."}, status=403)
+    try:
+        body = json.loads(request.body or b"{}")
+    except ValueError:
+        return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+    server = runtime.servers().filter(pk=body.get("server") or 0).first()
+    if server is None:
+        return JsonResponse({"ok": False, "error": "That server was not found."}, status=404)
+    return server, str(body.get("name") or ""), body.get("value"), bool(body.get("reset")), body
+
+
+@login_required
+@staff_required
+@require_POST
+def setting_preview(request):
+    asked = _setting_request(request)
+    if isinstance(asked, JsonResponse):
+        return asked
+    server, name, value, reset, _ = asked
+    try:
+        return JsonResponse({"ok": True, **server_settings.preview(server, name, value, reset)})
+    except PgError as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+
+
+@login_required
+@staff_required
+@require_POST
+def setting_apply(request):
+    asked = _setting_request(request)
+    if isinstance(asked, JsonResponse):
+        return asked
+    server, name, value, reset, body = asked
+    try:
+        result = server_settings.execute(server, name, value, reset, body.get("fingerprint"), body.get("confirm"), request.user)
+    except PgError as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    cache.set(f"pgdas-dash-v:{server.pk}", int(timezone.now().timestamp()))
+    cache.delete(f"pgdas-live:{server.pk}")
+    return JsonResponse({"ok": True, **result})
 
 @login_required
 @staff_required

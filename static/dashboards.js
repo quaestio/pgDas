@@ -237,9 +237,83 @@
       ["Replay lag (time)", "replay_lag_s", "n", function (v) { return v === null ? "–" : fmt("s", v); }]], d.tables.standbys, false));
     tables.appendChild(table("Replication slots", [["Slot", "name"], ["Type", "type"], ["Active", "active", "", function (v) { return v ? "yes" : "NO"; }], ["WAL kept", "retained", "n", function (v) { return fmt("bytes", v); }],
       ["Status", "wal_status"]], d.tables.slots, false));
-    var settings = Object.keys(d.tables.settings || {}).map(function (k) { return {name: k, value: d.tables.settings[k]}; });
-    tables.appendChild(table("Settings that explain the charts", [["Setting", "name"], ["Value", "value"]], settings, false));
+    tables.appendChild(settingsPanel(d));
     body.appendChild(tables);
+  }
+
+  // ---- the settings that explain the charts: what each does, a link to the manual of this server's version, and (Super Users) a way to change it ----
+  function settingsPanel(d) {
+    var box = el("div", {"class": "dash-panel dash-wide"}), values = d.tables.settings || {}, info = d.tables.settings_info || {};
+    box.appendChild(el("h3", {}, "Settings that explain the charts"));
+    var names = Object.keys(values);
+    if (!names.length) { box.appendChild(el("div", {"class": "note"}, "Nothing to show.")); return box; }
+    var tbl = el("table", {"class": "dash-table"}), head = el("tr");
+    ["Setting", "Value", "What it does", "Details"].concat(d.can_edit_settings ? [""] : []).forEach(function (h) { head.appendChild(el("th", {}, h)); });
+    tbl.appendChild(el("thead")).appendChild(head);
+    var tb = el("tbody");
+    names.forEach(function (name) {
+      var about = info[name] || {}, tr = el("tr"), link = el("td"), last = el("td");
+      tr.appendChild(el("td")).appendChild(el("code", {}, name));
+      tr.appendChild(el("td", {}, values[name] === "" ? "(empty)" : String(values[name])));
+      tr.appendChild(el("td", {"class": "dash-about"}, about.text || ""));
+      if (/^https:\/\/www\.postgresql\.org\/docs\//.test(about.url || "")) {
+        var a = el("a", {href: about.url, target: "_blank", rel: "noopener noreferrer"}, "PostgreSQL " + about.url.split("/")[4] + " manual ↗");
+        link.appendChild(a);
+      }
+      tr.appendChild(link);
+      if (d.can_edit_settings) {
+        if (about.editable) {
+          var button = el("button", {type: "button", "class": "btn"}, "Change…");
+          button.addEventListener("click", function () { changeSetting(name, values[name], about); });
+          last.appendChild(button);
+        } else if (about.reason) { last.appendChild(el("span", {"class": "muted", title: about.reason}, "read-only")); }
+        tr.appendChild(last);
+      }
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb); box.appendChild(tbl);
+    box.appendChild(el("p", {"class": "desc"}, "Values are from the last sample. A change is written to the server's postgresql.auto.conf and the configuration is reloaded; some settings only take effect after PostgreSQL is restarted (the review says which)." +
+      (d.can_edit_settings ? "" : " Only a Super User can change them.")));
+    return box;
+  }
+
+  function changeSetting(name, sampled, about) {
+    var dialog = el("div", {"class": "cyber-dialog dlg tdlg", role: "dialog", "aria-modal": "true"}), root = el("div", {"class": "cyber-modal"});
+    var close = function () { root.remove(); };
+    var top = el("div", {"class": "modal-top"}), closeX = el("button", {type: "button", "aria-label": "Close"}, "✕");
+    top.appendChild(el("span", {}, "CHANGE — SERVER SETTING")); top.appendChild(closeX); dialog.appendChild(top);
+    var line = function (label, node) { var r = el("div", {"class": "dlg-row"}); r.appendChild(el("label", {}, label)); r.appendChild(node); dialog.appendChild(r); };
+    line("Setting", el("input", {type: "text", value: name, readonly: "readonly"}));
+    line("Now", el("input", {type: "text", value: sampled === "" ? "(empty)" : String(sampled), readonly: "readonly"}));
+    dialog.appendChild(el("p", {"class": "dlg-hint"}, about.text || ""));
+    var input = el("input", {type: "text", autocomplete: "off", spellcheck: "false", maxlength: "100", placeholder: "new value, e.g. 256MB, 8, on"});
+    line("New value", input);
+    var reset = el("input", {type: "checkbox"}), resetLabel = el("label", {"class": "dlg-check"});
+    resetLabel.appendChild(reset); resetLabel.appendChild(document.createTextNode(" Go back to the default (removes it from postgresql.auto.conf)"));
+    dialog.appendChild(resetLabel);
+    var problem = el("p", {"class": "dlg-problem", hidden: "hidden"});
+    dialog.appendChild(problem);
+    var foot = el("div", {"class": "dlg-foot"}), cancel = el("button", {type: "button", "class": "btn"}, "Close"), go = el("button", {type: "button", "class": "btn primary", disabled: "disabled"}, "Review…");
+    foot.appendChild(cancel); foot.appendChild(go); dialog.appendChild(foot); root.appendChild(dialog);
+    var sync = function () { input.disabled = reset.checked; go.disabled = !reset.checked && !input.value.trim(); };
+    input.addEventListener("input", sync); reset.addEventListener("change", sync);
+    closeX.addEventListener("click", close); cancel.addEventListener("click", close);
+    root.addEventListener("click", function (event) { if (event.target === root) { close(); } });
+    go.addEventListener("click", function () {
+      problem.hidden = true;
+      window.pgdasReview.start({
+        server: serverSel.value, db: "", previewUrl: body.getAttribute("data-setting-preview-url"), executeUrl: body.getAttribute("data-setting-url"),
+        body: {server: serverSel.value, name: name, value: reset.checked ? null : input.value.trim(), reset: reset.checked},
+        onError: function (message) { problem.textContent = message; problem.hidden = false; },
+        onSuccess: function (result) {
+          close(); load(); pollLive();
+          var toast = document.getElementById("pgToast");
+          if (toast) { toast.textContent = result.message; toast.className = "toast"; toast.hidden = false; setTimeout(function () { toast.hidden = true; }, 9000); }
+        }
+      });
+    });
+    document.body.appendChild(root);
+    input.focus();
   }
 
   // ---- the live strip: a direct reading of the server each time the page refreshes (counters turned into rates between two readings) -------------

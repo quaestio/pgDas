@@ -28,6 +28,8 @@
 .dash-table th, .dash-table td { text-align: left; padding: 5px 8px; border-bottom: 1px solid rgba(31, 159, 255, .2); vertical-align: top; }
 .dash-table th { color: #80afc9; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
 .dash-table td.n { text-align: right; font-variant-numeric: tabular-nums; }
+.dash-table td.dash-about { color: #c9eaff; min-width: 260px; max-width: 560px; }
+.dash-table td a { white-space: nowrap; }
 .dash-table code { white-space: pre-wrap; word-break: break-word; font-size: 11px; }
 .dash-wide { grid-column: 1 / -1; overflow-x: auto; }
 .dash-foot { margin-top: 18px; }

@@ -18,7 +18,7 @@
 <div class="dash-grid dash-live" id="dashLiveCharts"></div>
 <div class="dash-section">Summary of the sampled period</div>
 <section class="dash-tiles" id="dashTiles" aria-label="Summary"></section>
-<div id="dashBody" class="dash-body" data-url="{% url 'dashboards_data' %}" data-sample-url="{% url 'watch_sample' %}" data-live-url="{% url 'dashboards_live' %}"></div>
+<div id="dashBody" class="dash-body" data-url="{% url 'dashboards_data' %}" data-sample-url="{% url 'watch_sample' %}" data-live-url="{% url 'dashboards_live' %}" data-setting-preview-url="{% url 'setting_preview' %}" data-setting-url="{% url 'setting_apply' %}"></div>
 <p class="muted dash-foot">The <strong>Live</strong> strip reads the server directly each time the page refreshes. The charts below come from samples taken every {{ interval }} seconds by <code>manage.py run_watch</code> (put it in cron, every minute); detailed history is kept {{ keep_days }} days. Nothing is installed on your servers: everything comes from PostgreSQL's own statistics, with short read-only queries.</p>
 {% endif %}
 <div id="dashTip" class="dash-tip" hidden></div>

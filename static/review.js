@@ -186,9 +186,11 @@
     start: function (options) {
       var u = urls(options.server);
       // options.rows = {schema, table, edits, inserts, deletes}: a batch of data-grid edits, reviewed and saved as one (explorer/row_edits.py).
-      var request = {sql: options.sql, db: options.db || "", rows: options.rows, previewUrl: options.rows ? u.rowsPreviewUrl : u.previewUrl,
-                     executeUrl: options.rows ? u.rowsExecuteUrl : u.executeUrl, onSuccess: options.onSuccess, onError: options.onError};
-      return post(request.previewUrl, Object.assign({}, options.rows || {sql: request.sql}, {db: request.db})).then(function (response) {
+      // options.previewUrl / executeUrl / body: a change with an endpoint of its own (a server setting on the Dashboards page): body is sent to both.
+      var request = {sql: options.sql, db: options.db || "", rows: options.body || options.rows, onSuccess: options.onSuccess, onError: options.onError,
+                     previewUrl: options.previewUrl || (options.rows ? u.rowsPreviewUrl : u.previewUrl),
+                     executeUrl: options.executeUrl || (options.rows ? u.rowsExecuteUrl : u.executeUrl)};
+      return post(request.previewUrl, Object.assign({}, request.rows || {sql: request.sql}, {db: request.db})).then(function (response) {
         if (!response.ok) { if (options.onError) options.onError(response.body.error || "That statement could not be run."); return; }
         openModal(request, response.body);
       }).catch(function () {

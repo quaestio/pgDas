@@ -8,6 +8,8 @@ urlpatterns = [
     path("dashboards/", views.dashboards_page, name="dashboards"),
     path("dashboards/data/", views.dashboards_data, name="dashboards_data"),
     path("dashboards/live/", views.dashboards_live, name="dashboards_live"),
+    path("dashboards/settings/preview/", views.setting_preview, name="setting_preview"),
+    path("dashboards/settings/", views.setting_apply, name="setting_apply"),
     path("sample/", views.watch_sample, name="watch_sample"),
     path("test-notify/", views.watch_test_notify, name="watch_test_notify"),
 ]

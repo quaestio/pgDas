@@ -9,6 +9,7 @@ from datetime import timedelta
 from django.conf import settings
 from django.utils import timezone
 
+from . import server_settings
 from .models import MetricSample, ServerHealth
 
 RANGES = {"1h": 3600, "6h": 6 * 3600, "24h": 24 * 3600, "3d": 3 * 86400, "7d": 7 * 86400, "14d": 14 * 86400}
@@ -256,7 +257,8 @@ def tiles(server, server_rows, db_rows, interval, health, database):
 
 def tables(server, since, server_rows, interval, health):
     """Top statements over the period, the standbys and slots now, one line per database, and the settings that explain the charts."""
-    out = {"statements": [], "standbys": [], "slots": [], "databases": [], "settings": (health.settings if health else {}) or {}}
+    out = {"statements": [], "standbys": [], "slots": [], "databases": [], "settings": (health.settings if health else {}) or {},
+           "settings_info": server_settings.describe(health.version_num if health else 0)}
     with_statements = [(t, d["statements"]) for t, d in server_rows if d.get("statements")]
     if len(with_statements) >= 2:
         first, last = with_statements[0][1], with_statements[-1][1]
