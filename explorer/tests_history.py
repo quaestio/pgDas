@@ -23,6 +23,15 @@ class HistoryTests(WriteFixture, TestCase):
         self.assertContains(page, "My recent statements on this server (1)")
         self.assertContains(page, 'data-sql="SELECT 1 AS one"')
 
+    def test_the_runner_offers_a_database_list_that_starts_on_the_one_in_use(self):
+        page = self.client.get(self.url, {"db": self.db})
+        self.assertIn(self.db, page.context["databases"])
+        self.assertContains(page, f'<option value="{self.db}" selected>')
+        self.assertContains(page, 'id="sqlDb"')
+        plain = self.client.get(self.url)                                    # no database named: the server's own, and it is still in the list
+        self.assertIn(plain.context["db"], plain.context["databases"])
+        self.assertContains(plain, " selected>")
+
     def test_newest_first_and_failures_are_marked(self):
         self.client.post(self.url, {"sql": "SELECT 1", "db": self.db})
         self.client.post(self.url, {"sql": "SELECT nope FROM nowhere", "db": self.db})

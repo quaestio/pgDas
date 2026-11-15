@@ -550,7 +550,18 @@ def sql_runner(request, pk):
                 record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])
                 context["result"] = result
     context["history"] = _history(request.user, server)
+    context["databases"] = _runner_databases(request.user, server, db)
     return render(request, "explorer/sql.html", context, status=403 if refused else 200)
+
+
+def _runner_databases(user, server, current):
+    """The databases to pick from in the SQL runner: those this person may connect to, always including the one in use."""
+    try:
+        with pg.connect(server) as conn:
+            names = [d["name"] for d in filter_databases(user, server, pg.list_databases(conn))]
+    except pg.PgError:
+        names = []
+    return names if current in names else ([current] if current else []) + names
 
 
 HISTORY_ACTIONS = ("sql.run", "insert", "update", "delete", "truncate", "drop", "create", "alter", "grant", "revoke")

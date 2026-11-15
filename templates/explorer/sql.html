@@ -13,6 +13,9 @@
         data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">
+    {% if databases %}<p class="sql-db"><label for="sqlDb">Database</label>
+      <select id="sqlDb" data-url="{% url 'sql_runner' server.pk %}" aria-label="Database to run in">{% for name in databases %}<option value="{{ name }}"{% if name == db %} selected{% endif %}>{{ name }}</option>{% endfor %}</select>
+      <span class="muted">Statements run in this database. It starts as the server's own database, or the one you opened this from.</span></p>{% endif %}
     <label for="sql">SQL</label>
     <textarea id="sql" name="sql" spellcheck="false" placeholder="SELECT * FROM my_table LIMIT 10;">{{ sql }}</textarea>
     {% if can_write %}
@@ -65,6 +68,15 @@
 {% endblock %}
 {% block scripts %}{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}
 <script>
+(function () {                      // choosing another database reloads the page for it (what you may do differs per database); the SQL typed so far is kept
+  var pick = document.getElementById("sqlDb"), box = document.getElementById("sql");
+  if (!pick) return;
+  try { var kept = sessionStorage.getItem("pgdasSql"); if (kept !== null && !box.value) box.value = kept; sessionStorage.removeItem("pgdasSql"); } catch (e) { /* no storage: the box starts empty */ }
+  pick.addEventListener("change", function () {
+    try { sessionStorage.setItem("pgdasSql", box.value); } catch (e) { /* the SQL is not kept */ }
+    window.location.href = pick.dataset.url + "?db=" + encodeURIComponent(pick.value);
+  });
+})();
 document.querySelectorAll(".history-item").forEach(function (button) {
   button.addEventListener("click", function () {
     var box = document.getElementById("sql");
