@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Server not found · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">SERVERS / <span>NOT FOUND</span></div><h1>Server not found</h1></div></div>
+<section class="panel pad">
+  <ul class="messages"><li class="error">{{ message }}</li></ul>
+  <p style="margin-top:14px"><a class="btn primary" href="{% url 'server_list' %}">Back to the servers</a></p>
+</section>
+{% endblock %}

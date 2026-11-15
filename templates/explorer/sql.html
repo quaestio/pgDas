@@ -8,8 +8,9 @@
   <div><a class="btn" href="{% url 'explorer' server.pk %}">← Object browser</a>
     {% if not can_write %}<span class="badge ok">read-only</span>{% endif %}</div>
 </div>
+<div class="sql-layout">
 <section class="panel pad">
-  <form method="post" id="sqlForm"{% if can_write %} data-can-write="1" data-server="{{ server.pk }}"
+  <form method="post" id="sqlForm" data-run-url="{% url 'sql_run' server.pk %}" data-page-url="{% url 'sql_page' server.pk %}"{% if can_write %} data-can-write="1" data-server="{{ server.pk }}"
         data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">
@@ -18,6 +19,7 @@
       <span class="muted">Statements run in this database. It starts as the server's own database, or the one you opened this from.</span></p>{% endif %}
     <label for="sql">SQL</label>
     <textarea id="sql" name="sql" spellcheck="false" placeholder="SELECT * FROM my_table LIMIT 10;">{{ sql }}</textarea>
+    <div id="sqlSuggest" class="sql-suggest" hidden aria-live="polite"></div>
     {% if can_write %}
     <p class="muted" style="margin-top:10px">Queries run read-only. Changes are made one statement at a time, and every one is recorded in the audit log:
       <strong>INSERT</strong> runs at once; <strong>UPDATE</strong> shows how many rows it changes and warns if it has no WHERE;
@@ -30,9 +32,12 @@
     {% endif %}
     <button class="btn primary" type="submit" id="runButton">Run</button>
     {% if can_export %}<button class="btn" type="submit" formaction="{% url 'sql_export' server.pk %}" id="exportButton">Export (read query)</button>
-    <select name="format" aria-label="Export format"><option value="csv">CSV</option><option value="json">JSON</option></select>{% endif %}
+    <select name="format" aria-label="Export format"><option value="csv">CSV</option><option value="json">JSON</option><option value="sql">SQL (INSERT statements)</option></select>{% endif %}
   </form>
 </section>
+<aside class="panel pad sql-helper" id="sqlHelper" aria-label="Tables, columns and query builder"
+       data-url="{% url 'database_tables' server.pk %}?db={{ db|urlencode }}&amp;views=1"><p class="muted">Loading the tables of {{ db }}…</p></aside>
+</div>
 {% if history %}
 <section class="panel pad" style="margin-top:18px">
   <details id="sqlHistory">
@@ -49,8 +54,11 @@
   </details>
 </section>
 {% endif %}
+<div id="sqlLegacy">{# what the page itself shows after a plain form post (no JavaScript); the script takes over from the first run #}
 {% if error %}<ul class="messages" style="margin-top:18px"><li class="error">{{ error }}{% if hint %}<br><span class="muted">{{ hint }}</span>{% endif %}</li></ul>{% endif %}
+</div>
 <div id="changeResult" style="margin-top:18px" aria-live="polite"></div>
+<div id="sqlLegacyResult">
 {% if result %}
 <section class="panel pad scroll" style="margin-top:18px">
   <p class="muted">{% if result.columns %}{{ result.count }} row{{ result.count|pluralize }}{% if result.truncated %} (limited — more rows exist){% endif %}{% else %}{{ result.message }}{% endif %} · {{ result.ms }} ms</p>
@@ -64,14 +72,17 @@
   {% endif %}
 </section>
 {% endif %}
+</div>
+<div id="sqlAjax" aria-live="polite"></div>
 
 {% endblock %}
-{% block scripts %}{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}
+{% block scripts %}<link rel="stylesheet" href="{% static 'sql_helper.css' %}"><script src="{% static 'sql_highlight.js' %}"></script><script src="{% static 'sql_helper.js' %}"></script>
+{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}<script src="{% static 'sql_run.js' %}"></script>
 <script>
 (function () {                      // choosing another database reloads the page for it (what you may do differs per database); the SQL typed so far is kept
   var pick = document.getElementById("sqlDb"), box = document.getElementById("sql");
   if (!pick) return;
-  try { var kept = sessionStorage.getItem("pgdasSql"); if (kept !== null && !box.value) box.value = kept; sessionStorage.removeItem("pgdasSql"); } catch (e) { /* no storage: the box starts empty */ }
+  try { var kept = sessionStorage.getItem("pgdasSql"); if (kept !== null && !box.value) { box.value = kept; box.dispatchEvent(new Event("input", {bubbles: true})); } sessionStorage.removeItem("pgdasSql"); } catch (e) { /* no storage: the box starts empty */ }
   pick.addEventListener("change", function () {
     try { sessionStorage.setItem("pgdasSql", box.value); } catch (e) { /* the SQL is not kept */ }
     window.location.href = pick.dataset.url + "?db=" + encodeURIComponent(pick.value);
@@ -81,6 +92,7 @@ document.querySelectorAll(".history-item").forEach(function (button) {
   button.addEventListener("click", function () {
     var box = document.getElementById("sql");
     box.value = button.dataset.sql;
+    box.dispatchEvent(new Event("input", {bubbles: true}));
     box.focus();
     window.scrollTo({top: 0, behavior: "smooth"});
   });

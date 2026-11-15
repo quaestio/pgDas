@@ -232,6 +232,72 @@ def server_summary(conn):
     return {"version": version, "user": user, "database": database}
 
 
+def _group(conn, run):
+    """Run one group of statistics queries; a group this login may not read (or this version does not have) is left out, not fatal."""
+    try:
+        with conn.transaction():                      # a savepoint, so a refused query does not spoil the ones after it
+            return run()
+    except psycopg.Error:
+        return None
+
+
+def server_stats(conn):
+    """What the server's own statistics say, for its overview: how long it has run, who is connected, the work done since the counters were reset,
+    and the settings that matter most. Every group is optional: it is None when this login may not read it."""
+    out = {}
+
+    def basics():
+        started, uptime, version, recovery = conn.execute(
+            "SELECT pg_postmaster_start_time(), now() - pg_postmaster_start_time(), current_setting('server_version'), pg_is_in_recovery()").fetchone()
+        databases, total = conn.execute(
+            "SELECT count(*), coalesce(sum(pg_database_size(datname)), 0) FROM pg_database WHERE datallowconn AND NOT datistemplate").fetchone()
+        roles = conn.execute("SELECT count(*) FROM pg_roles WHERE rolname !~ '^pg_'").fetchone()[0]
+        spaces = conn.execute("SELECT count(*) FROM pg_tablespace").fetchone()[0]
+        return {"started": started, "uptime": uptime, "short_version": version, "role": "standby" if recovery else "primary", "databases": databases,
+                "size_text": size_text(total), "roles": roles, "tablespaces": spaces}
+    out["basics"] = _group(conn, basics)
+
+    def sessions():
+        total, active, idle, idle_tx, waiting, longest, oldest = conn.execute(
+            """SELECT count(*) FILTER (WHERE backend_type = 'client backend'),
+                      count(*) FILTER (WHERE backend_type = 'client backend' AND state = 'active'),
+                      count(*) FILTER (WHERE backend_type = 'client backend' AND state = 'idle'),
+                      count(*) FILTER (WHERE backend_type = 'client backend' AND state LIKE 'idle in transaction%%'),
+                      count(*) FILTER (WHERE backend_type = 'client backend' AND wait_event_type = 'Lock'),
+                      max(extract(epoch FROM now() - query_start)) FILTER (WHERE backend_type = 'client backend' AND state = 'active'),
+                      max(extract(epoch FROM now() - xact_start)) FILTER (WHERE backend_type = 'client backend')
+               FROM pg_stat_activity WHERE pid <> pg_backend_pid()""").fetchone()
+        limit = int(conn.execute("SELECT current_setting('max_connections')").fetchone()[0])
+        standbys = conn.execute("SELECT count(*) FROM pg_stat_replication").fetchone()[0]
+        return {"total": total, "active": active, "idle": idle, "idle_in_transaction": idle_tx, "waiting": waiting, "limit": limit,
+                "used_percent": round(total * 100 / limit, 1) if limit else None, "longest_query": longest, "oldest_transaction": oldest, "standbys": standbys}
+    out["sessions"] = _group(conn, sessions)
+
+    def work():
+        row = conn.execute(
+            """SELECT sum(xact_commit), sum(xact_rollback), sum(blks_read), sum(blks_hit), sum(tup_returned), sum(tup_fetched), sum(tup_inserted),
+                      sum(tup_updated), sum(tup_deleted), sum(temp_files), sum(temp_bytes), sum(deadlocks), min(stats_reset)
+               FROM pg_stat_database WHERE datname IS NOT NULL""").fetchone()
+        commit, rollback, read, hit, returned, fetched, inserted, updated, deleted, temp_files, temp_bytes, deadlocks, reset = [
+            (float(v) if v is not None and not hasattr(v, "year") else v) for v in row]
+        transactions = (commit or 0) + (rollback or 0)
+        touched = (read or 0) + (hit or 0)
+        return {"commits": int(commit or 0), "rollbacks": int(rollback or 0), "rollback_percent": round((rollback or 0) * 100 / transactions, 2) if transactions else None,
+                "cache_hit": round((hit or 0) * 100 / touched, 2) if touched else None, "rows_read": int(returned or 0), "rows_fetched": int(fetched or 0),
+                "inserted": int(inserted or 0), "updated": int(updated or 0), "deleted": int(deleted or 0), "temp_files": int(temp_files or 0),
+                "temp_size_text": size_text(temp_bytes or 0), "deadlocks": int(deadlocks or 0), "since": reset}
+    out["work"] = _group(conn, work)
+
+    def settings():
+        names = ["shared_buffers", "work_mem", "maintenance_work_mem", "effective_cache_size", "max_connections", "wal_level", "synchronous_commit",
+                 "autovacuum", "track_io_timing", "timezone", "server_encoding", "data_checksums"]
+        got = dict(conn.execute("SELECT name, setting || coalesce(' ' || unit, '') FROM pg_settings WHERE name = ANY(%s)", (names,)).fetchall())
+        shown = dict(conn.execute("SELECT name, current_setting(name) FROM unnest(%s::text[]) AS name", (names,)).fetchall())
+        return [{"name": name, "value": shown.get(name) or got.get(name, "")} for name in names if name in got]
+    out["settings"] = _group(conn, settings)
+    return out
+
+
 def list_databases(conn):
     rows = conn.execute(
         """SELECT d.datname, pg_get_userbyid(d.datdba), pg_encoding_to_char(d.encoding), pg_database_size(d.datname),
@@ -574,15 +640,45 @@ def list_schemas(conn):
 KINDS = {"r": "table", "p": "partitioned table", "v": "view", "m": "materialized view", "f": "foreign table", "S": "sequence"}
 
 
-def list_tables(conn, schema, system=False):
-    """Tables, views, materialized views, foreign tables and sequences of a schema (callers pick the kinds they need)."""
+def list_tables(conn, schema, system=False, stats=False):
+    """Tables, views, materialized views, foreign tables and sequences of a schema (callers pick the kinds they need).
+    With `stats`, each also carries what PostgreSQL's statistics say about it (size, dead rows, writes, scans, last vacuum and analyze)."""
     hide = "" if system else " AND " + NOT_IN_EXTENSION.format(oid="c.oid", catalog="pg_class")
+    if stats:
+        rows = conn.execute(
+            f"""SELECT c.relname, c.relkind::text, CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END,
+                       CASE WHEN c.relkind IN ('r', 'm', 't') THEN pg_total_relation_size(c.oid) END,
+                       CASE WHEN c.relkind IN ('r', 'm', 'p') THEN pg_indexes_size(c.oid) END,
+                       s.n_live_tup, s.n_dead_tup, s.n_tup_ins + s.n_tup_upd + s.n_tup_del, s.seq_scan, s.idx_scan,
+                       greatest(s.last_vacuum, s.last_autovacuum), greatest(s.last_analyze, s.last_autoanalyze)
+                FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace LEFT JOIN pg_stat_all_tables s ON s.relid = c.oid
+                WHERE n.nspname = %s AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND NOT c.relispartition{hide}
+                ORDER BY c.relname""", (schema,)).fetchall()
+        found = []
+        for name, kind, estimate, total, index_size, live, dead, writes, seq, idx, vacuum, analyze in rows:
+            dead_percent = round(dead * 100 / (live + dead), 1) if dead is not None and (live or 0) + dead > 0 else None
+            found.append({"name": name, "kind": KINDS[kind], "estimate": estimate, "size": total, "size_text": size_text(total) if total is not None else None,
+                          "index_size_text": size_text(index_size) if index_size is not None else None, "dead": dead, "dead_percent": dead_percent,
+                          "writes": writes, "seq_scans": seq, "index_scans": idx, "last_vacuum": vacuum, "last_analyze": analyze,
+                          "has_stats": live is not None})
+        return found
     rows = conn.execute(
         f"""SELECT c.relname, c.relkind::text, CASE WHEN c.reltuples < 0 THEN NULL ELSE c.reltuples::bigint END
             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = %s AND c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND NOT c.relispartition{hide}
             ORDER BY c.relname""", (schema,)).fetchall()
     return [{"name": name, "kind": KINDS[kind], "estimate": estimate} for name, kind, estimate in rows]
+
+
+def tables_summary(items, conn):
+    """The totals above a Tables list: how many, their size, rows, dead rows, and since when the counters count."""
+    tables = [t for t in items if t.get("has_stats")]
+    reset = conn.execute("SELECT stats_reset FROM pg_stat_database WHERE datname = current_database()").fetchone()
+    return {"count": len(items), "size_text": size_text(sum(t["size"] or 0 for t in items)), "rows": sum(t["estimate"] or 0 for t in tables),
+            "dead": sum(t["dead"] or 0 for t in tables), "writes": sum(t["writes"] or 0 for t in tables),
+            "never_vacuumed": sum(1 for t in tables if t["last_vacuum"] is None and t["kind"] in ("table", "materialized view")),
+            "never_analyzed": sum(1 for t in tables if t["last_analyze"] is None and t["kind"] in ("table", "materialized view")),
+            "stats_reset": reset[0] if reset else None}
 
 
 def view_ddl(conn, schema, name):
@@ -719,16 +815,18 @@ def column_types(conn):
     return [(name, kind) for name, kind in rows]
 
 
-def database_tables(conn):
-    """Every ordinary table of the database (user schemas) with its columns, for the foreign key picker."""
+def database_tables(conn, with_views=False):
+    """Every ordinary table of the database (user schemas) with its columns, for the foreign key picker.
+    `with_views` adds views, materialized views and foreign tables, for the SQL runner's hints (each entry then says its kind)."""
+    kinds = ["r", "p", "v", "m", "f"] if with_views else ["r", "p"]
     rows = conn.execute(
-        """SELECT n.nspname, c.relname,
+        """SELECT n.nspname, c.relname, c.relkind::text,
                   (SELECT json_agg(json_build_object('name', a.attname, 'type', format_type(a.atttypid, a.atttypmod)) ORDER BY a.attnum)
                    FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped)
            FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-           WHERE c.relkind IN ('r', 'p') AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname !~ '^pg_temp'
-           ORDER BY 1, 2""").fetchall()
-    return [{"schema": s, "name": t, "columns": columns or []} for s, t, columns in rows]
+           WHERE c.relkind = ANY(%s) AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname !~ '^pg_temp'
+           ORDER BY 1, 2""", (kinds,)).fetchall()
+    return [{"schema": s, "name": t, "kind": KINDS[k], "columns": columns or []} for s, t, k, columns in rows]
 
 
 def type_info(conn, schema, name):

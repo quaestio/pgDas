@@ -19,7 +19,7 @@ from django.core.exceptions import PermissionDenied
 from . import changes, exporter, pg, row_edits, server_admin, table_rebuild, tree
 
 TAB_LABELS = {"properties": "Properties", "partitions": "Partitions", "columns": "Columns", "constraints": "Constraints", "indexes": "Indexes",
-              "triggers": "Triggers", "data": "Data", "sql": "SQL"}
+              "triggers": "Triggers", "data": "Data", "sql": "Create statement"}
 TABLE_TABS = ["properties", "columns", "constraints", "indexes", "triggers", "data", "sql"]
 # Which tabs each kind of relation offers.
 TABS_BY_KIND = {"table": TABLE_TABS, "partitioned table": ["properties", "partitions"] + TABLE_TABS[1:],
@@ -29,6 +29,7 @@ TABS_BY_KIND = {"table": TABLE_TABS, "partitioned table": ["properties", "partit
 NODE_TYPE_OF_KIND = {"table": "table", "partitioned table": "table", "view": "view",
                      "materialized view": "matview", "sequence": "sequence"}
 RELATION_NODES = {"table", "view", "matview", "sequence"}
+EXPORT_CHOICES = [("csv", "CSV"), ("json", "JSON"), ("sql", "SQL")]      # the formats of the Export menu on a Tables list
 # The folder or item under a relation selects the matching tab of that relation.
 SUBNODE_TABS = {"partitions": "partitions", "columns": "columns", "column": "columns", "constraints": "constraints", "constraint": "constraints",
                 "indexes": "indexes", "index": "indexes", "triggers": "triggers", "trigger": "triggers"}
@@ -128,7 +129,7 @@ def _object_context(conn, node, request):
     info_of, ddl_of = OBJECTS[kind]
     data = info_of(conn, name)
     tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
-    context = {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "SQL")], "title": name, "db": node["db"],
+    context = {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "Create statement")], "title": name, "db": node["db"],
                "object_kind": kind, "object": data, "base": _base(node, type=kind, name=name)}
     if tab == "sql":
         context["ddl"] = ddl_of(conn, name)
@@ -144,7 +145,7 @@ def _object_list(conn, kind, system):
 def _function_context(conn, node, request):
     info = pg.function_info(conn, node["schema"], node["oid"])
     tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
-    return {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "SQL")], "title": f"{node['schema']}.{info['name']}",
+    return {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "Create statement")], "title": f"{node['schema']}.{info['name']}",
             "db": node["db"], "function": info, "ddl": info["ddl"],
             "base": _base(node, type=node["type"], oid=node["oid"])}
 
@@ -153,7 +154,7 @@ def _type_context(conn, node, request):
     schema, name = node["schema"], node["name"]
     info = pg.type_info(conn, schema, name)
     tab = request.GET.get("tab") if request.GET.get("tab") in ("properties", "sql") else "properties"
-    context = {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "SQL")], "title": f"{schema}.{name}",
+    context = {"tab": tab, "tabs": [("properties", "Properties"), ("sql", "Create statement")], "title": f"{schema}.{name}",
                "db": node["db"], "type_info": info, "base": _base(node, type="type", name=name)}
     if tab == "sql":
         context["ddl"] = pg.type_ddl(conn, schema, name)
@@ -183,6 +184,7 @@ def detail(request):
         if kind == "server":
             with pg.connect(server) as conn:
                 context["summary"] = pg.server_summary(conn)
+                context["server_stats"] = pg.server_stats(conn)
         elif kind == "databases":
             context["can_admin"] = _can_admin(request.user, server)
             with pg.connect(server) as conn:
@@ -212,13 +214,19 @@ def detail(request):
                     owners = {s["name"]: s["owner"] for s in context["schemas"] + pg.catalog_rows(conn)}
                     context["owner"] = owners.get(schema, "")
                     context["folder"] = "Tables"
-                    context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in FOLDERS["tables"][1]]
+                    context["items"] = [t for t in pg.list_tables(conn, schema, system, stats=True) if t["kind"] in FOLDERS["tables"][1]]
+                    context["stats"], context["summary"] = True, pg.tables_summary(context["items"], conn)
+                    context["can_export"], context["export_formats"] = _can_export(request.user, server, db), EXPORT_CHOICES
                     if kind == "schema" and _can_structure(request.user, server, db):
                         context["structure"] = _structure_json(server, db, schema)
         elif kind in FOLDERS:
             context["folder"], kinds = FOLDERS[kind]
             with pg.connect(server, db) as conn:
-                context["items"] = [t for t in pg.list_tables(conn, schema, system) if t["kind"] in kinds]
+                with_stats = kind in ("tables", "matviews")
+                context["items"] = [t for t in pg.list_tables(conn, schema, system, stats=with_stats) if t["kind"] in kinds]
+                if with_stats:
+                    context["stats"], context["summary"] = True, pg.tables_summary(context["items"], conn)
+            context["can_export"], context["export_formats"] = _can_export(request.user, server, db), EXPORT_CHOICES
             if kind == "tables" and _can_structure(request.user, server, db):
                 context["structure"] = _structure_json(server, db, schema)
         elif kind in ("functions", "procedures"):
@@ -317,7 +325,7 @@ def database_tables(request, pk):
     require(request.user, "read", server=server, database=database)
     try:
         with pg.connect(server, database or None) as conn:
-            found = pg.database_tables(conn)
+            found = pg.database_tables(conn, with_views=request.GET.get("views") == "1")
     except pg.PgError as error:
         return JsonResponse({"error": str(error)}, status=502)
     return JsonResponse({"tables": found})
@@ -530,28 +538,108 @@ def sql_runner(request, pk):
         statement = request.POST.get("sql", "").strip()
         context["sql"] = statement
         if statement:
-            try:
-                authorize(request.user, server, db, statement)
-                result = pg.run_sql(server, statement, db or None)
-            except (pg.PgError, PermissionDenied) as error:        # a refused statement is answered on the page, with the reason
-                refused = isinstance(error, PermissionDenied)
-                blocked_by = "pgdas" if refused else "postgresql" if "PostgreSQL blocked this" in str(error) else "error"          # which gate stopped it
-                record(request.user, "sql.run", server, statement, ok=False, payload={"database": db, "blocked_by": blocked_by})
-                context["error"] = str(error) or "You are not permitted to run that statement."
-                verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter|grant|revoke)\b", statement, re.I)
-                if verb and ("read-only transaction" in str(error) or isinstance(error, PermissionDenied)):
-                    word = verb.group(1).upper()
-                    if not request.user.is_staff:
-                        context["hint"] = "Only staff users can change data."
-                    else:
-                        context["hint"] = (f"{word} asks for confirmation first, and that popup needs JavaScript. "
-                                           "Turn it on and press Run again.")
+            result, problem = _run_statement(request, server, db, statement)
+            if problem:
+                refused = problem["refused"]
+                context["error"] = problem["error"]
+                if problem["hint"]:
+                    context["hint"] = problem["hint"]
             else:
-                record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])
                 context["result"] = result
     context["history"] = _history(request.user, server)
     context["databases"] = _runner_databases(request.user, server, db)
     return render(request, "explorer/sql.html", context, status=403 if refused else 200)
+
+
+def _run_statement(request, server, db, statement):
+    """Run a statement the SQL runner way: checked against this person's permissions, read-only, recorded in the audit log either way.
+    Returns (result, None) or (None, {"error", "hint", "refused"}); a refused statement is answered with the reason."""
+    try:
+        authorize(request.user, server, db, statement)
+        result = pg.run_sql(server, statement, db or None)
+    except (pg.PgError, PermissionDenied) as error:
+        refused = isinstance(error, PermissionDenied)
+        blocked_by = "pgdas" if refused else "postgresql" if "PostgreSQL blocked this" in str(error) else "error"          # which gate stopped it
+        record(request.user, "sql.run", server, statement, ok=False, payload={"database": db, "blocked_by": blocked_by})
+        hint = ""
+        verb = re.match(r"\s*(insert|update|delete|truncate|drop|create|alter|grant|revoke)\b", statement, re.I)
+        if verb and ("read-only transaction" in str(error) or refused):
+            if not request.user.is_staff:
+                hint = "Only staff users can change data."
+            else:
+                hint = f"{verb.group(1).upper()} asks for confirmation first, and that popup needs JavaScript. Turn it on and press Run again."
+        return None, {"error": str(error) or "You are not permitted to run that statement.", "hint": hint, "refused": refused}
+    record(request.user, "sql.run", server, statement, ok=True, rows=result["count"])
+    return result, None
+
+
+RESULT_PAGE_SIZE = 10                       # rows shown at a time; the rest of the (capped) result is paged through
+RESULT_KEEP_SECONDS = 600
+
+
+def _result_page(result, token, page):
+    """One page of a query result, as the SQL runner's script wants it."""
+    total = result["count"]
+    pages = max(1, -(-total // RESULT_PAGE_SIZE))
+    page = min(max(int(page or 1), 1), pages)
+    start = (page - 1) * RESULT_PAGE_SIZE
+    return {"ok": True, "columns": result["columns"], "rows": result["rows"][start:start + RESULT_PAGE_SIZE], "message": result["message"], "ms": result["ms"],
+            "total": total, "truncated": result["truncated"], "page": page, "pages": pages, "page_size": RESULT_PAGE_SIZE, "token": token,
+            "first": start + 1 if total else 0, "last": min(start + RESULT_PAGE_SIZE, total)}
+
+
+def _sql_body(request, pk):
+    """(server, database, statement, body) of an SQL runner request sent as JSON, with the same permission check as the page itself."""
+    server = get_object_or_404(ServerConnection, pk=pk)
+    try:
+        body = json.loads(request.body or b"{}")
+    except ValueError:
+        body = {}
+    db = str(body.get("db") or "") or runtime.default_database(server) or server.database_name
+    require(request.user, "read", server=server, database=db)
+    request.pgdas_database = db
+    return server, db, str(body.get("sql") or "").strip(), body
+
+
+def _keep_result(request, server, db, result):
+    import secrets
+    from django.core.cache import cache
+    token = secrets.token_urlsafe(18)
+    cache.set(f"pgdas-sqlres:{token}", {"user": request.user.pk, "server": server.pk, "db": db, "result": result}, RESULT_KEEP_SECONDS)
+    return token
+
+
+@login_required
+@require_POST
+def sql_run(request, pk):
+    """Run a statement without leaving the page: the first page of the result as JSON, the rest kept for a few minutes to page through."""
+    server, db, statement, _ = _sql_body(request, pk)
+    if not statement:
+        return JsonResponse({"ok": False, "error": "Write a statement first.", "hint": ""}, status=400)
+    result, problem = _run_statement(request, server, db, statement)
+    if problem:
+        return JsonResponse({"ok": False, **problem}, status=403 if problem["refused"] else 400)
+    return JsonResponse(_result_page(result, _keep_result(request, server, db, result) if result["columns"] else "", 1))
+
+
+@login_required
+@require_POST
+def sql_page(request, pk):
+    """Another page of a result that was just run. If it has been forgotten (a restart, ten minutes) the statement is run again."""
+    from django.core.cache import cache
+    server, db, statement, body = _sql_body(request, pk)
+    token = str(body.get("token") or "")
+    kept = cache.get(f"pgdas-sqlres:{token}") if token else None
+    if kept and (kept["user"], kept["server"], kept["db"]) == (request.user.pk, server.pk, db):
+        return JsonResponse(_result_page(kept["result"], token, body.get("page")))
+    if not statement:
+        return JsonResponse({"ok": False, "error": "That result is no longer available. Run the statement again.", "hint": ""}, status=400)
+    try:
+        authorize(request.user, server, db, statement)
+        result = pg.run_sql(server, statement, db or None)
+    except (pg.PgError, PermissionDenied) as error:
+        return JsonResponse({"ok": False, "error": str(error) or "You are not permitted to run that statement.", "hint": ""}, status=400)
+    return JsonResponse(_result_page(result, _keep_result(request, server, db, result) if result["columns"] else "", body.get("page")))
 
 
 def _runner_databases(user, server, current):
@@ -580,6 +668,28 @@ def _history(user, server, limit=20):
     return found
 
 
+_EXPORT_FROM = re.compile(r'^\s*FROM\s+(?:ONLY\s+)?(?P<first>"(?:[^"]|"")+"|[A-Za-z_][\w$]*)(?:\s*\.\s*(?P<second>"(?:[^"]|"")+"|[A-Za-z_][\w$]*))?', re.I)
+
+
+def _export_table(statement):
+    """(schema, table) the INSERT statements of a query export are written for: the table of a simple SELECT ... FROM table, else public.query_result."""
+    plain = re.sub(r"'(?:[^']|'')*'", lambda m: "'" + "x" * (len(m.group()) - 2) + "'", re.sub(r"--[^\n]*|/\*.*?\*/", " ", statement, flags=re.S))
+    # The same text with the insides of quoted names blanked out (same length), so a table called "Order Lines" is not read as ORDER.
+    masked = re.sub(r'"(?:[^"]|"")+"', lambda m: '"' + "x" * (len(m.group()) - 2) + '"', plain)
+    unquote = lambda name: name[1:-1].replace('""', '"') if name.startswith('"') else name.lower()
+    froms = list(re.finditer(r"\bFROM\b", masked, re.I))
+    if len(froms) == 1 and len(re.findall(r"\bSELECT\b", masked, re.I)) == 1 and not re.search(r"\b(UNION|INTERSECT|EXCEPT)\b", masked, re.I):
+        tail, tail_masked = plain[froms[0].end():], masked[froms[0].end():]
+        clause = re.search(r"\b(?:WHERE|GROUP|ORDER|LIMIT|OFFSET|HAVING|FETCH)\b", tail_masked, re.I)       # what follows FROM, up to the next clause
+        cut = clause.start() if clause else len(tail)
+        source, source_masked = tail[:cut], tail_masked[:cut]
+        match = _EXPORT_FROM.match("FROM " + source)
+        if match and "," not in source_masked and not re.search(r"\bJOIN\b|\(", source_masked, re.I):
+            first, second = unquote(match["first"]), match["second"] and unquote(match["second"])
+            return (first, second) if second else ("public", first)
+    return ("public", "query_result")
+
+
 @login_required
 @require_POST
 def sql_export(request, pk):
@@ -593,10 +703,11 @@ def sql_export(request, pk):
     request.pgdas_database = database
     result = pg.run_sql(server, statement, database)
     fmt = request.POST.get("format", "csv")
-    if fmt not in ("csv", "json"):
+    if fmt not in ("csv", "json", "sql"):
         fmt = "csv"
     content_type, extension = exporter.FORMATS[fmt]
-    response = HttpResponse("".join(exporter.stream(fmt, result["columns"], result["rows"])), content_type=content_type)
+    table = _export_table(statement) if fmt == "sql" else None
+    response = HttpResponse("".join(exporter.stream(fmt, result["columns"], result["rows"], table=table)), content_type=content_type)
     response["Content-Disposition"] = f'attachment; filename="pgdas-query.{extension}"'
     record(request.user, "sql.export", server, statement, rows=result["count"])
     return response

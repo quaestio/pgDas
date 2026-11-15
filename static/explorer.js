@@ -66,9 +66,10 @@
     detailEl.hidden = top;
     if (top) { detailEl.innerHTML = ""; return; }
     detailEl.innerHTML = '<p class="muted">Loading…</p>';
-    get(detailUrl + "?" + qs)
+    return get(detailUrl + "?" + qs)
       .then(function (r) { return r.text(); })
       .then(function (html) {
+        if (lastQuery !== qs) return;                       // a newer page was asked for meanwhile: this answer is out of date
         detailEl.innerHTML = html;
         if (detailEl.querySelector(".messages .error")) errorTone();
       })
@@ -246,6 +247,28 @@
     return next(0);
   }
 
+  // Sorting a list by one of its columns. A cell sorts by its data-v (a number, or empty), else by its text; empty cells always go last.
+  function sortTable(heading) {
+    var table = heading.closest("table"), body = table.tBodies[0], column = Array.prototype.indexOf.call(heading.parentNode.children, heading);
+    var numeric = heading.dataset.sort === "n", descending = heading.dataset.dir === "asc";
+    Array.prototype.forEach.call(heading.parentNode.children, function (h) { h.removeAttribute("data-dir"); h.removeAttribute("aria-sort"); });
+    heading.dataset.dir = descending ? "desc" : "asc";
+    heading.setAttribute("aria-sort", descending ? "descending" : "ascending");
+    var rows = Array.prototype.slice.call(body.rows).filter(function (r) { return r.cells.length > column; });
+    var value = function (row) {
+      var cell = row.cells[column], raw = cell.dataset.v !== undefined ? cell.dataset.v : cell.textContent.trim();
+      if (raw === "") return null;
+      return numeric ? parseFloat(raw.replace(/,/g, "")) : raw.toLowerCase();
+    };
+    rows.sort(function (a, b) {
+      var x = value(a), y = value(b);
+      if (x === null || (numeric && isNaN(x))) return (y === null || (numeric && isNaN(y))) ? 0 : 1;
+      if (y === null || (numeric && isNaN(y))) return -1;
+      return (x < y ? -1 : x > y ? 1 : 0) * (descending ? -1 : 1);
+    });
+    rows.forEach(function (row) { body.appendChild(row); });
+  }
+
   // Tabs and pagers inside the detail pane carry their own query string; the server list can open a server.
   if (detailEl) {
     detailEl.addEventListener("click", function (event) {
@@ -253,6 +276,23 @@
       if (open) { event.preventDefault(); openPath({type: "server", server: open.dataset.openServer}); return; }
       var details = event.target.closest("[data-open-database]");       // "Details" in the Databases list: open it in the tree
       if (details) { event.preventDefault(); openPath({type: "database", server: details.dataset.server, db: details.dataset.openDatabase}); return; }
+      var table = event.target.closest("[data-open-table]");            // "Details" in a schema's Tables list: open that table (its Properties) in the tree
+      if (table) {
+        event.preventDefault();
+        var TYPE_OF_KIND = {"table": "table", "partitioned table": "table", "view": "view", "materialized view": "matview", "sequence": "sequence"};
+        openPath({type: TYPE_OF_KIND[table.dataset.kind] || "table", server: table.dataset.server, db: table.dataset.db, schema: table.dataset.schema, table: table.dataset.openTable});
+        return;
+      }
+      var heading = event.target.closest("th[data-sort]");               // a heading of the Tables list sorts it (again: the other way round)
+      if (heading) { sortTable(heading); return; }
+      var importer = event.target.closest("[data-import-table]");       // "Import" in the Tables list: open the table's Data tab and start the CSV import there
+      if (importer) {
+        event.preventDefault();
+        openPath({type: "table", server: importer.dataset.server, db: importer.dataset.db, schema: importer.dataset.schema, table: importer.dataset.importTable})
+          .then(function (item) { return item ? showDetail(lastQuery + "&tab=data") : null; })
+          .then(function () { var button = detailEl.querySelector("[data-import-csv]"); if (button) button.click(); });      // a table without a primary key has no button: its Data tab says why
+        return;
+      }
       var link = event.target.closest("[data-detail]");
       if (!link) return;
       event.preventDefault();

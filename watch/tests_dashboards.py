@@ -71,6 +71,17 @@ class DashboardViewTests(TestCase):
         self.assertEqual(self.client.get(reverse("dashboards_data"), {"server": foreign.pk}).status_code, 404)
         self.assertNotContains(self.client.get(reverse("dashboards")), "Theirs")
 
+    def test_a_server_that_does_not_exist_gets_a_plain_message_not_a_bare_404(self):
+        page = self.client.get(reverse("dashboards"), {"server": 987654})
+        self.assertEqual(page.status_code, 404)
+        self.assertContains(page, "Server 987654 was not found, or your account has no access to it", status_code=404)
+        self.assertContains(page, "Back to the servers", status_code=404)
+        self.assertEqual(self.client.get(reverse("dashboards"), {"server": "abc"}).status_code, 404)
+        answer = self.client.get(reverse("dashboards_data"), {"server": 987654}, headers={"X-Requested-With": "fetch"})
+        self.assertEqual(answer.status_code, 404)
+        self.assertFalse(answer.json()["ok"])
+        self.assertIn("was not found", answer.json()["error"])
+
     def test_the_answer_is_cached_for_a_short_time_and_a_manual_sample_refreshes_it(self):
         from unittest import mock
         self.data()

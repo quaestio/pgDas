@@ -46,6 +46,17 @@ class AccessMiddleware(MiddlewareMixin):
         return (request.path.startswith(self.JSON_PREFIXES) or request.resolver_match.url_name in self.JSON_NAMES or request.content_type == "application/json"
                 or request.headers.get("X-Requested-With") == "fetch")
 
+    def _server_missing(self, request, server_id):
+        """A link or request names a server that does not exist or that this account may not see: say so plainly (404), as JSON for the page
+        scripts or as a small page with a way back. Which of the two it is is not revealed."""
+        text = f"Server {str(server_id)[:40]} was not found, or your account has no access to it. Choose a server from the list."
+        # A page opened from a link (or typed into the address bar) is a page even under /watch/ or /c/; only a script's own request gets JSON.
+        if (request.headers.get("X-Requested-With") == "fetch" or request.content_type == "application/json"
+                or "application/json" in request.headers.get("Accept", "")):
+            return JsonResponse({"ok": False, "error": text}, status=404)
+        from django.shortcuts import render
+        return render(request, "server_missing.html", {"message": text}, status=404)
+
     def _denied(self, request, error):
         """Record the refusal; the JSON answer for scripts, or None to let Django show its 403 page."""
         from audit.models import record
@@ -83,11 +94,11 @@ class AccessMiddleware(MiddlewareMixin):
             require(request.user, "servers_manage", organization=member.organization_id)
         server_id = request.GET.get("server") or request.POST.get("server")
         if server_id and not str(server_id).isdigit():
-            raise Http404("Unknown server.")                       # not a server number: not found, not a crash
-        if name in {"server_edit", "server_json", "server_update", "server_delete", "server_test", "server_unlock", "server_lock", "explorer", "sql_runner", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
+            return self._server_missing(request, server_id)         # not a server number: a plain answer, not a crash
+        if name in {"server_edit", "server_json", "server_update", "server_delete", "server_test", "server_unlock", "server_lock", "explorer", "sql_runner", "sql_run", "sql_page", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
             server_id = kwargs.get("pk")
-        if server_id:
-            get_object_or_404(runtime.servers(), pk=server_id)
+        if server_id and not runtime.servers().filter(pk=server_id).exists():
+            return self._server_missing(request, server_id)
         if name in {"backup_download", "backup_delete", "backup_restore"}:
             backup = get_object_or_404(runtime.backups(), pk=kwargs["pk"])
             if name == "backup_download":

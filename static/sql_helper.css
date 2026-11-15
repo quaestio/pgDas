@@ -1,0 +1,54 @@
+/* SQL runner: the form on the left, tables / columns / query builder on the right. */
+.sql-layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
+.sql-helper { max-height: 78vh; overflow: auto; position: sticky; top: 12px; }
+@media (max-width: 1000px) { .sql-layout { grid-template-columns: 1fr; } .sql-helper { position: static; max-height: 60vh; } }
+/* The SQL box with coloured words: a coloured copy of the text behind a textarea whose own text is transparent (static/sql_highlight.js). */
+.sql-editor { position: relative; background: #031125; border-radius: 3px; }
+.sql-editor textarea.sql-over { position: relative; z-index: 1; background: transparent; color: transparent; -webkit-text-fill-color: transparent; caret-color: #e6f8ff; }
+.sql-editor textarea.sql-over::placeholder { color: #5f8aa6; -webkit-text-fill-color: #5f8aa6; }
+.sql-hl { position: absolute; inset: 0; margin: 0; overflow: hidden; border-style: solid; border-color: transparent; box-sizing: border-box; pointer-events: none;
+          white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; color: #e6f8ff; background: none; }
+.sqlk-reserved { color: #3fc1ff; }
+.sqlk-keyword { color: #7fb8ff; }
+.sqlk-string { color: #8ce99a; }
+.sqlk-number { color: #ffd166; }
+.sqlk-comment { color: #6f8fa6; font-style: italic; }
+.sqlk-ident { color: #f0b3ff; }
+/* the result: rows, then figures on the left, pages in the middle and Export on the right */
+.sqlr-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; justify-content: space-between; margin-top: 12px; }
+.sqlr-stats { font-size: 12px; }
+.sqlr-pages { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.sqlr-pages .btn { min-width: 34px; padding: 4px 8px; }
+.sqlr-export { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.sqlr-export select { width: auto; padding: 4px 8px; }
+.sql-db { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin: 0 0 12px; }
+.sql-db label { margin: 0; }
+.sql-suggest { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; font-size: 12px; }
+.sqlh-chip { background: rgba(4, 19, 41, .85); border: 1px solid #125079; border-radius: 4px; color: #d4edff; padding: 2px 8px; cursor: pointer; font: 12px ui-monospace, Menlo, Consolas, monospace; }
+.sqlh-chip:hover { border-color: #00c8ff; }
+.sqlh-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid #125079; }
+.sqlh-tab { background: none; border: 0; border-bottom: 2px solid transparent; color: #80afc9; padding: 6px 10px; cursor: pointer; font: inherit; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+.sqlh-tab.active { color: #00c8ff; border-bottom-color: #00c8ff; }
+.sqlh-filter { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.sqlh-help { font-size: 11px; margin: 0 0 8px; }
+.sqlh-list, .sqlh-cols { list-style: none; margin: 0; padding: 0; }
+.sqlh-cols { padding-left: 22px; }
+.sqlh-table { display: flex; align-items: center; gap: 4px; }
+.sqlh-toggle, .sqlh-name, .sqlh-col { background: none; border: 0; color: #d4edff; cursor: pointer; font: inherit; font-size: 12px; text-align: left; padding: 2px 4px; border-radius: 3px; }
+.sqlh-toggle { width: 18px; color: #80afc9; padding: 2px 0; }
+.sqlh-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+.sqlh-name:hover, .sqlh-col:hover { background: rgba(0, 200, 255, .12); }
+.sqlh-col { display: block; width: 100%; }
+.sqlh-kind { font-size: 10px; }
+.sqlh-sub { margin: 12px 0 4px; font-size: 11px; color: #80afc9; text-transform: uppercase; letter-spacing: .5px; }
+.sqlh-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.sqlh-row label { min-width: 52px; font-size: 12px; margin: 0; }
+.sqlh-row select, .sqlh-row input { flex: 1; min-width: 0; }
+.sqlh-limit { max-width: 90px; }
+.sqlh-checks { max-height: 150px; overflow: auto; border: 1px solid #125079; border-radius: 4px; padding: 4px 8px; }
+.sqlh-checks label { display: block; font-size: 12px; margin: 2px 0; }
+.sqlh-cond { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.sqlh-cond select { flex: 1 1 90px; min-width: 0; }
+.sqlh-cond input { flex: 1 1 90px; min-width: 0; }
+.sqlh-actions { margin: 6px 0; font-size: 12px; }
+.sqlh-preview { background: rgba(4, 19, 41, .85); border: 1px solid #125079; border-radius: 4px; padding: 8px; margin: 12px 0 8px; font-size: 12px; white-space: pre-wrap; word-break: break-word; }

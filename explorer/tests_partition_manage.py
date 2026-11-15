@@ -92,6 +92,60 @@ class ManagePartitionTests(ScriptFixture):
         self.assertNotIn("data-col-move", html)
         self.assertIn("data-col-move", self.detail("columns", table="sales_2024").content.decode())
 
+    def test_each_row_of_a_tables_list_has_a_details_link_that_opens_it_in_the_tree(self):
+        html = self.client.get(reverse("detail"), {"type": "tables", "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
+        self.assertIn('data-open-table="sales"', html)
+        self.assertIn('data-kind="partitioned table"', html)
+        self.assertIn(f'data-server="{self.server.pk}" data-db="{DB}" data-schema="public"', html)
+        script = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")
+        self.assertIn("data-open-table", script)
+        self.assertIn("openPath({type: TYPE_OF_KIND", script)
+
+    def test_each_row_of_a_tables_list_can_be_imported_into_and_exported(self):
+        html = self.client.get(reverse("detail"), {"type": "tables", "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
+        export = reverse("table_export", args=[self.server.pk])
+        for fmt in ("csv", "json", "sql"):
+            self.assertIn(f"{export}?db={DB}&amp;schema=public&amp;table=sales&amp;format={fmt}", html)
+        self.assertNotIn('data-import-table="sales"', html)                       # a partitioned table is not imported into from here
+        with admin_connect(DB) as conn:
+            conn.execute("CREATE TABLE plain (id int PRIMARY KEY)")
+        html = self.client.get(reverse("detail"), {"type": "tables", "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
+        self.assertIn('data-import-table="plain"', html)
+        script = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")
+        for needle in ("data-import-table", "data-import-csv", 'tab=data', "out of date"):
+            self.assertIn(needle, script)
+        views_html = self.client.get(reverse("detail"), {"type": "views", "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
+        self.assertNotIn("data-import-table", views_html)
+
+    def test_the_tables_list_carries_statistics_totals_and_sortable_headings(self):
+        with admin_connect(DB) as conn:
+            conn.execute("CREATE TABLE stats_demo (id serial PRIMARY KEY, note text); INSERT INTO stats_demo (note) SELECT 'x' FROM generate_series(1, 50); "
+                         "DELETE FROM stats_demo WHERE id <= 20")
+            conn.execute("VACUUM (ANALYZE) stats_demo")                                  # on its own: VACUUM cannot share a transaction with other statements
+        with pg.connect(self.server, DB) as conn:
+            items = pg.list_tables(conn, "public", stats=True)
+            found = {t["name"]: t for t in items}
+            summary = pg.tables_summary(items, conn)
+        demo = found["stats_demo"]
+        for key in ("size", "size_text", "index_size_text", "dead", "dead_percent", "writes", "seq_scans", "index_scans", "last_vacuum", "last_analyze", "has_stats"):
+            self.assertIn(key, demo)
+        self.assertTrue(demo["has_stats"])
+        self.assertIsNotNone(demo["last_vacuum"])
+        self.assertIsNotNone(demo["last_analyze"])
+        self.assertGreater(demo["size"], 0)
+        self.assertEqual(summary["count"], len(items))
+        for key in ("size_text", "rows", "dead", "writes", "never_vacuumed", "never_analyzed", "stats_reset"):
+            self.assertIn(key, summary)
+        for url_kind in ("tables", "schema"):
+            html = self.client.get(reverse("detail"), {"type": url_kind, "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
+            for text in ("DEAD ROWS", "SEQ SCANS", "INDEX SCANS", "LAST VACUUM", "LAST ANALYZE", 'data-sort="n"', "tbl-summary", "dead rows", "stats_demo"):
+                self.assertIn(text, html, (url_kind, text))
+        views_html = self.client.get(reverse("detail"), {"type": "views", "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
+        self.assertNotIn("DEAD ROWS", views_html)                                          # views have no such counters
+        script = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")
+        for needle in ("function sortTable", 'th[data-sort]', "aria-sort"):
+            self.assertIn(needle, script)
+
     def test_the_dialogs_build_the_statements(self):
         script = (BASE_DIR / "static" / "table_dialogs.js").read_text(encoding="utf-8")
         for needle in ('"add-partition"', '"attach-partition"', " PARTITION OF ", " ATTACH PARTITION ", " DETACH PARTITION ", "boundFields", "boundProblem", "boundSql",

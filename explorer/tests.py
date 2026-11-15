@@ -777,6 +777,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         self.assertContains(self.detail(type="server"), "PostgreSQL")
         self.assertContains(self.detail(type="server"), "Connection")
         self.assertContains(self.detail(type="databases"), db)
+        self.assertContains(self.detail(type="databases"), reverse("sql_runner", args=[self.server.pk]) + "?db=" + db)      # each database has a link to the SQL runner on it
         self.assertContains(self.detail(type="database", db=db), "Encoding")
         self.assertContains(self.detail(type="schemas", db=db), "pgdas_demo")
         self.assertContains(self.detail(type="schema", db=db, schema="pgdas_demo"), "orders")
