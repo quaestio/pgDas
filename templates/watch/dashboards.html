@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Dashboards · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">MONITORING / <span>DASHBOARDS</span></div><h1>Dashboards</h1></div>
+  <div class="dash-controls">
+    <label>Server <select id="dashServer">{% for s in servers %}<option value="{{ s.pk }}"{% if s.pk|stringformat:"s" == selected %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Database <select id="dashDatabase"><option value="">All databases</option></select></label>
+    <label>Period <select id="dashRange">{% for r in ranges %}<option value="{{ r }}"{% if r == default_range %} selected{% endif %}>Last {{ r }}</option>{% endfor %}</select></label>
+    <label class="dash-check"><input type="checkbox" id="dashAuto" checked> refresh every 30 s</label>
+    <button type="button" class="btn" id="dashSample" title="Take a sample of this server now">Sample now</button>
+    <a class="btn" href="{% url 'monitor' %}">Live sessions</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>
+  </div></div>
+{% if not servers %}<section class="panel pad">No servers are saved yet. Add one on the home page; PGDAS then samples it every {{ interval }} seconds.</section>{% else %}
+<div id="dashStatus" class="dash-status" role="status"></div>
+<section class="dash-tiles" id="dashTiles" aria-label="Summary"></section>
+<div id="dashBody" class="dash-body" data-url="{% url 'dashboards_data' %}" data-sample-url="{% url 'watch_sample' %}"></div>
+<p class="muted dash-foot">Sampled every {{ interval }} seconds by <code>manage.py run_watch</code> (put it in cron, every minute); detailed history is kept {{ keep_days }} days. Nothing is installed on your servers: everything comes from PostgreSQL's own statistics, with short read-only queries.</p>
+{% endif %}
+<div id="dashTip" class="dash-tip" hidden></div>
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{% static 'dashboards.css' %}"><script src="{% static 'dashboards.js' %}"></script>{% endblock %}

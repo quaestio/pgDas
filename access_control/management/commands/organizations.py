@@ -17,6 +17,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--disable", metavar="NAME", help="switch an organization off: its people can no longer use PGDAS")
         parser.add_argument("--enable", metavar="NAME", help="switch an organization back on")
+        parser.add_argument("--monitoring", nargs=2, metavar=("on|off", "NAME"), help="switch the free monitoring (sampling and dashboards) on or off for one organization")
         parser.add_argument("--purge-pending", type=int, metavar="HOURS",
                             help="delete organizations registered more than HOURS ago whose email link was never opened")
 
@@ -32,18 +33,30 @@ class Command(BaseCommand):
                    payload={"organization": organization.pk})
             self.stdout.write(self.style.SUCCESS(f"{name!r} is now {'on' if on else 'off'}."))
             return
+        if options["monitoring"]:
+            state, name = options["monitoring"]
+            if state not in ("on", "off"):
+                raise CommandError("Say on or off: --monitoring off NAME")
+            organization = Organization.objects.filter(name=name).first()
+            if organization is None:
+                raise CommandError(f"There is no organization named {name!r}.")
+            organization.monitoring_enabled = state == "on"
+            organization.save(update_fields=["monitoring_enabled"])
+            record(None, "organization.monitoring", None, f"Monitoring of organization {name!r} switched {state} from the host", payload={"organization": organization.pk})
+            self.stdout.write(self.style.SUCCESS(f"Monitoring of {name!r} is now {state}."))
+            return
         if options["purge_pending"] is not None:
             self.purge(options["purge_pending"])
             return
         self.list()
 
     def list(self):
-        self.stdout.write(f"{'ID':>4}  {'ACTIVE':<7} {'PEOPLE':>6} {'SUPER USERS':>11} {'SERVERS':>7}  NAME")
+        self.stdout.write(f"{'ID':>4}  {'ACTIVE':<7} {'MONITOR':<8} {'PEOPLE':>6} {'SUPER USERS':>11} {'SERVERS':>7}  NAME")
         for organization in Organization.objects.order_by("pk"):
             people = Membership.objects.filter(organization=organization)
             supers = people.filter(role="super_user", user__is_active=True).count()
             servers = OrganizationServer.objects.filter(organization=organization).count()
-            self.stdout.write(f"{organization.pk:>4}  {'yes' if organization.active else 'NO':<7} {people.count():>6} {supers:>11} {servers:>7}  {organization.name}")
+            self.stdout.write(f"{organization.pk:>4}  {'yes' if organization.active else 'NO':<7} {'on' if organization.monitoring_enabled else 'OFF':<8} {people.count():>6} {supers:>11} {servers:>7}  {organization.name}")
 
     def purge(self, hours):
         self.stdout.write(f"{pending.purge(hours)} unconfirmed registration(s) removed.")

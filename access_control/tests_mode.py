@@ -375,7 +375,7 @@ class HostCommandTests(ModeFixture):
         text = self.run_command()
         self.assertRegex(text, r"First")
         self.assertRegex(text, r"\s1\s+1\s+1\s+First")                           # people, super users, servers
-        self.assertRegex(text, r"NO\s+0\s+0\s+0\s+Empty")
+        self.assertRegex(text, r"NO\s+on\s+0\s+0\s+0\s+Empty")
 
     def test_switching_an_organization_off_stops_its_people_and_on_lets_them_back(self):
         client = Client()
