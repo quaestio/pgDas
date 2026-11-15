@@ -8,6 +8,9 @@ class Organization(models.Model):
     name = models.CharField(max_length=150)
     active = models.BooleanField(default=True)
     # Whether this organization's Super Users may create other organizations. On by default: creation never spreads by accident.
+    # Free monitoring for everybody on a shared installation; the person who runs PGDAS can switch it off for one organization
+    # (manage.py organizations --monitoring off NAME), for example one that sends too much load.
+    monitoring_enabled = models.BooleanField(default=True)
     restrict_creation = models.BooleanField(default=True)
     # Addresses (one per line; a single address or a range such as 10.0.0.0/24) from which everyone except Super Users may use PGDAS.
     # Empty = no restriction. Checked on every request after sign-in.

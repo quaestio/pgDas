@@ -206,7 +206,14 @@ BACKUP_DIR = Path(os.getenv("PGDAS_BACKUP_DIR") or BASE_DIR / "data" / "backups"
 PG_BIN = os.getenv("PGDAS_PG_BIN", "")
 
 # Size trends and alerts (the Watch page). Samples are kept this many days; the thresholds decide when an alert shows.
-WATCH_KEEP_DAYS = int(os.getenv("PGDAS_WATCH_KEEP_DAYS", "90"))
+WATCH_KEEP_DAYS = int(os.getenv("PGDAS_WATCH_KEEP_DAYS", "90"))                              # size history
+# The statistics history behind the Dashboards page (see watch/metrics.py and watch/sampling.py). All of it is per saved server, for every organization.
+WATCH_INTERVAL_SECONDS = int(os.getenv("PGDAS_WATCH_INTERVAL_SECONDS") or 300)             # how often each server is sampled
+WATCH_METRIC_KEEP_DAYS = int(os.getenv("PGDAS_WATCH_METRIC_KEEP_DAYS") or 14)              # how long the detailed samples are kept
+WATCH_WORKERS = int(os.getenv("PGDAS_WATCH_WORKERS") or 8)                                 # servers sampled at the same time
+WATCH_SAMPLE_TIMEOUT_MS = int(os.getenv("PGDAS_WATCH_SAMPLE_TIMEOUT_MS") or 8000)         # one statistics query may take this long on the monitored server
+WATCH_MAX_BACKOFF_SECONDS = int(os.getenv("PGDAS_WATCH_MAX_BACKOFF_SECONDS") or 3600)     # a dead server is tried at most this rarely
+WATCH_RUN_LEASE_SECONDS = int(os.getenv("PGDAS_WATCH_RUN_LEASE_SECONDS") or 900)          # a run that has not finished after this long is considered dead
 WATCH_BLOCKED_SECONDS = int(os.getenv("PGDAS_WATCH_BLOCKED_SECONDS", "30"))          # a session waiting on a lock this long
 WATCH_IDLE_TX_SECONDS = int(os.getenv("PGDAS_WATCH_IDLE_TX_SECONDS", "300"))         # idle in a transaction this long
 WATCH_SLOW_SECONDS = int(os.getenv("PGDAS_WATCH_SLOW_SECONDS", "300"))               # a query running this long
