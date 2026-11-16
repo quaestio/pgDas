@@ -96,4 +96,8 @@ class ServerIdConverter:
         return found
 
     def to_url(self, value):
+        if isinstance(value, str) and not value.isdigit():       # already a token (a page that holds the token, not the number)
+            if decode(value) is None:
+                raise ValueError(value)
+            return value
         return encode(value)

@@ -52,6 +52,13 @@ class TokenTests(SimpleTestCase):
         self.assertEqual(ids.encode(0), "0")
         self.assertEqual(reverse("write_preview", args=[0]), "/c/0/sql/write/preview/")
 
+    def test_an_address_can_be_made_from_the_number_or_from_the_token(self):
+        self.assertEqual(reverse("sql_runner", args=[7]), reverse("sql_runner", args=[ids.encode(7)]))
+        self.assertEqual(reverse("sql_runner", args=["7"]), reverse("sql_runner", args=[ids.encode(7)]))
+        from django.urls import NoReverseMatch
+        with self.assertRaises(NoReverseMatch):
+            reverse("sql_runner", args=["not-a-token"])
+
     def test_addresses_carry_the_token_not_the_number(self):
         path = reverse("sql_runner", args=[7])
         self.assertEqual(path, f"/c/{ids.encode(7)}/sql/")
