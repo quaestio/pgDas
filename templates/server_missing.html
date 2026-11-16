@@ -1,9 +1,19 @@
-{% extends "base.html" %}
-{% block title %}Server not found · PGDAS{% endblock %}
-{% block content %}
-<div class="title-row"><div><div class="eyebrow">SERVERS / <span>NOT FOUND</span></div><h1>Server not found</h1></div></div>
-<section class="panel pad">
-  <ul class="messages"><li class="error">{{ message }}</li></ul>
-  <p style="margin-top:14px"><a class="btn primary" href="{% url 'server_list' %}">Back to the servers</a></p>
-</section>
-{% endblock %}
+{% load static %}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Server not found · PGDAS</title>
+<link rel="stylesheet" href="{% static 'pgdas.css' %}">
+</head>
+<body>
+{# A small page of its own on purpose: whoever lands here may have no access to anything, so none of the application's menus or dialogs are on it. #}
+<main style="max-width:640px;margin:12vh auto;padding:0 16px">
+  <section class="panel pad">
+    <h1 style="margin-top:0">Server not found</h1>
+    <ul class="messages"><li class="error">{{ message }}</li></ul>
+    <p style="margin-top:14px"><a class="btn primary" href="{% url 'server_list' %}">Back to the servers</a></p>
+  </section>
+</main>
+</body>
+</html>
