@@ -4,7 +4,7 @@
 {% block content %}
 <div class="title-row"><div><div class="eyebrow">MONITORING / <span>DASHBOARDS</span></div><h1>Dashboards</h1></div>
   <div class="dash-controls">
-    <label>Server <select id="dashServer">{% for s in servers %}<option value="{{ s.pk }}"{% if s.pk|stringformat:"s" == selected %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Server <select id="dashServer">{% for s in servers %}<option value="{{ s.sid }}"{% if s.sid == selected %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
     <label>Database <select id="dashDatabase"><option value="">All databases</option></select></label>
     <label>Period <select id="dashRange">{% for r in ranges %}<option value="{{ r }}"{% if r == default_range %} selected{% endif %}>Last {{ r }}</option>{% endfor %}</select></label>
     <label>Refresh <select id="dashRefresh"><option value="0">Off</option><option value="10">every 10 s</option><option value="30" selected>every 30 s</option><option value="60">every minute</option></select></label>

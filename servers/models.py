@@ -57,6 +57,12 @@ class ServerConnection(models.Model):
         return self.name
 
     @property
+    def sid(self):
+        """This server's number as it appears in links and requests: an encrypted token (see servers/ids.py), never the plain number."""
+        from . import ids
+        return ids.encode(self.pk)
+
+    @property
     def database_name(self):
         """The database PGDAS logs into: the saved one, or postgres when none was given."""
         return (self.database or "").strip() or DEFAULT_DATABASE

@@ -15,7 +15,7 @@ from watch import alerts
 
 def _look(server, with_alerts):
     """One server: whether it answers, its version, sessions, databases and sizes, and (for staff) its alerts."""
-    info = {"id": server.pk, "name": server.name, "host": f"{server.host}:{server.port}", "ok": False, "error": "", "version": "",
+    info = {"id": server.sid, "name": server.name, "host": f"{server.host}:{server.port}", "ok": False, "error": "", "version": "",
             "sessions": 0, "active": 0, "max": 0, "cache_hit": None, "databases": [], "size": 0}
     try:
         with pg.connect(server) as conn:

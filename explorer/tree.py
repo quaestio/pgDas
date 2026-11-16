@@ -14,6 +14,7 @@ view or sequence) / name (a type, trigger, role, extension, ...) / oid (a functi
 browser can ask for any node's children or details with those few query parameters. `rel` says which kind of relation
 a Columns / Indexes / Triggers folder belongs to, and `system=1` asks for extension objects and built-in pg_* roles too.
 """
+from servers import ids
 from servers.models import ServerConnection
 
 from . import pg
@@ -30,6 +31,8 @@ RELATION_NODE = {"tables": "table", "views": "view", "matviews": "matview", "seq
 def make_node(label, type, expandable=True, hint="", **location):
     node = {"label": label, "type": type, "expandable": expandable, "hint": hint}
     node.update({key: str(location.get(key, "")) for key in NODE_KEYS})
+    if node["server"].isdigit():
+        node["server"] = ids.encode(node["server"])              # the page's scripts only ever see the token (servers/ids.py)
     return node
 
 
@@ -43,7 +46,8 @@ def get_server(node):
     """The saved server a node belongs to, or None when the id is missing or unknown."""
     try:
         from access_control.runtime import servers
-        return servers().filter(pk=int(node["server"])).first()
+        number = ids.decode(node["server"])
+        return servers().filter(pk=number).first() if number else None
     except (TypeError, ValueError):
         return None
 

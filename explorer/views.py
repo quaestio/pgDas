@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from audit.models import AuditEntry, record
+from servers import ids
 from servers.models import ServerConnection
 from access_control import runtime
 from access_control.policy import require, permits, filter_databases, refusal_message
@@ -55,7 +56,7 @@ def tree_nodes(request):
 
 def _base(node, **identity):
     """Query string that re-opens the same object; the tab and page links append to it."""
-    params = {"server": node["server"], "db": node["db"], "schema": node["schema"], **identity}
+    params = {"server": ids.to_token(node["server"]), "db": node["db"], "schema": node["schema"], **identity}
     if node["system"]:
         params["system"] = "1"
     return urlencode(params)
@@ -283,12 +284,12 @@ def _can_rows(user, server, database=None):
 
 def _admin_json(server, roles, databases):
     """What the Create database / Create role / Rename dialogs need to fill their lists, as one JSON attribute."""
-    return json.dumps({"server": server.pk, "roles": [r["name"] for r in roles], "databases": [d["name"] for d in databases]})
+    return json.dumps({"server": server.sid, "roles": [r["name"] for r in roles], "databases": [d["name"] for d in databases]})
 
 
 def _structure_json(server, db, schema, table=""):
     """Where the table-structure buttons (New table, Rename, Drop, column actions) apply, as one JSON attribute."""
-    return json.dumps({"server": server.pk, "db": db, "schema": schema, "table": table,
+    return json.dumps({"server": server.sid, "db": db, "schema": schema, "table": table,
                        "types_url": reverse("column_types", args=[server.pk]) + "?" + urlencode({"db": db}),
                        "tables_url": reverse("database_tables", args=[server.pk]) + "?" + urlencode({"db": db})})
 

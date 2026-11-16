@@ -7,7 +7,7 @@
 <section class="panel pad">
   {% if servers %}
   <div class="bk-form">
-    <label>Server<select id="wServer">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Server<select id="wServer">{% for s in servers %}<option value="{{ s.sid }}">{{ s.name }}</option>{% endfor %}</select></label>
     <label>Period<select id="wDays">{% for d in periods %}<option value="{{ d }}"{% if d == 7 %} selected{% endif %}>{% if d == 1 %}Last 24 hours{% else %}Last {{ d }} days{% endif %}</option>{% endfor %}</select></label>
     <button class="btn primary" type="button" id="wSample" title="Take a size sample of this server now">Sample now</button>
     <span class="muted" id="wStatus"></span>

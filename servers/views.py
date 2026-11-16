@@ -173,7 +173,7 @@ def server_json(request, pk):
     from django.http import JsonResponse
     from .tunnel import fingerprint
     server = get_object_or_404(runtime.servers(), pk=pk)
-    return JsonResponse({"ok": True, "id": server.pk, "values": {
+    return JsonResponse({"ok": True, "id": server.sid, "values": {
         "name": server.name, "comments": server.comments, "host": server.host, "port": server.port, "database": server.database if server.database != "postgres" else "",
         "username": server.username, "sslmode": server.sslmode, "kerberos": server.kerberos, "krbsrvname": server.krbsrvname,
         "save_password": server.save_password, "ssh_enabled": server.ssh_enabled, "ssh_host": server.ssh_host, "ssh_port": server.ssh_port,

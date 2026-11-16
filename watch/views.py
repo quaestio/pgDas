@@ -13,6 +13,7 @@ from django.views.decorators.http import require_POST
 
 from audit.models import record
 from explorer.pg import PgError
+from servers import ids
 from servers.models import ServerConnection
 
 from . import alerts, metrics, notify, sampling, series, server_settings
@@ -76,8 +77,9 @@ def watch_test_notify(request):
 def dashboards_page(request):
     """Charts of everything PostgreSQL reports about itself, sampled over time (see series.py). Super Users of an organization see their own servers."""
     servers = list(runtime.servers().order_by("name"))
-    selected = request.GET.get("server") or (servers[0].pk if servers else "")
-    return render(request, "watch/dashboards.html", {"servers": servers, "selected": str(selected), "ranges": list(series.RANGES), "default_range": "6h",
+    chosen = next((s for s in servers if str(s.pk) == str(request.GET.get("server") or "")), servers[0] if servers else None)
+    selected = chosen.sid if chosen else ""
+    return render(request, "watch/dashboards.html", {"servers": servers, "selected": selected, "ranges": list(series.RANGES), "default_range": "6h",
                                                       "interval": settings.WATCH_INTERVAL_SECONDS, "keep_days": settings.WATCH_METRIC_KEEP_DAYS})
 
 
@@ -94,7 +96,7 @@ def dashboards_data(request):
         data = series.dashboard(server, series.RANGES[window] / 3600, database)
         names = list(MetricSample.objects.filter(server=server, taken_at__gte=timezone.now() - timedelta(hours=series.RANGES[window] / 3600))
                      .exclude(database="").order_by().values_list("database", flat=True).distinct())
-        payload = {"ok": True, "server": {"id": server.pk, "name": server.name}, "databases": sorted(names), "range_key": window, "database": database, **data}
+        payload = {"ok": True, "server": {"id": server.sid, "name": server.name}, "databases": sorted(names), "range_key": window, "database": database, **data}
         cache.set(key, payload, 20)
     return JsonResponse({**payload, "can_edit_settings": runtime.is_admin(request.user)})          # who is looking is not part of the cached answer
 
@@ -107,7 +109,8 @@ def _setting_request(request):
         body = json.loads(request.body or b"{}")
     except ValueError:
         return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
-    server = runtime.servers().filter(pk=body.get("server") or 0).first()
+    number = ids.decode(body.get("server"))                                # the page sends the token; an old plain number is understood too
+    server = runtime.servers().filter(pk=number).first() if number else None
     if server is None:
         return JsonResponse({"ok": False, "error": "That server was not found."}, status=404)
     return server, str(body.get("name") or ""), body.get("value"), bool(body.get("reset")), body

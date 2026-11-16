@@ -11,7 +11,7 @@
   <h2>Back up now</h2>
   {% if servers %}
   <form method="post" action="{% url 'backup_create' %}" class="bk-form">{% csrf_token %}
-    <label>Server<select name="server" data-db-target="#bkDb1">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Server<select name="server" data-db-target="#bkDb1">{% for s in servers %}<option value="{{ s.sid }}">{{ s.name }}</option>{% endfor %}</select></label>
     <label>Database<select name="database" id="bkDb1" required></select></label>
     <button class="btn primary" type="submit">Back up</button>
     {% include "backups/_options.html" %}
@@ -24,7 +24,7 @@
   <p class="muted">Backups that are due are made when <code>python manage.py run_backups</code> runs (from Task Scheduler or cron, or keep it going with <code>--loop</code>). Only scheduled backups are pruned to the newest few.</p>
   {% if servers %}
   <form method="post" action="{% url 'schedule_save' %}" class="bk-form">{% csrf_token %}
-    <label>Server<select name="server" data-db-target="#bkDb2">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Server<select name="server" data-db-target="#bkDb2">{% for s in servers %}<option value="{{ s.sid }}">{{ s.name }}</option>{% endfor %}</select></label>
     <label>Database<select name="database" id="bkDb2" required></select></label>
     <label>Every (hours)<input type="number" name="every_hours" min="1" value="24"></label>
     <label>Keep newest<input type="number" name="keep" min="1" value="7"></label>

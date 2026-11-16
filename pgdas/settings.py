@@ -74,6 +74,7 @@ MIDDLEWARE = [
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "servers.middleware.ServerIdMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "access_control.middleware.AccessMiddleware",
@@ -197,6 +198,9 @@ CSRF_COOKIE_SAMESITE = "Lax"
 if not DEBUG:
     SESSION_COOKIE_SECURE = os.getenv("PGDAS_SECURE_COOKIES", "1") == "1"
     CSRF_COOKIE_SECURE = SESSION_COOKIE_SECURE
+
+# Server numbers in links are encrypted tokens (servers/ids.py). Plain numbers (old bookmarks, scripts) are still understood unless this is 1.
+PGDAS_STRICT_SERVER_IDS = os.getenv("PGDAS_STRICT_SERVER_IDS", "0") == "1"
 
 # Optional dedicated Fernet key for saved server passwords; otherwise derived from SECRET_KEY.
 ENCRYPTION_KEY = os.getenv("PGDAS_ENCRYPTION_KEY", "")

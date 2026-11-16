@@ -7,15 +7,15 @@
     <tbody>
     {% for s in servers %}
       <tr>
-        <td><a href="#" data-open-server="{{ s.pk }}"><strong>{{ s.name }}</strong></a></td>
+        <td><a href="#" data-open-server="{{ s.sid }}"><strong>{{ s.name }}</strong></a></td>
         <td class="muted">{{ s.username }}@{{ s.host }}:{{ s.port }}</td>
         <td><span class="badge">{{ s.sslmode }}</span></td>
         <td style="text-align:right; white-space:nowrap">
-          <a class="btn" href="#" data-open-server="{{ s.pk }}">Open</a>
+          <a class="btn" href="#" data-open-server="{{ s.sid }}">Open</a>
           <a class="btn" href="{% url 'sql_runner' s.pk %}">SQL</a>
           {% include "servers/_unlock_buttons.html" %}
           <form method="post" action="{% url 'server_test' s.pk %}" style="display:inline">{% csrf_token %}<button class="btn" type="submit">Test</button></form>
-          {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' s.pk %}" data-server-edit="{{ s.pk }}" data-json-url="{% url 'server_json' s.pk %}" data-update-url="{% url 'server_update' s.pk %}">Edit</a>
+          {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' s.pk %}" data-server-edit="{{ s.sid }}" data-json-url="{% url 'server_json' s.pk %}" data-update-url="{% url 'server_update' s.pk %}">Edit</a>
           <a class="btn danger" href="{% url 'server_delete' s.pk %}">Remove</a>{% endif %}
         </td>
       </tr>
@@ -35,9 +35,9 @@
   </dl>
   <p style="margin-top:18px">
     <a class="btn" href="{% url 'sql_runner' server.pk %}">SQL runner</a>
-    {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' server.pk %}" data-server-edit="{{ server.pk }}" data-json-url="{% url 'server_json' server.pk %}" data-update-url="{% url 'server_update' server.pk %}">Edit server</a>{% endif %}
+    {% if user.is_staff %}<a class="btn" href="{% url 'server_edit' server.pk %}" data-server-edit="{{ server.sid }}" data-json-url="{% url 'server_json' server.pk %}" data-update-url="{% url 'server_update' server.pk %}">Edit server</a>{% endif %}
     {% include "servers/_unlock_buttons.html" with s=server %}
-    {% if user.is_staff %}<a class="btn" href="{% url 'dashboards' %}?server={{ server.pk }}">Dashboards</a> <a class="btn" href="{% url 'monitor' %}">Live sessions</a>{% endif %}
+    {% if user.is_staff %}<a class="btn" href="{% url 'dashboards' %}?server={{ server.sid }}">Dashboards</a> <a class="btn" href="{% url 'monitor' %}">Live sessions</a>{% endif %}
   </p>
   {% if server_stats %}
   <div class="stat-groups">
@@ -77,11 +77,11 @@
   <div class="scroll"><table>
     <thead><tr><th>NAME</th><th>OWNER</th><th>ENCODING</th><th>SIZE</th><th>ACTIONS</th></tr></thead>
     <tbody>{% for d in databases %}<tr><td>{{ d.name }}</td><td class="muted">{{ d.owner }}</td><td class="muted">{{ d.encoding }}</td><td class="muted">{{ d.size_text }}</td>
-      <td class="row-actions"><button type="button" class="btn" data-open-database="{{ d.name }}" data-server="{{ server.pk }}">Details</button>
+      <td class="row-actions"><button type="button" class="btn" data-open-database="{{ d.name }}" data-server="{{ server.sid }}">Details</button>
         <a class="btn" href="{% url 'sql_runner' server.pk %}?db={{ d.name|urlencode }}" title="Open the SQL runner on {{ d.name }}">SQL</a>
         {% if can_admin %}<button type="button" class="btn" data-admin-dialog="rename-db" data-db="{{ d.name }}">Rename</button>
         <button type="button" class="btn danger" data-admin-dialog="drop-db" data-db="{{ d.name }}" data-sessions="{{ d.sessions }}">Delete</button>{% endif %}
-        {% if can_admin %}<button type="button" class="sessions-btn{% if d.sessions %} busy{% endif %}" data-db-sessions="{{ d.name }}" data-server="{{ server.pk }}" title="Check the sessions connected to this database">{{ d.sessions }} session{{ d.sessions|pluralize }}</button>{% endif %}</td></tr>
+        {% if can_admin %}<button type="button" class="sessions-btn{% if d.sessions %} busy{% endif %}" data-db-sessions="{{ d.name }}" data-server="{{ server.sid }}" title="Check the sessions connected to this database">{{ d.sessions }} session{{ d.sessions|pluralize }}</button>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5" class="muted">No databases you can connect to.</td></tr>{% endfor %}</tbody>
   </table></div>
   </div>{% elif kind == "database" %}
@@ -165,8 +165,8 @@
         <td class="muted" data-v="{{ t.last_vacuum|date:'U' }}">{% if t.has_stats %}{{ t.last_vacuum|date:"Y-m-d H:i"|default:"never" }}{% else %}—{% endif %}</td>
         <td class="muted" data-v="{{ t.last_analyze|date:'U' }}">{% if t.has_stats %}{{ t.last_analyze|date:"Y-m-d H:i"|default:"never" }}{% else %}—{% endif %}</td>
         {% else %}<td class="muted">{% if t.kind == "view" or t.kind == "sequence" %}—{% else %}{{ t.estimate|default_if_none:"not analyzed yet" }}{% endif %}</td>{% endif %}
-        <td class="row-actions"><a class="btn" href="#" data-open-table="{{ t.name }}" data-kind="{{ t.kind }}" data-server="{{ server.pk }}" data-db="{{ node.db }}" data-schema="{{ node.schema }}">Details</a>
-          {% if structure and t.kind == "table" %}<a class="btn" href="#" data-import-table="{{ t.name }}" data-kind="{{ t.kind }}" data-server="{{ server.pk }}" data-db="{{ node.db }}" data-schema="{{ node.schema }}" title="Import rows from a CSV file into {{ t.name }}">Import</a>{% endif %}
+        <td class="row-actions"><a class="btn" href="#" data-open-table="{{ t.name }}" data-kind="{{ t.kind }}" data-server="{{ server.sid }}" data-db="{{ node.db }}" data-schema="{{ node.schema }}">Details</a>
+          {% if structure and t.kind == "table" %}<a class="btn" href="#" data-import-table="{{ t.name }}" data-kind="{{ t.kind }}" data-server="{{ server.sid }}" data-db="{{ node.db }}" data-schema="{{ node.schema }}" title="Import rows from a CSV file into {{ t.name }}">Import</a>{% endif %}
           {% if can_export and t.kind != "sequence" %}<span class="row-export"><span class="muted">Export</span>
             {% for format, label in export_formats %}<a class="btn" href="{% url 'table_export' server.pk %}?db={{ node.db|urlencode }}&amp;schema={{ node.schema|urlencode }}&amp;table={{ t.name|urlencode }}&amp;format={{ format }}" title="Download {{ t.name }} as {{ label }}" download>{{ label }}</a>{% endfor %}</span>{% endif %}</td></tr>
       {% empty %}<tr><td colspan="{% if stats %}12{% else %}4{% endif %}" class="muted">None in this schema.</td></tr>{% endfor %}</tbody>

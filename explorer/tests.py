@@ -730,7 +730,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         top = self.nodes(type="servers")
         self.assertEqual({n["label"] for n in top}, {"test", "Second"})
         self.assertTrue(all(n["type"] == "server" and n["expandable"] for n in top))
-        self.assertEqual({n["server"] for n in top}, {str(self.server.pk), str(second.pk)})
+        self.assertEqual({n["server"] for n in top}, {self.server.sid, second.sid})
         self.assertEqual([n["label"] for n in self.nodes(type="server", server=second.pk)],
                          ["Databases", "Roles", "Tablespaces"])  # listing them needs no connection
 
@@ -773,7 +773,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         listing = self.detail(type="servers", server="")
         self.assertContains(listing, "test")
         self.assertContains(listing, reverse("server_test", args=[self.server.pk]))
-        self.assertContains(listing, 'data-open-server="%s"' % self.server.pk)
+        self.assertContains(listing, 'data-open-server="%s"' % self.server.sid)
         self.assertContains(self.detail(type="server"), "PostgreSQL")
         self.assertContains(self.detail(type="server"), "Connection")
         self.assertContains(self.detail(type="databases"), db)
@@ -787,7 +787,7 @@ class ExplorerViewTests(PgFixture, TestCase):
         place = {"type": "table", "db": self.server.database, "schema": "pgdas_demo", "table": "orders"}
         first = self.detail(**place)
         self.assertContains(first, "Total size")
-        self.assertContains(first, f"server={self.server.pk}")  # tab links keep the server, so they work from the one browser page
+        self.assertContains(first, f"server={self.server.sid}")  # tab links keep the server, so they work from the one browser page
         self.assertContains(first, f"<dd>{self.server.name}</dd>")
         self.assertContains(self.detail(**place, tab="columns"), "numeric(10,2)")
         self.assertContains(self.detail(**place, tab="constraints"), "FOREIGN KEY")

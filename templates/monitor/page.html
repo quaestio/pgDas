@@ -7,7 +7,7 @@
 <section class="panel pad">
   {% if servers %}
   <div class="bk-form">
-    <label>Server<select id="mnServer">{% for s in servers %}<option value="{{ s.pk }}">{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Server<select id="mnServer">{% for s in servers %}<option value="{{ s.sid }}">{{ s.name }}</option>{% endfor %}</select></label>
     <label>Slow after (seconds)<input type="number" id="mnSlow" min="1" value="5"></label>
     <label>Refresh<select id="mnEvery"><option value="0">Off</option><option value="3000">3 s</option><option value="5000" selected>5 s</option><option value="15000">15 s</option><option value="60000">1 min</option></select></label>
     <button class="btn primary" type="button" id="mnNow">Refresh now</button>

@@ -10,7 +10,7 @@
 </div>
 <div class="sql-layout">
 <section class="panel pad">
-  <form method="post" id="sqlForm" data-run-url="{% url 'sql_run' server.pk %}" data-page-url="{% url 'sql_page' server.pk %}"{% if can_write %} data-can-write="1" data-server="{{ server.pk }}"
+  <form method="post" id="sqlForm" data-run-url="{% url 'sql_run' server.pk %}" data-page-url="{% url 'sql_page' server.pk %}"{% if can_write %} data-can-write="1" data-server="{{ server.sid }}"
         data-preview-url="{% url 'write_preview' server.pk %}" data-execute-url="{% url 'write_execute' server.pk %}"
         data-audit-url="{% url 'audit_list' %}"{% endif %}>{% csrf_token %}
     <input type="hidden" name="db" value="{{ db }}">

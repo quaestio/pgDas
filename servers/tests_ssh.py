@@ -369,11 +369,11 @@ class PromptPassphraseTests(SSHFixture):
         from servers import unlock
         server = self.locked_server()
         page = self.client.get(reverse("detail") + "?type=servers")
-        self.assertContains(page, f'data-server-unlock="{server.pk}"')
+        self.assertContains(page, f'data-server-unlock="{server.sid}"')
         unlock.unlock(server, "open sesame", self.admin)
         page = self.client.get(reverse("detail") + "?type=servers")
-        self.assertContains(page, f'data-server-lock="{server.pk}"')
-        self.assertNotContains(page, f'data-server-unlock="{server.pk}"')
+        self.assertContains(page, f'data-server-lock="{server.sid}"')
+        self.assertNotContains(page, f'data-server-unlock="{server.sid}"')
 
     def test_the_popup_tests_with_the_typed_passphrase_saves_without_it_and_starts_unlocked(self):
         from servers import unlock
@@ -657,7 +657,7 @@ class EditPopupTests(TestCase):
 
     def test_the_popup_has_four_tabs_and_the_edit_buttons(self):
         page = self.client.get(reverse("detail") + "?type=servers")
-        self.assertContains(page, f'data-server-edit="{self.server.pk}"')
+        self.assertContains(page, f'data-server-edit="{self.server.sid}"')
         shell = self.client.get(reverse("server_list"))
         for needle in ('data-tab="general"', 'data-tab="connection"', 'data-tab="ssh"', 'data-tab="string"', "Save password", "Kerberos authentication",
                        "Database to connect to first", 'name="comments"', "data-current-string"):
