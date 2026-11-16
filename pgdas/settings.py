@@ -20,6 +20,9 @@ if not SECRET_KEY:
         raise RuntimeError("Set PGDAS_SECRET_KEY (see .env.example) or run with PGDAS_DEBUG=1 for local development.")
     SECRET_KEY = "insecure-development-key-do-not-use-in-production"
 
+# The release number shown in the footer of every page (and tagged in git as v<number>). See CHANGELOG.md.
+PGDAS_VERSION = "1.0.0"
+
 ALLOWED_HOSTS = env_list("PGDAS_ALLOWED_HOSTS", "localhost,127.0.0.1")
 CSRF_TRUSTED_ORIGINS = env_list("PGDAS_CSRF_TRUSTED_ORIGINS")
 # Proxies (addresses or ranges) whose X-Forwarded-For header may be believed when working out a visitor's address (see access_control.network).
@@ -93,6 +96,7 @@ TEMPLATES = [{
         "django.contrib.auth.context_processors.auth",
         "django.contrib.messages.context_processors.messages",
         "access_control.context.installation",
+        "pgdas.context.version",
     ]},
 }]
 

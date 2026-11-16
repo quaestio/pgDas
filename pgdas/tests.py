@@ -243,12 +243,12 @@ class FooterTests(TestCase):
         html = self.page()
         main = html[html.index("<main"):html.index("</main>")]
         footer = main[main.index('<footer class="app-footer"'):]
-        self.assertIn("Version: Development", footer)
+        self.assertIn(f"Version: {settings.PGDAS_VERSION}", footer)
         self.assertIn("PGDAS contributors", footer)
         self.assertIn("PostgreSQL Database Access System", footer)
         self.assertGreater(main.index("<footer"), main.index('class="content"'))                    # after the content ...
         self.assertTrue(main[:main.index("<footer")].rstrip().endswith("</div>"))                    # ... right after the content block closed
-        self.assertEqual(html.count("Version: Development"), 1)
+        self.assertEqual(html.count(f"Version: {settings.PGDAS_VERSION}"), 1)
 
     def test_the_sidebar_has_nothing_below_the_tree(self):
         html = self.page()

@@ -6,7 +6,7 @@ A web admin for PostgreSQL. Browse servers, databases, roles, schemas, tables, v
 and drop databases and users; and keep an audit log of everything people do. Built with Django; nothing to install but
 PGDAS itself and a PostgreSQL database of its own for its users, saved servers and audit log.
 
-**Status: in development.** Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
+**Version 1.0.0** (the first release; see the [changelog](CHANGELOG.md)). Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
 timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
 popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); monitoring, size trends and alerts are done (see "Monitor" and "Alerts & trends") (see the
 roadmap).
