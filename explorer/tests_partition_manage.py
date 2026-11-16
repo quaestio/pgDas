@@ -96,7 +96,7 @@ class ManagePartitionTests(ScriptFixture):
         html = self.client.get(reverse("detail"), {"type": "tables", "server": self.server.pk, "db": DB, "schema": "public"}).content.decode()
         self.assertIn('data-open-table="sales"', html)
         self.assertIn('data-kind="partitioned table"', html)
-        self.assertIn(f'data-server="{self.server.pk}" data-db="{DB}" data-schema="public"', html)
+        self.assertIn(f'data-server="{self.server.sid}" data-db="{DB}" data-schema="public"', html)
         script = (BASE_DIR / "static" / "explorer.js").read_text(encoding="utf-8")
         self.assertIn("data-open-table", script)
         self.assertIn("openPath({type: TYPE_OF_KIND", script)

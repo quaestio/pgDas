@@ -344,7 +344,7 @@ class DialogTests(AdminFixture, TestCase):
         self.assertContains(page, f'data-db="{TARGET["NAME"]}"')
         self.assertNotContains(page, "Review CREATE DATABASE")                       # the old inline form is gone
         data = json.loads(page.content.decode().split('data-admin="')[1].split('"')[0].replace("&quot;", '"'))
-        self.assertEqual(data["server"], self.server.pk)
+        self.assertEqual(data["server"], self.server.sid)
         self.assertIn(TARGET["USER"], data["roles"])
         self.assertIn(TARGET["NAME"], data["databases"])
 

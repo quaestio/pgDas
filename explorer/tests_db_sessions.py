@@ -52,7 +52,7 @@ class DatabasesListSessionsTests(AdminFixture, TestCase):
         self.assertEqual(text, "0 sessions")
         self.assertNotIn("busy", tag)                                                    # nothing connected: not highlighted
         self.assertIn(f'data-db-sessions="{DB}"', tag)
-        self.assertIn(f'data-server="{self.server.pk}"', tag)
+        self.assertIn(f'data-server="{self.server.sid}"', tag)
         self.assertIn('type="button"', tag)
         for name in re.findall(r'<tr><td>([^<]+)</td><td class="muted">', html):          # every listed database has one
             self.assertIsNotNone(badge(html, name), name)

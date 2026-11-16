@@ -33,9 +33,9 @@ class DashboardTests(WriteFixture, TestCase):
         self.assertIn(self.db, [s["database"] for s in d["storage"]])
 
     def test_each_server_row_has_the_addresses_of_its_buttons(self):
-        pk = self.server.pk
+        pk, sid = self.server.pk, self.server.sid
         self.assertEqual(self.get()["servers"][0]["urls"], {
-            "sql": f"/c/{pk}/sql/", "test": f"/servers/{pk}/test/", "edit": f"/servers/{pk}/edit/", "remove": f"/servers/{pk}/delete/"})
+            "sql": f"/c/{sid}/sql/", "test": f"/servers/{sid}/test/", "edit": f"/servers/{sid}/edit/", "remove": f"/servers/{sid}/delete/"})
         for name in ("sql_runner", "server_test", "server_edit", "server_delete"):
             self.assertEqual(self.client.get(reverse(name, args=[pk])).status_code in (200, 302, 405), True, name)
 

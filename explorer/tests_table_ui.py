@@ -27,7 +27,7 @@ class TableButtonsTests(AdminFixture, TestCase):
         self.plain.force_login(get_user_model().objects.create_user("plain", password="pw-12345-abc"))
 
     def page(self, client, **params):
-        return client.get(reverse("detail"), {"server": self.server.pk, "db": DB, "schema": "public", **params}).content.decode()
+        return client.get(reverse("detail"), {"server": self.server.sid, "db": DB, "schema": "public", **params}).content.decode()
 
     def structure(self, html):
         match = re.search(r'data-structure="([^"]*)"', html)
@@ -37,7 +37,7 @@ class TableButtonsTests(AdminFixture, TestCase):
         for kind in ("tables", "schema"):
             with self.subTest(kind=kind):
                 html = self.page(self.staff_client, type=kind)
-                self.assertEqual(self.structure(html), {"server": self.server.pk, "db": DB, "schema": "public", "table": "",
+                self.assertEqual(self.structure(html), {"server": self.server.sid, "db": DB, "schema": "public", "table": "",
                                                         "types_url": reverse("column_types", args=[self.server.pk]) + f"?db={DB}",
                                                         "tables_url": reverse("database_tables", args=[self.server.pk]) + f"?db={DB}"})
                 self.assertIn('data-table-dialog="new-table"', html)
@@ -57,7 +57,7 @@ class TableButtonsTests(AdminFixture, TestCase):
 
     def test_people_who_are_not_staff_get_no_buttons_but_still_see_the_columns(self):
         for params in ({"type": "table", "table": "people"}, {"type": "table", "table": "people", "tab": "columns"}):
-            response = self.plain.get(reverse("detail"), {"server": self.server.pk, "db": DB, "schema": "public", **params})
+            response = self.plain.get(reverse("detail"), {"server": self.server.sid, "db": DB, "schema": "public", **params})
             self.assertEqual(response.status_code, 404)                          # a person with no role on this server gets nothing, buttons included
             for forbidden in ("data-table-dialog", "data-structure", "data-col-move", "data-order-apply", "<td>name</td>"):
                 self.assertNotContains(response, forbidden, status_code=404)

@@ -37,4 +37,4 @@ class ServerStatsTests(ScriptFixture):
         html = self.client.get(reverse("detail"), {"type": "server", "server": self.server.pk}).content.decode()
         for text in ("Connections now", "Work done", "Key settings", "Running since", "Cache hit", "shared_buffers", "Idle in transaction"):
             self.assertIn(text, html)
-        self.assertIn(reverse("dashboards") + f"?server={self.server.pk}", html)
+        self.assertIn(reverse("dashboards") + f"?server={self.server.sid}", html)
