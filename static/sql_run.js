@@ -128,6 +128,7 @@
       clearOld();
       current = data.ok ? {sql: statement, db: database(), token: data.token || ""} : null;
       show(data);
+      if (window.pgdasHistoryAdd) { window.pgdasHistoryAdd(statement, !!data.ok); }          // "My recent statements" follows the run
     }).catch(function () { clearOld(); showError({error: "Could not reach PGDAS. Nothing was run."}); }).then(finish);
   });
 

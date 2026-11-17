@@ -260,8 +260,38 @@ def _execute_update(server, database, text, fingerprint, user):
                        f"Recorded in the audit log as entry #{entry.pk}."}
 
 
+def undo_partition(entry, user):
+    """Put an attached partition back out, or a detached one back in with its old bound. Once per record; PostgreSQL decides if it still can."""
+    payload = entry.payload or {}
+    undo = payload.get("partition_undo") or {}
+    if not undo or not entry.ok:
+        raise PgError("This audit entry is not a recorded ATTACH or DETACH PARTITION.")
+    if entry.restored_at is not None:
+        raise PgError("This change was already undone.")
+    server = entry.server
+    if server is None:
+        raise PgError("The server this was changed on is no longer saved in PGDAS.")
+    with pg.connect_rw(server, payload["database"]) as conn:
+        _run(conn, undo["statement"])
+        entry.restored_at, entry.restored_by = timezone.now(), user.get_username()
+        entry.save(update_fields=["restored_at", "restored_by"])
+        undo_record = record(user, "update.undo", server, undo["statement"], rows=1,
+                             payload={"kind": "undo", "undone_entry": entry.pk, "database": payload["database"], "schema": "", "table": undo["child"], "count": 1})
+        try:
+            conn.commit()
+        except Exception:
+            entry.restored_at, entry.restored_by = None, ""
+            entry.save(update_fields=["restored_at", "restored_by"])
+            undo_record.delete()
+            raise PgError("The database did not accept the undo, so nothing was changed.")
+    now = "detached from" if undo["was"] == "attached" else "attached to"
+    return {"count": 1, "schema": "", "table": undo["child"], "message": f"Undone: {undo['child']} is {now} {undo['parent']} again."}
+
+
 def undo_entry(entry, user):
-    """Undo a recorded UPDATE, or a saved batch of row edits from the data grid."""
+    """Undo a recorded UPDATE, an attach or detach of a partition, or a saved batch of row edits from the data grid."""
+    if (entry.payload or {}).get("partition_undo"):
+        return undo_partition(entry, user)
     if (entry.payload or {}).get("kind") == "rows":
         from . import row_edits
         return row_edits.undo(entry, user)
@@ -787,9 +817,28 @@ def _definitions_before(conn, names):
     return found
 
 
+_PARTITION_ACTION = re.compile(rf"^ALTER\s+TABLE\s+(?:ONLY\s+)?(?P<parent>{_TABLE_REF})\s+(?P<verb>ATTACH|DETACH)\s+PARTITION\s+(?P<child>{_TABLE_REF})(?P<rest>.*)$", re.I | re.S)
+
+
+def _partition_undo(conn, statement):
+    """For ALTER TABLE p ATTACH / DETACH PARTITION c: the statement that puts it back (detach for an attach, attach with the old bound for a detach),
+    worked out before it runs. None for anything else, and for a form that cannot be reversed here (CONCURRENTLY, FINALIZE)."""
+    match = _PARTITION_ACTION.match(statement.strip().rstrip(";").strip())
+    if not match or re.search(r"\b(CONCURRENTLY|FINALIZE)\b", match["rest"], re.I):
+        return None
+    parent, child = _normalise(match["parent"]), _normalise(match["child"])
+    if match["verb"].upper() == "ATTACH":
+        return {"statement": f"ALTER TABLE {parent} DETACH PARTITION {child}", "parent": parent, "child": child, "was": "attached"}
+    bound = conn.execute("SELECT pg_get_expr(c.relpartbound, c.oid) FROM pg_class c WHERE c.oid = to_regclass(%s) AND c.relispartition", (child,)).fetchone()
+    if not bound or not bound[0]:
+        return None
+    return {"statement": f"ALTER TABLE {parent} ATTACH PARTITION {child} {bound[0]}", "parent": parent, "child": child, "was": "detached"}
+
+
 def _ddl_and_diff(conn, parsed):
     """Run the CREATE/ALTER and return (what changed, the definitions it replaced)."""
     before_definitions = _definitions_before(conn, parsed["names"])
+    parsed["partition_undo"] = _partition_undo(conn, parsed["statement"]) if parsed.get("object_type") == "TABLE" and not parsed.get("script") else None
     before = _snapshot(conn)
     for statement in parsed.get("script") or [parsed["statement"]]:     # a new table may come with its owner, comments and privileges
         _run(conn, statement)
@@ -883,6 +932,8 @@ def _execute_ddl(server, database, text, fingerprint, confirm, user, verb):
             raise PgError("Type ALTER in capital letters to confirm.")
         payload = {"kind": verb, "database": _current_database(conn), "object_type": parsed["object_type"],
                    "statement": parsed["statement"], "risky": risky, "changes": changes, "before": before_definitions}
+        if parsed.get("partition_undo"):
+            payload["partition_undo"] = parsed["partition_undo"]            # the audit log can put an attach or a detach back
         entry = _commit_after_recording(conn, server, user, verb, parsed["statement"], len(changes), payload, "changed")
     return {"count": len(changes), "entry_id": entry.pk, "changes": changes,
             "message": f"{verb.capitalize()} done: {len(changes)} object{'s' if len(changes) != 1 else ''} "

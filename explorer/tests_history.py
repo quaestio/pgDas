@@ -66,4 +66,4 @@ class HistoryTests(WriteFixture, TestCase):
         self.assertNotContains(page, "<script>alert(1)</script>")
 
     def test_no_history_no_panel(self):
-        self.assertNotContains(self.client.get(self.url), "My recent statements")
+        self.assertContains(self.client.get(self.url), 'id="sqlHistorySection" hidden')                # the panel is there for the script to fill after a run, but not shown

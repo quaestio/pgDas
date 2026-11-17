@@ -38,10 +38,9 @@
 <div class="panel pad sql-helper" id="sqlHelper" role="complementary" aria-label="Tables, columns and query builder"
        data-url="{% url 'database_tables' server.pk %}?db={{ db|urlencode }}&amp;views=1"><p class="muted">Loading the tables of {{ db }}…</p></div>
 </div>
-{% if history %}
-<section class="panel pad" style="margin-top:18px">
+<section class="panel pad" style="margin-top:18px" id="sqlHistorySection"{% if not history %} hidden{% endif %}>
   <details id="sqlHistory">
-    <summary>My recent statements on this server ({{ history|length }})</summary>
+    <summary id="sqlHistoryTitle">My recent statements on this server ({{ history|length }})</summary>
     <p class="muted" style="margin:8px 0">Click one to put it back in the box above. Nothing runs until you press Run.</p>
     <ul class="history-list" style="list-style:none;padding:0;margin:0">
     {% for entry in history %}
@@ -53,7 +52,15 @@
     </ul>
   </details>
 </section>
-{% endif %}
+<section class="panel pad" style="margin-top:18px" id="sqlSavedSection" data-url="{% url 'sql_saved' server.pk %}">
+  <details id="sqlSaved">
+    <summary id="sqlSavedTitle">My saved statements</summary>
+    <p class="muted" style="margin:8px 0">Keep the statement that is in the box above under a name, to run it again later. Only you see your saved statements. Saving again under the same name replaces it.</p>
+    <div class="sqls-row"><input type="text" id="sqlSaveName" maxlength="80" autocomplete="off" placeholder="A name, for example Orders by country">
+      <button type="button" class="btn" id="sqlSaveButton">Save the statement above</button> <span class="muted" id="sqlSaveMessage" role="status"></span></div>
+    <ul class="history-list" id="sqlSavedList" style="list-style:none;padding:0;margin:8px 0 0"></ul>
+  </details>
+</section>
 <div id="sqlLegacy">{# what the page itself shows after a plain form post (no JavaScript); the script takes over from the first run #}
 {% if error %}<ul class="messages" style="margin-top:18px"><li class="error">{{ error }}{% if hint %}<br><span class="muted">{{ hint }}</span>{% endif %}</li></ul>{% endif %}
 </div>
@@ -77,7 +84,7 @@
 
 {% endblock %}
 {% block scripts %}<link rel="stylesheet" href="{% static 'sql_helper.css' %}"><script src="{% static 'sql_highlight.js' %}"></script><script src="{% static 'sql_helper.js' %}"></script>
-{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}<script src="{% static 'sql_run.js' %}"></script>
+{% if can_write %}<script src="{% static 'write_flow.js' %}"></script>{% endif %}<script src="{% static 'sql_saved.js' %}"></script><script src="{% static 'sql_run.js' %}"></script>
 <script>
 (function () {                      // choosing another database reloads the page for it (what you may do differs per database); the SQL typed so far is kept
   var pick = document.getElementById("sqlDb"), box = document.getElementById("sql");
@@ -88,13 +95,13 @@
     window.location.href = pick.dataset.url + "?db=" + encodeURIComponent(pick.value);
   });
 })();
-document.querySelectorAll(".history-item").forEach(function (button) {
-  button.addEventListener("click", function () {
-    var box = document.getElementById("sql");
-    box.value = button.dataset.sql;
-    box.dispatchEvent(new Event("input", {bubbles: true}));
-    box.focus();
-    window.scrollTo({top: 0, behavior: "smooth"});
-  });
+document.addEventListener("click", function (event) {             // a statement from the history or the saved list goes back in the box (nothing runs until Run)
+  var button = event.target.closest(".history-item, .saved-item");
+  if (!button) return;
+  var box = document.getElementById("sql");
+  box.value = button.dataset.sql;
+  box.dispatchEvent(new Event("input", {bubbles: true}));
+  box.focus();
+  window.scrollTo({top: 0, behavior: "smooth"});
 });
 </script>{% endblock %}

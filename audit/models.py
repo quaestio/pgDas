@@ -40,6 +40,8 @@ class AuditEntry(models.Model):
     @property
     def can_undo(self):
         undo = (self.payload or {}).get("undo") or {}
+        if (self.payload or {}).get("partition_undo"):
+            return self.ok and self.restored_at is None
         if (self.payload or {}).get("kind") == "rows":
             return self.ok and self.restored_at is None and bool(self.payload.get("count"))
         return (bool(self.payload) and self.payload.get("kind") == "update" and self.ok and self.restored_at is None

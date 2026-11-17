@@ -66,8 +66,8 @@ def audit_undo(request, pk):
         record(request.user, "update.undo", entry.server, f"Undo of audit entry #{entry.pk} failed: {error}", ok=False)
         messages.error(request, f"Could not undo: {error}")
     else:
-        messages.success(request, f"Put back the old values of {result['count']} row{'s' if result['count'] != 1 else ''} "
-                                  f"in {result['schema']}.{result['table']}.")
+        messages.success(request, result.get("message") or f"Put back the old values of {result['count']} row{'s' if result['count'] != 1 else ''} "
+                                                                  f"in {result['schema']}.{result['table']}.")
     return _back_to_list(request)
 
 

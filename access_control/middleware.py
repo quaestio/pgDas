@@ -95,7 +95,7 @@ class AccessMiddleware(MiddlewareMixin):
         server_id = request.GET.get("server") or request.POST.get("server")
         if server_id and not str(server_id).isdigit():
             return self._server_missing(request, server_id)         # not a server number: a plain answer, not a crash
-        if name in {"server_edit", "server_json", "server_update", "server_delete", "server_test", "server_unlock", "server_lock", "explorer", "sql_runner", "sql_run", "sql_page", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
+        if name in {"server_edit", "server_json", "server_update", "server_delete", "server_test", "server_unlock", "server_lock", "explorer", "sql_runner", "sql_run", "sql_page", "sql_saved", "sql_saved_delete", "write_preview", "write_execute", "sql_export", "maintenance_run"}:
             server_id = kwargs.get("pk")
         if server_id and not runtime.servers().filter(pk=server_id).exists():
             return self._server_missing(request, server_id)

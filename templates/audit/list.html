@@ -29,11 +29,14 @@
             {% if user.is_staff and entry.can_reinsert %}
               <button type="button" class="btn danger" data-reinsert="{% url 'audit_reinsert' entry.pk %}" data-count="{{ entry.payload.count }}"
                       data-table="{{ entry.payload.schema }}.{{ entry.payload.table }}">Re-insert {{ entry.payload.count }} row{{ entry.payload.count|pluralize }}</button>
+            {% elif user.is_staff and entry.can_undo and entry.payload.partition_undo %}
+              <button type="button" class="btn danger" data-reinsert="{% url 'audit_undo' entry.pk %}" data-verb="partition" data-count="1" data-table="{{ entry.payload.partition_undo.child }}"
+                      data-was="{{ entry.payload.partition_undo.was }}" data-parent="{{ entry.payload.partition_undo.parent }}">Undo this {% if entry.payload.partition_undo.was == "attached" %}attach{% else %}detach{% endif %}</button>
             {% elif user.is_staff and entry.can_undo %}
               <button type="button" class="btn danger" data-reinsert="{% url 'audit_undo' entry.pk %}" data-count="{{ entry.payload.count }}" data-verb="undo"
                       data-table="{{ entry.payload.schema }}.{{ entry.payload.table }}">Undo {{ entry.payload.count }} row{{ entry.payload.count|pluralize }}</button>
             {% elif entry.restored_at %}
-              <span class="badge ok">{% if entry.payload.kind == "update" or entry.payload.kind == "rows" %}undone{% else %}re-inserted{% endif %} {{ entry.restored_at|date:"Y-m-d H:i" }} by {{ entry.restored_by }}</span>
+              <span class="badge ok">{% if entry.payload.kind == "update" or entry.payload.kind == "rows" or entry.payload.partition_undo %}undone{% else %}re-inserted{% endif %} {{ entry.restored_at|date:"Y-m-d H:i" }} by {{ entry.restored_by }}</span>
             {% endif %}
           </div>
           {% endif %}
@@ -79,6 +82,15 @@
     button.addEventListener("click", function () {
       var count = button.dataset.count;
       var plural = count === "1" ? "" : "s";
+      if (button.dataset.verb === "partition") {
+        document.getElementById("reinsertMessage").textContent = (button.dataset.was === "attached" ? "Detach " : "Attach ") + button.dataset.table + (button.dataset.was === "attached" ? " from " : " to ") + button.dataset.parent +
+          " again? PostgreSQL checks the rows while attaching, so it can still refuse.";
+        document.getElementById("reinsertSubmit").textContent = "Undo";
+        form.action = button.dataset.reinsert;
+        modal.hidden = false;
+        form.querySelector("button[type=submit]").focus();
+        return;
+      }
       document.getElementById("reinsertMessage").textContent = button.dataset.verb === "undo" ?
         "Put the old values of " + count + " updated row" + plural + " back in " + button.dataset.table + "? Rows changed again since the update stop it." :
         "Put " + count + " deleted row" + plural + " back into " + button.dataset.table + "?";

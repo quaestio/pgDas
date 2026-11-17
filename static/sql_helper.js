@@ -209,12 +209,31 @@
 
   // ---- hints while typing -----------------------------------------------------------------------------------------------------------------
   var suggestions = [];
+  // The tables a statement names, by alias: FROM orders o JOIN customers AS c ... gives {o: orders, c: customers}; a table also answers to its own name.
+  var NOT_ALIASES = {where: 1, join: 1, on: 1, left: 1, right: 1, inner: 1, outer: 1, full: 1, cross: 1, natural: 1, group: 1, order: 1, limit: 1, offset: 1, union: 1, using: 1, set: 1,
+                     values: 1, returning: 1, having: 1, window: 1, fetch: 1, for: 1, lateral: 1, select: 1, from: 1};
+  function lookupTable(ref) {
+    var parts = ref.replace(/"/g, "").split(/\s*\.\s*/).map(function (p) { return p.toLowerCase(); }), name = parts[parts.length - 1], schema = parts.length > 1 ? parts[0] : "";
+    return tables.filter(function (t) { return t.name.toLowerCase() === name && (!schema || t.schema.toLowerCase() === schema); })[0] || null;
+  }
+  function aliasMap(text) {
+    var map = {}, re = /\b(?:from|join|update|into)\s+((?:"[^"]+"|[A-Za-z_][\w$]*)(?:\s*\.\s*(?:"[^"]+"|[A-Za-z_][\w$]*))?)(?:\s+(?:as\s+)?([A-Za-z_][\w$]*))?/gi, m;
+    while ((m = re.exec(text)) !== null) {
+      var table = lookupTable(m[1]);
+      if (!table) { continue; }
+      map[table.name.toLowerCase()] = table;
+      if (m[2] && !NOT_ALIASES[m[2].toLowerCase()]) { map[m[2].toLowerCase()] = table; }
+    }
+    return map;
+  }
   function hint() {
     if (!strip) { return; }
     var caret = box.selectionStart, before = box.value.slice(0, caret);
     var m = /(?:("[^"]+"|[A-Za-z_][\w$]*)\.)?([A-Za-z_][\w$]*)?$/.exec(before), qualifier = m && m[1] ? m[1].replace(/"/g, "").toLowerCase() : "", word = (m && m[2]) || "";
     var out = [];
-    if (qualifier) {
+    if (qualifier && aliasMap(box.value)[qualifier]) {                                    // an alias (or a table named in the statement): its columns
+      aliasMap(box.value)[qualifier].columns.forEach(function (c) { out.push({text: ident(c.name), note: c.type}); });
+    } else if (qualifier) {
       tables.forEach(function (t) {
         if (t.name.toLowerCase() === qualifier) { t.columns.forEach(function (c) { out.push({text: ident(c.name), note: c.type}); }); }
         else if (t.schema.toLowerCase() === qualifier) { out.push({text: ident(t.name), note: t.kind || "table"}); }

@@ -629,6 +629,48 @@ def sql_run(request, pk):
     return JsonResponse(_result_page(result, _keep_result(request, server, db, result) if result["columns"] else "", 1))
 
 
+SAVED_QUERY_LIMIT = 200
+
+
+def _saved_json(query):
+    return {"id": query.pk, "name": query.name, "sql": query.sql, "saved": query.updated_at.strftime("%Y-%m-%d %H:%M")}
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def sql_saved(request, pk):
+    """The signed-in person's own saved statements on this server (GET), or save one under a name (POST: the same name replaces it)."""
+    from .models import SavedQuery
+    server = get_object_or_404(runtime.servers(), pk=pk)                        # a server this person can see; the statements are theirs alone
+    if request.method == "GET":
+        return JsonResponse({"ok": True, "queries": [_saved_json(q) for q in SavedQuery.objects.filter(user=request.user, server=server)]})
+    try:
+        body = json.loads(request.body or b"{}")
+    except ValueError:
+        body = {}
+    name, statement = " ".join(str(body.get("name") or "").split()), str(body.get("sql") or "").strip()
+    if not name or len(name) > 80:
+        return JsonResponse({"ok": False, "error": "Give the statement a name of up to 80 characters."}, status=400)
+    if not statement or len(statement) > 50000:
+        return JsonResponse({"ok": False, "error": "There is no statement to save (or it is longer than 50,000 characters)."}, status=400)
+    mine = SavedQuery.objects.filter(user=request.user, server=server)
+    if not mine.filter(name=name).exists() and mine.count() >= SAVED_QUERY_LIMIT:
+        return JsonResponse({"ok": False, "error": f"You can keep {SAVED_QUERY_LIMIT} saved statements on a server. Delete one first."}, status=400)
+    query, _ = SavedQuery.objects.update_or_create(user=request.user, server=server, name=name, defaults={"sql": statement})
+    return JsonResponse({"ok": True, "query": _saved_json(query), "queries": [_saved_json(q) for q in mine]})
+
+
+@login_required
+@require_POST
+def sql_saved_delete(request, pk, query_id):
+    from .models import SavedQuery
+    server = get_object_or_404(runtime.servers(), pk=pk)
+    deleted, _ = SavedQuery.objects.filter(pk=query_id, user=request.user, server=server).delete()          # only ever one's own
+    if not deleted:
+        return JsonResponse({"ok": False, "error": "That saved statement was not found."}, status=404)
+    return JsonResponse({"ok": True})
+
+
 @login_required
 @require_POST
 def sql_page(request, pk):
