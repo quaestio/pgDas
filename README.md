@@ -158,8 +158,8 @@ Then open http://127.0.0.1:8000/setup/ and create your organization with its fir
 
 Use the virtual environment's Python (the `.venv` above), not your system Python, or packages will be missing.
 
-**Windows installer.** `deploy\install-windows.ps1` does the steps above for you (virtual environment, packages, `.env` with a new secret key,
-tables, the setup token): `powershell -ExecutionPolicy Bypass -File deploy\install-windows.ps1` (add `-Sqlite` to try it with one file, `-DryRun`
+**Windows installer.** `scripts\install-windows.ps1` does the steps above for you (virtual environment, packages, `.env` with a new secret key,
+tables, the setup token): `powershell -ExecutionPolicy Bypass -File scripts\install-windows.ps1` (add `-Sqlite` to try it with one file, `-DryRun`
 to see what it would do). With `-Tasks`, in an elevated PowerShell, it also registers scheduled tasks that start the server at boot and run
 the sampler (`run_watch`, every minute) and the backups (`run_backups`, every 5 minutes). It has been checked with `-DryRun` only; read it
 before running it on a server.
