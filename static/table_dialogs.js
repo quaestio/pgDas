@@ -452,6 +452,115 @@
       sql: function (v, ctx) { return "ALTER INDEX " + ident(ctx.schema) + "." + ident(ctx.index) + " RENAME TO " + ident(v.name.trim()); },
       after: function () { return {redraw: true}; },
     },
+    // ---- schemas, views, materialized views and sequences ---------------------------------------------------------
+    "new-schema": {
+      title: "CREATE — SCHEMA", done: "Schema created.",
+      build: function (form, ctx) {
+        form.appendChild(row("Database", el("input", {type: "text", value: ctx.db, readonly: "readonly"})));
+        form.appendChild(row("Schema", textInput("name")));
+        form.appendChild(row("Owner", el("select", {"data-field": "owner", "data-roles": "owner"})));
+        fillRoles();
+        form.appendChild(el("p", {"class": "dlg-hint", text: "A schema is a folder for tables, views and functions. Its owner can create objects in it and drop it."}));
+      },
+      problem: function (v) { return !v.name.trim() ? "'Schema' cannot be empty." : /^pg_/i.test(v.name.trim()) ? "Names starting with pg_ are reserved by PostgreSQL." : ""; },
+      sql: function (v) { return "CREATE SCHEMA " + ident(v.name.trim()) + (v.owner ? " AUTHORIZATION " + ident(v.owner) : ""); },
+      after: function (v, ctx) { return {node: schemasFolder(ctx), open: {type: "schema", server: ctx.server, db: ctx.db, schema: v.name.trim()}}; },
+    },
+    "rename-schema": {
+      title: "RENAME — SCHEMA", done: "Schema renamed.",
+      build: function (form, ctx) {
+        form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
+        form.appendChild(row("New name", textInput("name")));
+        form.appendChild(el("p", {"class": "dlg-hint", text: "Everything that names this schema (queries, functions, applications) must be changed to the new name."}));
+      },
+      problem: function (v, ctx) { return !v.name.trim() ? "'New name' cannot be empty." : v.name.trim() === ctx.schema ? "That is the current name." : /^pg_/i.test(v.name.trim()) ? "Names starting with pg_ are reserved by PostgreSQL." : ""; },
+      sql: function (v, ctx) { return "ALTER SCHEMA " + ident(ctx.schema) + " RENAME TO " + ident(v.name.trim()); },
+      after: function (v, ctx) { return {node: schemasFolder(ctx), open: {type: "schema", server: ctx.server, db: ctx.db, schema: v.name.trim()}}; },
+    },
+    "drop-schema": {
+      title: "DROP — SCHEMA", done: "Schema dropped.",
+      build: function (form, ctx) {
+        form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
+        form.appendChild(checkbox("cascade", "CASCADE: also drop everything inside it (tables and their rows, views, functions …)"));
+        form.appendChild(el("p", {"class": "dlg-hint", text: "Without CASCADE PostgreSQL refuses to drop a schema that still contains objects, and says which."}));
+      },
+      problem: function () { return ""; },
+      sql: function (v, ctx) { return "DROP SCHEMA " + ident(ctx.schema) + (v.cascade ? " CASCADE" : ""); },
+      after: function (v, ctx) { return {node: schemasFolder(ctx), open: schemasFolder(ctx)}; },
+    },
+    "new-view": {
+      title: "CREATE — VIEW", done: "View created.",
+      build: function (form, ctx) {
+        form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
+        form.appendChild(row("View", textInput("name")));
+        form.appendChild(row("Query", el("textarea", {"data-field": "query", rows: "9", spellcheck: "false", placeholder: "SELECT id, name FROM customers WHERE active"})));
+        form.appendChild(el("p", {"class": "dlg-hint", text: "A view is a saved query that behaves like a table. Write the SELECT it shows."}));
+      },
+      problem: function (v) { return !v.name.trim() ? "'View' cannot be empty." : !v.query.trim().replace(/;+\s*$/, "") ? "'Query' cannot be empty." : ""; },
+      sql: function (v, ctx) { return "CREATE VIEW " + ident(ctx.schema) + "." + ident(v.name.trim()) + " AS\n" + v.query.trim().replace(/;+\s*$/, ""); },
+      after: function (v, ctx) { return {node: relationFolder(ctx, "views"), open: {type: "view", server: ctx.server, db: ctx.db, schema: ctx.schema, table: v.name.trim()}}; },
+    },
+    "new-matview": {
+      title: "CREATE — MATERIALIZED VIEW", done: "Materialized view created.",
+      build: function (form, ctx) {
+        form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
+        form.appendChild(row("Materialized view", textInput("name")));
+        form.appendChild(row("Query", el("textarea", {"data-field": "query", rows: "9", spellcheck: "false", placeholder: "SELECT country, count(*) FROM customers GROUP BY country"})));
+        form.appendChild(checkbox("withdata", "Fill it now (WITH DATA). Unticked it starts empty and cannot be read until it is refreshed.", true));
+        form.appendChild(el("p", {"class": "dlg-hint", text: "A materialized view stores the result of its query, so reading it is fast; REFRESH MATERIALIZED VIEW brings it up to date."}));
+      },
+      problem: function (v) { return !v.name.trim() ? "'Materialized view' cannot be empty." : !v.query.trim().replace(/;+\s*$/, "") ? "'Query' cannot be empty." : ""; },
+      sql: function (v, ctx) { return "CREATE MATERIALIZED VIEW " + ident(ctx.schema) + "." + ident(v.name.trim()) + " AS\n" + v.query.trim().replace(/;+\s*$/, "") + "\nWITH " + (v.withdata ? "" : "NO ") + "DATA"; },
+      after: function (v, ctx) { return {node: relationFolder(ctx, "matviews"), open: {type: "matview", server: ctx.server, db: ctx.db, schema: ctx.schema, table: v.name.trim()}}; },
+    },
+    "new-sequence": {
+      title: "CREATE — SEQUENCE", done: "Sequence created.",
+      build: function (form, ctx) {
+        form.appendChild(row("Schema", el("input", {type: "text", value: ctx.schema, readonly: "readonly"})));
+        form.appendChild(row("Sequence", textInput("name")));
+        var type = el("select", {"data-field": "type"}, [["", "bigint (default)"], ["integer", "integer"], ["smallint", "smallint"]].map(function (t) { return el("option", {value: t[0], text: t[1]}); }));
+        form.appendChild(row("Data type", type));
+        form.appendChild(row("Start with", textInput("start", "empty = 1")));
+        form.appendChild(row("Increment by", textInput("increment", "empty = 1")));
+        form.appendChild(row("Minimum", textInput("min", "empty = the smallest for the type")));
+        form.appendChild(row("Maximum", textInput("max", "empty = the largest for the type")));
+        form.appendChild(row("Cache", textInput("cache", "empty = 1")));
+        form.appendChild(checkbox("cycle", "Cycle: start again from the minimum after the maximum"));
+        form.appendChild(el("p", {"class": "dlg-hint", text: "A sequence hands out numbers one after another, for example for an id column."}));
+      },
+      problem: function (v) {
+        if (!v.name.trim()) return "'Sequence' cannot be empty.";
+        var bad = [["start", "Start with"], ["increment", "Increment by"], ["min", "Minimum"], ["max", "Maximum"], ["cache", "Cache"]].filter(function (f) { return v[f[0]].trim() !== "" && !/^-?\d+$/.test(v[f[0]].trim()); })[0];
+        if (bad) return "'" + bad[1] + "' must be a whole number.";
+        if (v.increment.trim() !== "" && +v.increment === 0) return "'Increment by' cannot be 0.";
+        if (v.cache.trim() !== "" && +v.cache < 1) return "'Cache' must be 1 or more.";
+        if (v.min.trim() !== "" && v.max.trim() !== "" && +v.min > +v.max) return "'Minimum' cannot be above 'Maximum'.";
+        return "";
+      },
+      sql: function (v, ctx) {
+        var parts = ["CREATE SEQUENCE " + ident(ctx.schema) + "." + ident(v.name.trim())];
+        if (v.type) parts.push("AS " + v.type);
+        if (v.increment.trim() !== "") parts.push("INCREMENT BY " + v.increment.trim());
+        if (v.min.trim() !== "") parts.push("MINVALUE " + v.min.trim());
+        if (v.max.trim() !== "") parts.push("MAXVALUE " + v.max.trim());
+        if (v.start.trim() !== "") parts.push("START WITH " + v.start.trim());
+        if (v.cache.trim() !== "") parts.push("CACHE " + v.cache.trim());
+        if (v.cycle) parts.push("CYCLE");
+        return parts.join("\n    ");
+      },
+      after: function (v, ctx) { return {node: relationFolder(ctx, "sequences"), open: {type: "sequence", server: ctx.server, db: ctx.db, schema: ctx.schema, table: v.name.trim()}}; },
+    },
+    "rename-relation": {
+      title: "RENAME", done: "Renamed.",
+      build: function (form, ctx) {
+        form.appendChild(row(relationLabel(ctx.relation), el("input", {type: "text", value: ctx.schema + "." + ctx.table, readonly: "readonly"})));
+        form.appendChild(row("New name", textInput("name")));
+        form.appendChild(el("p", {"class": "dlg-hint", text: "Queries, functions and applications that use the old name will stop working until they are changed."}));
+      },
+      problem: function (v, ctx) { return !v.name.trim() ? "'New name' cannot be empty." : v.name.trim() === ctx.table ? "That is the current name." : ""; },
+      sql: function (v, ctx) { return "ALTER " + relationWord(ctx.relation) + " " + qualified(ctx) + " RENAME TO " + ident(v.name.trim()); },
+      after: function (v, ctx) { return {node: relationFolder(ctx, folderNameOf(ctx.relation)), open: {type: relationNodeType(ctx.relation), server: ctx.server, db: ctx.db, schema: ctx.schema, table: v.name.trim()}}; },
+    },
     "add-partition": {
       title: "CREATE — PARTITION", done: "Partition created.",
       build: function (form, ctx) {
@@ -513,6 +622,13 @@
   }
 
   function folder(ctx) { return {type: "tables", server: ctx.server, db: ctx.db, schema: ctx.schema}; }
+  function schemasFolder(ctx) { return {type: "schemas", server: ctx.server, db: ctx.db}; }
+  function relationFolder(ctx, type) { return {type: type, server: ctx.server, db: ctx.db, schema: ctx.schema}; }
+  // What a relation is called in SQL, in the tree and in the dialogs (ctx.relation is the kind the page shows: view, materialized view, sequence).
+  function relationWord(kind) { return kind === "materialized view" ? "MATERIALIZED VIEW" : kind === "sequence" ? "SEQUENCE" : "VIEW"; }
+  function relationLabel(kind) { return kind === "materialized view" ? "Materialized view" : kind === "sequence" ? "Sequence" : "View"; }
+  function relationNodeType(kind) { return kind === "materialized view" ? "matview" : kind === "sequence" ? "sequence" : "view"; }
+  function folderNameOf(kind) { return kind === "materialized view" ? "matviews" : kind === "sequence" ? "sequences" : "views"; }
 
   // ---- the column rows of New table ------------------------------------------------------------------------------
   function addColumn(form, start) {
@@ -908,6 +1024,8 @@
       ctx.strategy = partitionTab ? JSON.parse(partitionTab.getAttribute("data-partitions-tab")).strategy : "";
       var what = trigger.getAttribute("data-table-dialog");
       ctx.column = columnOf(trigger);
+      if (trigger.hasAttribute("data-schema")) ctx.schema = trigger.getAttribute("data-schema");          // a row of the Schemas list names its own schema
+      ctx.relation = trigger.getAttribute("data-relation") || "";                                          // view, materialized view or sequence
       var indexRow = trigger.closest("tr[data-index]"), indexTab = trigger.closest("[data-index-tab]");
       ctx.index = indexRow ? indexRow.getAttribute("data-index") : "";
       ctx.columns = indexTab ? JSON.parse(indexTab.getAttribute("data-index-tab")) : [];
@@ -915,6 +1033,7 @@
       else if (what === "reindex-index") review(ctx, "REINDEX INDEX " + ident(ctx.schema) + "." + ident(ctx.index), {redraw: true}, "Index rebuilt.");
       else if (what === "reindex-table") review(ctx, "REINDEX TABLE " + qualified(ctx), {redraw: true}, "Indexes rebuilt.");
       else if (what === "drop-table") review(ctx, "DROP TABLE " + qualified(ctx), {node: folder(ctx), open: folder(ctx)}, "Table dropped.");
+      else if (what === "drop-relation") review(ctx, "DROP " + relationWord(ctx.relation) + " " + qualified(ctx), {node: relationFolder(ctx, folderNameOf(ctx.relation)), open: relationFolder(ctx, folderNameOf(ctx.relation))}, relationLabel(ctx.relation) + " dropped.");
       else if (what === "drop-column") review(ctx, "ALTER TABLE " + qualified(ctx) + " DROP COLUMN " + ident(ctx.column.name), {redraw: true}, "Column dropped.");
       else openDialog(what, ctx);
       return;

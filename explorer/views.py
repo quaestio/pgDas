@@ -220,6 +220,8 @@ def detail(request):
                     context["can_export"], context["export_formats"] = _can_export(request.user, server, db), EXPORT_CHOICES
                     if kind == "schema" and _can_structure(request.user, server, db):
                         context["structure"] = _structure_json(server, db, schema)
+                elif kind == "schemas" and _can_structure(request.user, server, db):
+                    context["structure"] = _structure_json(server, db, "")
         elif kind in FOLDERS:
             context["folder"], kinds = FOLDERS[kind]
             with pg.connect(server, db) as conn:
@@ -228,7 +230,7 @@ def detail(request):
                 if with_stats:
                     context["stats"], context["summary"] = True, pg.tables_summary(context["items"], conn)
             context["can_export"], context["export_formats"] = _can_export(request.user, server, db), EXPORT_CHOICES
-            if kind == "tables" and _can_structure(request.user, server, db):
+            if kind in ("tables", "views", "matviews", "sequences") and _can_structure(request.user, server, db):
                 context["structure"] = _structure_json(server, db, schema)
         elif kind in ("functions", "procedures"):
             context["folder"] = kind.capitalize()
@@ -242,8 +244,10 @@ def detail(request):
             with pg.connect(server, db) as conn:
                 context.update(_relation_context(conn, node, request))
             context["can_export"] = context.get("tab") == "data" and _can_export(request.user, server, db)
-            if context.get("relation_kind") in ("table", "partitioned table") and _can_structure(request.user, server, db):
+            if context.get("relation_kind") in ("table", "partitioned table", "view", "materialized view", "sequence") and _can_structure(request.user, server, db):
                 context["structure"] = _structure_json(server, db, schema, node["table"])
+                if context["relation_kind"] in ("table", "partitioned table"):
+                    context["table_structure"] = context["structure"]               # the column, constraint, index and partition buttons are for tables only
             if context.get("relation_kind") in ("table", "partitioned table", "materialized view") and permits(request.user, "maintenance", server=server, database=db):
                 context["maintenance"] = json.dumps({"url": reverse("maintenance_run", args=[server.pk]), "db": db, "schema": schema, "table": node["table"]})
         elif kind in ("function", "procedure"):

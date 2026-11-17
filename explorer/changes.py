@@ -62,6 +62,9 @@ def _run(conn, statement, params=None):
 
 
 def _count(conn, schema, table):
+    populated = conn.execute("SELECT c.relispopulated FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = %s AND c.relname = %s", (schema, table)).fetchone()
+    if populated and not populated[0]:                           # a materialized view made WITH NO DATA cannot be read yet: it holds no rows
+        return 0
     return conn.execute(sql.SQL("SELECT count(*) FROM {}.{}").format(sql.Identifier(schema), sql.Identifier(table))).fetchone()[0]
 
 

@@ -66,7 +66,9 @@ class TableButtonsTests(AdminFixture, TestCase):
         with admin_connect(DB) as conn:
             conn.execute("CREATE VIEW people_names AS SELECT name FROM people")
         html = self.page(self.staff_client, type="view", table="people_names", tab="columns")
-        self.assertNotIn("data-table-dialog", html)
+        for table_only in ("add-column", "edit-column", "drop-column", "rename-column", "rename-table", "drop-table", "data-col-move", "create-index"):
+            self.assertNotIn(table_only, html)                                    # a view is renamed and dropped, but its columns are its query's
+        self.assertIn('data-table-dialog="rename-relation" data-relation="view"', html)
         self.assertNotIn('data-table-dialog="new-table"', self.page(self.staff_client, type="views"))
 
     def test_the_script_and_styles_are_loaded_for_staff_only_and_use_no_html_or_browser_box(self):
