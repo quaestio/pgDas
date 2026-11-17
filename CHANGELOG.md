@@ -3,6 +3,30 @@
 All notable changes to PGDAS, newest first. Versions follow [Semantic Versioning](https://semver.org/): a change that needs
 action when you upgrade raises the first number, new features the second, fixes the third.
 
+## Unreleased (will be 1.1.0)
+
+### New
+- **Schemas, views, materialized views and sequences** can be created, renamed and dropped from the Object Browser (Super Users), each
+  through the same review popup as every other change: **+ New schema** (with an owner), **+ New view**, **+ New materialized view**
+  (with or without data), **+ New sequence** (type, start, increment, minimum, maximum, cache, cycle); **Rename** and **Drop** on each page;
+  dropping a schema offers CASCADE.
+- **New table**: table **access method**, **Of type** (a table made from a composite type), **TOAST** storage parameters, **exclude
+  constraints** (also under Add constraint) and a **comment on each constraint**. Constraints and indexes can now be added to **partitioned
+  tables** too.
+- **SQL runner**: **saved statements** (named, personal, kept per server); hints that understand **table aliases** (`FROM orders o … o.`
+  offers the columns of `orders`); "My recent statements" now follows each run without a page reload.
+- **Audit log**: an **attach or detach of a partition can be undone** from the audit log (a detach is put back with its old bound).
+- **Screenshots** in the README, a **GitHub Actions** workflow that runs the tests on every push, and a Windows installer script
+  (`scripts/install-windows.ps1`).
+
+### Fixed
+- The SQL runner's tables-and-columns panel disappeared when the sidebar was collapsed.
+- Session ages (oldest transaction, longest query) could show a few milliseconds below zero.
+- A materialized view created `WITH NO DATA` no longer breaks the preview of its own creation or drop.
+
+### Upgrading
+- Run `python manage.py migrate` (one new table for the saved statements).
+
 ## 1.0.0 — 2026-11-16
 
 The first release of PGDAS, the PostgreSQL Database Access System: a web admin for PostgreSQL built with Django. The footer of every

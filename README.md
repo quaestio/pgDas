@@ -277,8 +277,11 @@ when you upgrade the first. The tests (`python manage.py test`) run on every pus
 Done in 1.0: login and organizations, the object browser, read-only SQL with a query builder, reviewed changes with an audit log (undo and
 re-insert), table structure and partitions, backups, live monitoring, dashboards, size trends and alerts (webhook or email).
 
-Next: create, drop and rename for views, sequences and schemas; the remaining table options (exclude constraints, access method, TOAST
-parameters); finer per-user permissions; a one-line installer and a Windows service.
+Added since: create, rename and drop for schemas, views, materialized views and sequences; the remaining table options (access method, OF
+type, TOAST parameters, exclude constraints, constraint comments); saved statements and alias-aware hints in the SQL runner; undo for
+attach / detach of a partition (see the changelog).
+
+Next: finer per-user permissions; security labels and grantors in the table Security tab; a one-line installer for Linux and macOS.
 
 ## License
 MIT — see [LICENSE](LICENSE).
