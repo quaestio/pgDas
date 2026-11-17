@@ -136,6 +136,8 @@ class LiveReadingTests(shared.PgFixture, TestCase):
                     "blks_hit", "blks_read", "tup_written", "deadlocks"):
             self.assertIn(key, reading, key)
         self.assertGreaterEqual(reading["conn_max"], 1)
+        for key in ("oldest_xact_s", "longest_query_s", "oldest_idle_tx_s"):
+            self.assertGreaterEqual(reading[key], 0, key)                          # a session that started a moment ago is never "-15 ms" old
 
     def test_the_counters_move_between_two_readings(self):
         first = self.reading().json()["reading"]

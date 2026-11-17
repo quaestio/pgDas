@@ -35,8 +35,8 @@
     <select name="format" aria-label="Export format"><option value="csv">CSV</option><option value="json">JSON</option><option value="sql">SQL (INSERT statements)</option></select>{% endif %}
   </form>
 </section>
-<aside class="panel pad sql-helper" id="sqlHelper" aria-label="Tables, columns and query builder"
-       data-url="{% url 'database_tables' server.pk %}?db={{ db|urlencode }}&amp;views=1"><p class="muted">Loading the tables of {{ db }}…</p></aside>
+<div class="panel pad sql-helper" id="sqlHelper" role="complementary" aria-label="Tables, columns and query builder"
+       data-url="{% url 'database_tables' server.pk %}?db={{ db|urlencode }}&amp;views=1"><p class="muted">Loading the tables of {{ db }}…</p></div>
 </div>
 {% if history %}
 <section class="panel pad" style="margin-top:18px">

@@ -7,9 +7,16 @@ and drop databases and users; and keep an audit log of everything people do. Bui
 PGDAS itself and a PostgreSQL database of its own for its users, saved servers and audit log.
 
 **Version 1.0.0** (the first release; see the [changelog](CHANGELOG.md)). Queries run in a `READ ONLY` transaction enforced by PostgreSQL itself, with a statement
-timeout and a row cap. Staff users can also change data, structure, databases and users, each change after a warning
-popup and recorded in the audit log (see "Changing data"). Backups are done (see "Backups"); monitoring, size trends and alerts are done (see "Monitor" and "Alerts & trends") (see the
-roadmap).
+timeout and a row cap. Super Users can also change data, structure, databases and users, each change after a warning
+popup and recorded in the audit log (see "Changing data"). Backups, live monitoring, dashboards, size trends and alerts are included
+(see "Backups", "Monitor", "Dashboards" and "Alerts & trends").
+
+![The Object Browser: a database's tables with their statistics](docs/screenshots/tables.jpg)
+
+| | |
+|---|---|
+| ![SQL runner with the tables panel, coloured keywords and paged results](docs/screenshots/sql-runner.jpg) | ![Server overview with connections, work done and key settings](docs/screenshots/server-overview.jpg) |
+| ![Dashboards with charts and the settings that explain them](docs/screenshots/dashboards.jpg) | ![The review popup every change goes through](docs/screenshots/review-popup.jpg) |
 
 **Upgrading from the earlier name (PgDeck):** the Python package is now `pgdas`, the settings are `PGDAS_*` instead of
 `PGDECK_*`, and the Docker volume is `pgdas-data`. Rename the variables in your `.env`; `PGDECK_*` names are no longer read.
@@ -24,10 +31,22 @@ roadmap).
   - A **system** switch in the sidebar also shows built-in `pg_*` roles and objects installed by extensions.
 - Sign in with local accounts; staff users manage servers and see the audit log, everyone signed in can browse.
 - Save several PostgreSQL servers. Passwords are encrypted at rest and never shown again.
-- SQL runner: queries run read-only with a 30 s timeout and a 1000-row cap. Staff users can also run INSERT, UPDATE, DELETE,
+- SQL runner: queries run read-only with a 30 s timeout and a 1000-row cap, without leaving the page. A **Database** list starts on the
+  database you came from. On the right, the tables and columns of that database: click a table for `SELECT * FROM <table> LIMIT 10;`,
+  then click columns to choose them (commas and quoting are added for you). **Hints** while you type, **coloured keywords** and a
+  **query builder** (table, columns, conditions, sort, limit) that writes the SELECT for you. Results show **ten rows per page**, with the
+  figures (rows, time) under them and **Export** as CSV, JSON or INSERT statements. Super Users can also run INSERT, UPDATE, DELETE,
   TRUNCATE, DROP, CREATE, ALTER, GRANT and REVOKE (databases and users included) with warning popups and typed
   confirmation (see "Changing data").
 - Query history: the SQL page lists your own latest 20 statements on that server; click one to reuse it.
+- Tables list with **statistics** (rows, size, index size, dead rows, writes, scans, last vacuum and analyze; click a heading to sort) and,
+  per row, **Details**, **Import** (CSV) and **Export** (CSV, JSON, SQL). The server overview shows uptime, connections now, work done and
+  key settings.
+- **Table structure**, all reviewed: create a table (columns, keys, constraints, options, partitions, owner, privileges), rename, drop,
+  add / edit / rename / drop / reorder columns, indexes (create, drop, rename, reindex), constraints, **partitions** (create, attach,
+  detach) and inline row editing in the data grid.
+- Server numbers in addresses are **encrypted tokens** (`?server=EY1-bUv8Znf_Y2bQpRc`), not the plain number; old numeric links keep
+  working unless `PGDAS_STRICT_SERVER_IDS=1`.
 - Audit log of every SQL run, server change and data change (staff only), as JSON, with a Re-insert button for deletes and an Undo button for updates.
 - Resizable, collapsible sidebar, themed scrollbars and optional interface sounds (mute button in the header).
 
@@ -232,13 +251,28 @@ samples) sends the alerts, so you hear about a problem without watching the page
 - nothing is sent, and nothing remembered, until a channel is set. **Send a test notification** on the Alerts & trends page checks
   the settings. `run_watch --no-notify` takes samples only.
 
+## Dashboards
+**Dashboards** (Super Users) draws charts of everything PostgreSQL reports about itself, sampled over time by `python manage.py run_watch`
+(run it every minute; it samples only the servers that are due): workload, sessions and locks, storage and WAL, trouble signs and
+replication, plus a live strip read directly from the server. Under the charts, **the settings that explain them** (`shared_buffers`,
+`work_mem`, `max_wal_size` …) each have a plain explanation and a link to that setting's page in the **PostgreSQL manual for the
+server's own version**. A Super User can change one: the change is reviewed (what it is now, what it becomes, whether a restart is needed),
+confirmed by typing `ALTER`, recorded in the audit log, and made with `ALTER SYSTEM` followed by a reload. The login PGDAS uses for that
+server must be allowed to (a superuser, or from PostgreSQL 15 granted `ALTER SYSTEM` on that setting). `shared_preload_libraries` is shown
+but not editable: a wrong value stops PostgreSQL from starting after its next restart.
+
+## Versions
+Releases are tagged `v<major>.<minor>.<patch>` and listed in the [changelog](CHANGELOG.md); the number is also shown in every page's
+footer (`PGDAS_VERSION` in `pgdas/settings.py`). A fix raises the last number, a new feature the middle one, and a change that needs action
+when you upgrade the first. The tests (`python manage.py test`) run on every push through GitHub Actions
+(`.github/workflows/tests.yml`).
+
 ## Roadmap
-1. MVP: login, servers, object browser, read-only SQL, audit log.
-2. Safety: opt-in write mode — **INSERT, UPDATE, DELETE, TRUNCATE, DROP, CREATE and ALTER with popups, typed confirmation, JSON audit
-   and re-insert for deletes and undo for updates are done**; query history is done; next: finer per-user permissions.
-3. Backups: **`pg_dump` backups, download, restore into a new database, schedules with retention are done.**
-4. Monitoring: **sessions, locks, slow queries, cancel/end, size trends and alerts are done**; alerts can be sent by webhook or email.
-5. Open-source release: docs, screenshots, CI, one-line installer, Windows service.
+Done in 1.0: login and organizations, the object browser, read-only SQL with a query builder, reviewed changes with an audit log (undo and
+re-insert), table structure and partitions, backups, live monitoring, dashboards, size trends and alerts (webhook or email).
+
+Next: create, drop and rename for views, sequences and schemas; the remaining table options (exclude constraints, access method, TOAST
+parameters); finer per-user permissions; a one-line installer and a Windows service.
 
 ## License
 MIT — see [LICENSE](LICENSE).

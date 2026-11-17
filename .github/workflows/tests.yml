@@ -1,0 +1,57 @@
+name: Tests
+
+# Runs the whole test suite on every push and pull request against a real PostgreSQL 18 (PGDAS's own database, and the server the explorer
+# tests browse). Backup tests need pg_dump / pg_restore of the same major version, so the PostgreSQL 18 client tools are installed too.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGDAS_SECRET_KEY: ci-only-secret-key-not-used-anywhere-else
+      PGDAS_APP_DB_NAME: pgdas_ci
+      PGDAS_APP_DB_USER: postgres
+      PGDAS_APP_DB_PASSWORD: postgres
+      PGDAS_APP_DB_HOST: localhost
+      PGDAS_APP_DB_PORT: "5432"
+      PGDAS_TEST_PG_HOST: localhost
+      PGDAS_TEST_PG_PORT: "5432"
+      PGDAS_TEST_PG_USER: postgres
+      PGDAS_TEST_PG_PASSWORD: postgres
+      PGDAS_SERVER_NETWORKS: any
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: PostgreSQL 18 client tools (pg_dump, pg_restore)
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-18
+          echo "PGDAS_PG_BIN=/usr/lib/postgresql/18/bin" >> "$GITHUB_ENV"
+      - name: Create PGDAS's own database
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -c "CREATE DATABASE pgdas_ci"
+      - run: pip install -r requirements.txt
+      - name: Check
+        run: python manage.py check
+      - name: Tests
+        run: python manage.py test --noinput

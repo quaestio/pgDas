@@ -33,9 +33,9 @@ SELECT count(*) FILTER (WHERE backend_type = 'client backend'),
        count(*) FILTER (WHERE backend_type = 'client backend' AND state = 'idle in transaction (aborted)'),
        count(*) FILTER (WHERE backend_type = 'client backend' AND wait_event_type = 'Lock'),
        count(*) FILTER (WHERE backend_type = 'client backend' AND cardinality(pg_blocking_pids(pid)) > 0),
-       coalesce(max(extract(epoch FROM now() - xact_start)) FILTER (WHERE backend_type = 'client backend'), 0),
-       coalesce(max(extract(epoch FROM now() - query_start)) FILTER (WHERE backend_type = 'client backend' AND state = 'active'), 0),
-       coalesce(max(extract(epoch FROM now() - state_change)) FILTER (WHERE backend_type = 'client backend' AND state LIKE 'idle in transaction%%'), 0),
+       coalesce(max(greatest(0, extract(epoch FROM clock_timestamp() - xact_start))) FILTER (WHERE backend_type = 'client backend'), 0),
+       coalesce(max(greatest(0, extract(epoch FROM clock_timestamp() - query_start))) FILTER (WHERE backend_type = 'client backend' AND state = 'active'), 0),
+       coalesce(max(greatest(0, extract(epoch FROM clock_timestamp() - state_change))) FILTER (WHERE backend_type = 'client backend' AND state LIKE 'idle in transaction%%'), 0),
        count(*) FILTER (WHERE backend_type = 'autovacuum worker'),
        count(*) FILTER (WHERE backend_type = 'walsender')
 FROM pg_stat_activity WHERE pid <> pg_backend_pid()"""

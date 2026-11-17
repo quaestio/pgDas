@@ -264,8 +264,8 @@ def server_stats(conn):
                       count(*) FILTER (WHERE backend_type = 'client backend' AND state = 'idle'),
                       count(*) FILTER (WHERE backend_type = 'client backend' AND state LIKE 'idle in transaction%%'),
                       count(*) FILTER (WHERE backend_type = 'client backend' AND wait_event_type = 'Lock'),
-                      max(extract(epoch FROM now() - query_start)) FILTER (WHERE backend_type = 'client backend' AND state = 'active'),
-                      max(extract(epoch FROM now() - xact_start)) FILTER (WHERE backend_type = 'client backend')
+                      max(greatest(0, extract(epoch FROM clock_timestamp() - query_start))) FILTER (WHERE backend_type = 'client backend' AND state = 'active'),
+                      max(greatest(0, extract(epoch FROM clock_timestamp() - xact_start))) FILTER (WHERE backend_type = 'client backend')
                FROM pg_stat_activity WHERE pid <> pg_backend_pid()""").fetchone()
         limit = int(conn.execute("SELECT current_setting('max_connections')").fetchone()[0])
         standbys = conn.execute("SELECT count(*) FROM pg_stat_replication").fetchone()[0]

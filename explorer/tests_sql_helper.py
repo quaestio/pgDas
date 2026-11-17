@@ -34,6 +34,8 @@ class SqlHelperTests(ScriptFixture):
         page = self.client.get(reverse("sql_runner", args=[self.server.pk]), {"db": DB})
         for needle in ('id="sqlHelper"', 'id="sqlSuggest"', "sql_helper.js", "sql_helper.css", f"db={DB}", "views=1"):
             self.assertContains(page, needle)
+        # Not an <aside>: the page's own sidebar is one, and its global styles hide every <aside> when the sidebar is collapsed.
+        self.assertContains(page, '<div class="panel pad sql-helper" id="sqlHelper"')
 
     def test_the_script_builds_hints_columns_and_a_select_and_puts_text_not_html(self):
         script = (BASE_DIR / "static" / "sql_helper.js").read_text(encoding="utf-8")

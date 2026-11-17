@@ -7,14 +7,14 @@ QUERY_LIMIT = 400
 
 SESSIONS = f"""
 SELECT pid, usename, datname, application_name, client_addr::text, state, wait_event_type, wait_event,
-       extract(epoch FROM now() - query_start), extract(epoch FROM now() - xact_start),
-       extract(epoch FROM now() - backend_start), left(query, {QUERY_LIMIT})
+       greatest(0, extract(epoch FROM clock_timestamp() - query_start)), greatest(0, extract(epoch FROM clock_timestamp() - xact_start)),
+       greatest(0, extract(epoch FROM clock_timestamp() - backend_start)), left(query, {QUERY_LIMIT})
 FROM pg_stat_activity
 WHERE backend_type = 'client backend' AND pid <> pg_backend_pid()
 ORDER BY (state = 'active') DESC, query_start NULLS LAST"""
 
 LOCKS = f"""
-SELECT a.pid, a.usename, a.datname, left(a.query, {QUERY_LIMIT}), extract(epoch FROM now() - a.query_start),
+SELECT a.pid, a.usename, a.datname, left(a.query, {QUERY_LIMIT}), greatest(0, extract(epoch FROM clock_timestamp() - a.query_start)),
        b.pid, b.usename, left(b.query, {QUERY_LIMIT}), b.state
 FROM pg_stat_activity a
 CROSS JOIN LATERAL unnest(pg_blocking_pids(a.pid)) AS blocker(pid)
