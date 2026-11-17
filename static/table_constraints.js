@@ -30,7 +30,8 @@
     return s;
   }
 
-  var TYPES = [["PRIMARY KEY", "Primary key"], ["FOREIGN KEY", "Foreign key"], ["UNIQUE", "Unique"], ["CHECK", "Check"]];
+  var TYPES = [["PRIMARY KEY", "Primary key"], ["FOREIGN KEY", "Foreign key"], ["UNIQUE", "Unique"], ["CHECK", "Check"], ["EXCLUDE", "Exclude (no two rows may conflict)"]];
+  var EXCLUDE_METHODS = [["gist", "gist (ranges, geometry; needs btree_gist for = on plain columns)"], ["spgist", "spgist"], ["btree", "btree"], ["hash", "hash"]];
   var ACTIONS = [["", "default (NO ACTION)"], ["NO ACTION", "NO ACTION"], ["RESTRICT", "RESTRICT"], ["CASCADE", "CASCADE (delete / update along)"],
                  ["SET NULL", "SET NULL"], ["SET DEFAULT", "SET DEFAULT"]];
 
@@ -72,6 +73,10 @@
     function addPair(row, start) {
       var type = row.querySelector("[data-cons-type]").value, pair = el("div", {"class": "cons-pair", "data-cons-pair": ""});
       pair.appendChild(columnSelect(start && start.column));
+      if (type === "EXCLUDE") {                                                    // each element says which operator makes two rows conflict
+        pair.appendChild(el("span", {"class": "muted", text: "WITH"}));
+        pair.appendChild(el("input", {type: "text", "data-cons-op": "", autocomplete: "off", spellcheck: "false", maxlength: "6", placeholder: "e.g. && or =", value: (start && start.op) || "&&", "class": "cons-op"}));
+      }
       if (type === "FOREIGN KEY") {
         pair.appendChild(el("span", {"class": "muted", text: "→"}));
         pair.appendChild(refSelect({table: row.querySelector("[data-cons-ref]").value, column: start && start.ref}));
@@ -85,6 +90,7 @@
       row.querySelector("[data-cons-fk]").hidden = type !== "FOREIGN KEY";
       row.querySelector("[data-cons-columns]").hidden = type === "CHECK";
       row.querySelector("[data-cons-check]").hidden = type !== "CHECK";
+      row.querySelector("[data-cons-exclude]").hidden = type !== "EXCLUDE";
       var nv = row.querySelector("[data-cons-notvalid]");
       if (nv) nv.parentNode.hidden = !(type === "FOREIGN KEY" || type === "CHECK");
     }
@@ -99,7 +105,8 @@
     function readPairs(row) {
       return Array.prototype.map.call(row.querySelectorAll("[data-cons-pair]"), function (pair) {
         var ref = pair.querySelector("[data-cons-refcol]");
-        return {column: pair.querySelector("[data-cons-col]").value, ref: ref ? ref.value : ""};
+        var op = pair.querySelector("[data-cons-op]");
+        return {column: pair.querySelector("[data-cons-col]").value, ref: ref ? ref.value : "", op: op ? op.value.trim() : ""};
       });
     }
 
@@ -111,6 +118,8 @@
       var head = el("div", {"class": "cons-head"}, [type, name]);
       if (!options.single) head.appendChild(el("button", {type: "button", "class": "btn", "data-cons-remove": "", title: "Remove this constraint", text: "✕"}));
       row.appendChild(head);
+      row.appendChild(el("div", {"data-cons-exclude": "", hidden: "hidden"}, [el("label", {}, [document.createTextNode("Index method "), select(EXCLUDE_METHODS, {"data-cons-method": ""})]),
+        el("input", {type: "text", "data-cons-where": "", autocomplete: "off", spellcheck: "false", placeholder: "only rows where … (optional), e.g. active"})]));
       row.appendChild(el("div", {"data-cons-columns": ""}, [el("div", {"data-cons-pairs": ""}),
         el("button", {type: "button", "class": "btn", "data-cons-pair-add": "", text: "＋ column"})]));
       var ref = el("select", {"data-cons-ref": ""});
@@ -121,6 +130,7 @@
       row.appendChild(fk);
       row.appendChild(el("div", {"data-cons-check": "", hidden: "hidden"}, [
         el("input", {type: "text", "data-cons-expr": "", autocomplete: "off", spellcheck: "false", placeholder: "condition, e.g. age >= 0"})]));
+      if (options.comments) row.appendChild(el("div", {"data-cons-commentbox": ""}, [el("input", {type: "text", "data-cons-comment": "", autocomplete: "off", maxlength: "500", placeholder: "comment (optional; the constraint then needs a name)"})]));
       if (options.notValid) row.appendChild(el("label", {"class": "dlg-check", hidden: "hidden"}, [
         el("input", {type: "checkbox", "data-cons-notvalid": ""}), document.createTextNode(" NOT VALID: do not check the rows already in the table (faster; new rows are still checked)")]));
       list.appendChild(row);
@@ -145,7 +155,9 @@
         return {type: row.querySelector("[data-cons-type]").value, name: row.querySelector("[data-cons-name]").value, pairs: readPairs(row),
                 refSchema: table ? table.schema : "", refTable: table ? table.name : "",
                 onDelete: row.querySelector("[data-cons-ondelete]").value, onUpdate: row.querySelector("[data-cons-onupdate]").value,
-                expr: row.querySelector("[data-cons-expr]").value, notValid: !!(nv && nv.checked)};
+                expr: row.querySelector("[data-cons-expr]").value, notValid: !!(nv && nv.checked),
+                method: row.querySelector("[data-cons-method]").value, where: row.querySelector("[data-cons-where]").value,
+                comment: (row.querySelector("[data-cons-comment]") || {value: ""}).value};
       });
     }
 
@@ -200,12 +212,14 @@
       var c = list[i], label = "Constraint " + (i + 1) + ": ";
       if (c.type === "CHECK") { if (!c.expr.trim()) return label + "enter the condition the check must satisfy."; continue; }
       if (c.type === "PRIMARY KEY") primaries++;
+      if (c.comment && c.comment.trim() && !c.name.trim()) return label + "a comment needs a name for the constraint.";
       var seen = {};
       for (var j = 0; j < c.pairs.length; j++) {
         if (!c.pairs[j].column) return label + "choose a column in every row.";
         if (seen[c.pairs[j].column]) return label + "a column is chosen twice.";
         seen[c.pairs[j].column] = true;
         if (c.type === "FOREIGN KEY" && !c.pairs[j].ref) return label + "choose the column each one points at.";
+        if (c.type === "EXCLUDE" && !/^[-+*\/<>=~!@#%^&|`?]+$/.test(c.pairs[j].op || "")) return label + "give the operator that makes two rows conflict, for example && or =.";
       }
       if (c.type === "FOREIGN KEY" && !c.refTable) return label + "choose the table it points at.";
     }
@@ -219,6 +233,9 @@
     if (c.type === "FOREIGN KEY") {
       return name + "FOREIGN KEY (" + cols + ") REFERENCES " + ident(c.refSchema) + "." + ident(c.refTable) + " (" +
         c.pairs.map(function (p) { return ident(p.ref); }).join(", ") + ")" + (c.onDelete ? " ON DELETE " + c.onDelete : "") + (c.onUpdate ? " ON UPDATE " + c.onUpdate : "");
+    }
+    if (c.type === "EXCLUDE") {
+      return name + "EXCLUDE USING " + c.method + " (" + c.pairs.map(function (p) { return ident(p.column) + " WITH " + p.op; }).join(", ") + ")" + (c.where && c.where.trim() ? " WHERE (" + c.where.trim() + ")" : "");
     }
     return name + c.type + " (" + cols + ")";
   }

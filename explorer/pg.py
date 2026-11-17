@@ -815,6 +815,19 @@ def column_types(conn):
     return [(name, kind) for name, kind in rows]
 
 
+def table_options(conn):
+    """What New table can offer besides the columns: the table access methods of this server (heap, and any an extension adds) and the composite
+    types a table can be made OF, with their fields."""
+    methods = [r[0] for r in conn.execute("SELECT amname FROM pg_am WHERE amtype = 't' ORDER BY (amname = 'heap') DESC, amname").fetchall()]
+    rows = conn.execute(
+        """SELECT n.nspname, t.typname,
+                  (SELECT json_agg(a.attname ORDER BY a.attnum) FROM pg_attribute a WHERE a.attrelid = t.typrelid AND a.attnum > 0 AND NOT a.attisdropped)
+           FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace JOIN pg_class rel ON rel.oid = t.typrelid
+           WHERE t.typtype = 'c' AND rel.relkind = 'c' AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast') AND n.nspname !~ '^pg_temp'
+           ORDER BY 1, 2""").fetchall()
+    return methods, [{"schema": s, "name": n, "fields": fields or []} for s, n, fields in rows]
+
+
 def database_tables(conn, with_views=False):
     """Every ordinary table of the database (user schemas) with its columns, for the foreign key picker.
     `with_views` adds views, materialized views and foreign tables, for the SQL runner's hints (each entry then says its kind)."""

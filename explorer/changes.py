@@ -559,7 +559,8 @@ def _target_names(object_type, rest):
 # A new table may be followed by statements that finish setting it up: its owner, its comments and its privileges, and nothing else.
 _SCRIPT_OWNER = re.compile(rf"^ALTER\s+TABLE\s+(?P<table>{_TABLE_REF})\s+OWNER\s+TO\s+{_IDENT}$", re.I)
 _SCRIPT_RLS = re.compile(rf"^ALTER\s+TABLE\s+(?P<table>{_TABLE_REF})\s+(?:ENABLE|FORCE)\s+ROW\s+LEVEL\s+SECURITY$", re.I)
-_SCRIPT_COMMENT = re.compile(rf"^COMMENT\s+ON\s+(?:TABLE\s+(?P<table>{_TABLE_REF})|COLUMN\s+(?P<column_table>{_TABLE_REF})\s*\.\s*{_IDENT})\s+IS\s+"
+_SCRIPT_COMMENT = re.compile(rf"^COMMENT\s+ON\s+(?:TABLE\s+(?P<table>{_TABLE_REF})|COLUMN\s+(?P<column_table>{_TABLE_REF})\s*\.\s*{_IDENT}|"
+                             rf"CONSTRAINT\s+{_IDENT}\s+ON\s+(?P<constraint_table>{_TABLE_REF}))\s+IS\s+"
                              r"(?:'(?:[^']|'')*'|NULL)$", re.I | re.S)
 _SCRIPT_GRANT = re.compile(rf"^GRANT\s+(?P<privileges>[A-Z, ]+?)\s+ON\s+TABLE\s+(?P<table>{_TABLE_REF})\s+TO\s+(?:{_IDENT}|PUBLIC)"
                            r"(?:\s+WITH\s+GRANT\s+OPTION)?$", re.I)
@@ -604,7 +605,7 @@ def _parse_table_script(statements):
         if owner or grant:
             target = (owner or grant).group("table")
         elif comment:
-            target = comment.group("table") or comment.group("column_table")
+            target = comment.group("table") or comment.group("column_table") or comment.group("constraint_table")
         else:
             target = None
         if not target or _plain_name(target) != created:

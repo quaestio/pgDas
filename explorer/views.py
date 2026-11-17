@@ -348,9 +348,11 @@ def column_types(request, pk):
             found = pg.column_types(conn)
             roles = [r["name"] for r in pg.list_roles(conn)]                      # for the owner and privileges of a new table
             spaces = [t["name"] for t in pg.list_tablespaces(conn) if t["name"] != "pg_global"]    # and its tablespace (pg_global holds only shared catalogs)
+            methods, composites = pg.table_options(conn)                          # and its access method and the composite types it may be made OF
     except pg.PgError as error:
         return JsonResponse({"error": str(error)}, status=502)
-    return JsonResponse({"types": [{"name": name, "kind": kind} for name, kind in found], "roles": roles, "tablespaces": spaces})
+    return JsonResponse({"types": [{"name": name, "kind": kind} for name, kind in found], "roles": roles, "tablespaces": spaces,
+                         "access_methods": methods, "composites": composites})
 
 
 def _refuse(message, status=403):
