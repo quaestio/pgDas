@@ -73,6 +73,5 @@ page now shows the version.
 
 ### Upgrading
 - This is the first tagged release. Run `python manage.py migrate` after updating from any development copy; the README has the install steps.
-- If you used the earlier name PgDeck: the Python package is `pgdas` and the settings are `PGDAS_*` (see the README).
 - Changing `PGDAS_SECRET_KEY` (or `PGDAS_ENCRYPTION_KEY`) makes saved passwords unreadable and old server tokens stop working; plain-number
   links keep working unless the strict switch is on.

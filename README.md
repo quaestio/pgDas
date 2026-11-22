@@ -18,9 +18,6 @@ popup and recorded in the audit log (see "Changing data"). Backups, live monitor
 | ![SQL runner with the tables panel, coloured keywords and paged results](docs/screenshots/sql-runner.jpg) | ![Server overview with connections, work done and key settings](docs/screenshots/server-overview.jpg) |
 | ![Dashboards with charts and the settings that explain them](docs/screenshots/dashboards.jpg) | ![The review popup every change goes through](docs/screenshots/review-popup.jpg) |
 
-**Upgrading from the earlier name (PgDeck):** the Python package is now `pgdas`, the settings are `PGDAS_*` instead of
-`PGDECK_*`, and the Docker volume is `pgdas-data`. Rename the variables in your `.env`; `PGDECK_*` names are no longer read.
-
 ## Features
 - One Object Browser in the sidebar, laid out as a tree:
   - **Server:** Databases, Roles (login and group roles, with their memberships), Tablespaces.
