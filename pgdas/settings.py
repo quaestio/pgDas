@@ -232,7 +232,19 @@ WATCH_GROWTH_MIN_BYTES = int(os.getenv("PGDAS_WATCH_GROWTH_MIN_BYTES", str(100 *
 # Sending alerts (run_watch): a webhook (Slack, Teams, Discord, ...) and/or email. Both are off until set.
 ALERT_WEBHOOK_URL = os.getenv("PGDAS_ALERT_WEBHOOK_URL", "")
 ALERT_EMAIL_TO = env_list("PGDAS_ALERT_EMAIL_TO")
-ALERT_EMAIL_FROM = os.getenv("PGDAS_ALERT_EMAIL_FROM", "PGDAS <pgdas@localhost>")
+def _sender(text):
+    """A sender such as  pgdas.org <no-reply@pgdas.org>  has a dot in its display name, which must be quoted or the mail library refuses to build the message.
+    Re-writing it in the proper form means a value typed the natural way in .env just works."""
+    from email.utils import formataddr, parseaddr
+    name, address = parseaddr(text)
+    return formataddr((name, address)) if address else text
+
+
+ALERT_EMAIL_FROM = _sender(os.getenv("PGDAS_ALERT_EMAIL_FROM", "PGDAS <pgdas@localhost>"))
+ALERT_MAX_PER_HOUR = int(os.getenv("PGDAS_ALERT_MAX_PER_HOUR") or 30)                    # messages one organization can send per hour (a guard against floods)
+ALERT_MAX_RECIPIENTS = int(os.getenv("PGDAS_ALERT_MAX_RECIPIENTS") or 10)                  # confirmed or waiting addresses one organization may have
+# The address people reach PGDAS at, used in the links inside emails sent without a web request (alerts). Empty = the first https origin / allowed host.
+PUBLIC_URL = (os.getenv("PGDAS_PUBLIC_URL") or "").strip().rstrip("/")
 ALERT_REPEAT_HOURS = int(os.getenv("PGDAS_ALERT_REPEAT_HOURS", "12"))              # remind about a critical alert this often; 0 = never
 EMAIL_HOST = os.getenv("PGDAS_EMAIL_HOST", "")
 EMAIL_PORT = int(os.getenv("PGDAS_EMAIL_PORT", "587"))

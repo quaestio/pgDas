@@ -12,4 +12,7 @@ urlpatterns = [
     path("dashboards/settings/", views.setting_apply, name="setting_apply"),
     path("sample/", views.watch_sample, name="watch_sample"),
     path("test-notify/", views.watch_test_notify, name="watch_test_notify"),
+    path("alerts/", views.alert_settings, name="alert_settings"),
+    path("alerts/confirm/<str:token>/", views.alert_confirm, name="alert_confirm"),
+    path("alerts/stop/<str:token>/", views.alert_stop, name="alert_stop"),
 ]

@@ -294,7 +294,8 @@ def organization_edit(request):
                payload={"organization": organization.pk, "changed": changed})
         messages.success(request, "Organization settings saved.")
         return redirect("employee_list")
-    note = (f"Your address now is {network.client_ip(request) or 'unknown'}. Super Users (you included) can sign in from any address; "
+    note = ("Where monitoring alerts are sent is set on the Alert notifications page (Monitoring menu: Alerts & trends). ")
+    note += (f"Your address now is {network.client_ip(request) or 'unknown'}. Super Users (you included) can sign in from any address; "
             "the list applies to everyone else, on every request after they sign in.")
     note += (" This installation is shared: it can hold many separate organizations." if mode.is_shared()
              else " This installation is dedicated to one organization.")

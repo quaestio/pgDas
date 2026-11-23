@@ -1,6 +1,7 @@
 """Permission storage, independent of the eventual custom employee model."""
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -11,6 +12,8 @@ class Organization(models.Model):
     # Free monitoring for everybody on a shared installation; the person who runs PGDAS can switch it off for one organization
     # (manage.py organizations --monitoring off NAME), for example one that sends too much load.
     monitoring_enabled = models.BooleanField(default=True)
+    # Where this organization's alerts go (see watch/notify.py). The webhook address is a secret: only its host is ever shown. Recipients are in AlertRecipient.
+    alert_webhook_url = models.CharField(max_length=500, blank=True)
     restrict_creation = models.BooleanField(default=True)
     # Addresses (one per line; a single address or a range such as 10.0.0.0/24) from which everyone except Super Users may use PGDAS.
     # Empty = no restriction. Checked on every request after sign-in.
@@ -75,6 +78,24 @@ class DatabaseGrant(models.Model):
             raise ValidationError("The employee and server must belong to the same organization.")
         if not self.database or "\x00" in self.database or len(self.database.encode("utf-8")) > 63:
             raise ValidationError("Use an exact PostgreSQL database name of at most 63 UTF-8 bytes.")
+
+
+class AlertRecipient(models.Model):
+    """An email address that receives an organization's alerts. It receives nothing until its owner has confirmed it (a link is emailed to it), so nobody
+    can use PGDAS to send alerts to an address that is not theirs; every alert email also carries a link to stop."""
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name="alert_recipients")
+    email = models.CharField(max_length=254)
+    verified = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    verification_sent_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(Lower("email"), "organization", name="unique_alert_recipient_per_organization")]
+        ordering = ["email"]
+
+    def save(self, *args, **kwargs):
+        self.email = (self.email or "").strip().lower()
+        super().save(*args, **kwargs)
 
 
 class ServerWideAccess(models.Model):

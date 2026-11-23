@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · PGDAS{% endblock %}
+{% block anonymous %}
+<main class="content" style="max-width:520px;margin:60px auto;padding:0 16px">
+  <h1>{{ title }}</h1>
+  {% if bad %}<p>This link is not valid or has expired, or the address was already removed.</p>
+  {% elif done %}<p>Done. {% if title == "Stop alerts" %}<strong>{{ recipient.email }}</strong> will no longer receive alerts from {{ recipient.organization.name }}.{% else %}<strong>{{ recipient.email }}</strong> will now receive the alerts of {{ recipient.organization.name }}. Every alert email carries a link to stop.{% endif %}</p>
+  {% else %}<p><strong>{{ recipient.organization.name }}</strong> {% if title == "Stop alerts" %}sends its PGDAS monitoring alerts to <strong>{{ recipient.email }}</strong>.{% else %}asked PGDAS to send its monitoring alerts to <strong>{{ recipient.email }}</strong>.{% endif %}</p>
+  <form method="post">{% csrf_token %}<button class="btn primary" type="submit">{{ button }}</button></form>
+  {% if title != "Stop alerts" %}<p class="muted">If you do not know about this, close this page: nothing is sent to you until you confirm.</p>{% endif %}{% endif %}
+</main>
+{% endblock %}
+{% block content %}
+<main class="content" style="max-width:520px;margin:30px auto">
+  <h1>{{ title }}</h1>
+  {% if bad %}<p>This link is not valid or has expired, or the address was already removed.</p>
+  {% elif done %}<p>Done. {% if title == "Stop alerts" %}<strong>{{ recipient.email }}</strong> will no longer receive alerts from {{ recipient.organization.name }}.{% else %}<strong>{{ recipient.email }}</strong> will now receive the alerts of {{ recipient.organization.name }}.{% endif %}</p>
+  {% else %}<form method="post">{% csrf_token %}<button class="btn primary" type="submit">{{ button }}</button></form>{% endif %}
+</main>
+{% endblock %}

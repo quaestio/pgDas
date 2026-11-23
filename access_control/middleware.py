@@ -88,7 +88,7 @@ class AccessMiddleware(MiddlewareMixin):
         if name in {"dashboard", "dashboard_data"} and not runtime.is_admin():
             return redirect("server_list") if name == "dashboard" else JsonResponse({"ok": False, "error": "Server-wide dashboard is restricted to Super Users."}, status=403)
         admin_names = {"server_add", "server_test_draft", "server_create", "server_json", "server_update", "server_unlock", "server_lock", "server_edit", "server_delete", "server_test", "monitor", "monitor_data", "monitor_stop",
-                       "monitor_features", "monitor_feature_change", "watch", "watch_data", "dashboards", "dashboards_data", "dashboards_live", "watch_sample", "watch_test_notify",
+                       "monitor_features", "monitor_feature_change", "watch", "watch_data", "dashboards", "dashboards_data", "dashboards_live", "watch_sample", "watch_test_notify", "alert_settings",
                        "backup_delete", "backup_restore", "schedule_save", "schedule_delete", "audit_reinsert", "audit_undo"}
         if name in admin_names:
             require(request.user, "servers_manage", organization=member.organization_id)

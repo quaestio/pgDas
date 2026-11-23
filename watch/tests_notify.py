@@ -163,7 +163,7 @@ class ChannelTests(NotifyTestCase):
 
     def test_recipients_without_a_mail_host_are_ignored(self):
         with override_settings(ALERT_WEBHOOK_URL="", EMAIL_HOST="", ALERT_EMAIL_TO=["ops@example.test"]):
-            self.assertEqual(notify.channels(), {"webhook": "", "email": []})
+            self.assertEqual({k: v for k, v in notify.channels().items() if k != "source"}, {"webhook": "", "email": []})
             self.assertIsNone(notify.run())
 
     def test_the_webhook_address_is_never_shown_only_its_host(self):

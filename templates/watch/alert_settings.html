@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Alert notifications · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">MONITORING / <span>ALERT NOTIFICATIONS</span></div><h1>Alert notifications</h1></div>
+  <div><a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a> <a class="btn" href="{% url 'dashboards' %}">Dashboards</a></div></div>
+<p class="muted">Where the alerts of <strong>{{ organization.name }}</strong> are sent when <code>run_watch</code> sees a problem start, last, or end. They go only to what you set here; no other organization sees them.
+{% if source == "installation" %}<strong>Nothing is set for your organization yet, so alerts go to the installation's own list (set by the person who runs PGDAS).</strong>
+{% elif source == "none" %}<strong>Nothing is set for your organization{% if shared %} (and on this shared installation there is no fallback){% endif %}: alerts are shown in PGDAS only. Add an address or a webhook below.</strong>{% endif %}</p>
+
+<section class="panel pad" style="max-width:760px">
+  <h2>Email recipients</h2>
+  {% if not email_ready %}<p class="error" role="alert">This installation cannot send email yet (the person who runs PGDAS sets <code>PGDAS_EMAIL_HOST</code>). Recipients can be saved but nothing is sent.</p>{% endif %}
+  <table class="plain"><thead><tr><th>Address</th><th>Status</th><th></th></tr></thead><tbody>
+  {% for r in recipients %}<tr><td>{{ r.email }}</td><td>{% if r.verified %}<span class="badge ok">confirmed</span>{% else %}<span class="badge warn" title="Receives nothing until its owner opens the emailed link">waiting for confirmation</span>{% endif %}</td>
+    <td style="text-align:right"><form method="post" style="display:inline">{% csrf_token %}<input type="hidden" name="recipient" value="{{ r.pk }}">
+      {% if not r.verified %}<button class="btn" name="action" value="resend">Send the link again</button> {% endif %}<button class="btn danger" name="action" value="remove">Remove</button></form></td></tr>
+  {% empty %}<tr><td colspan="3" class="muted">No recipients yet.</td></tr>{% endfor %}</tbody></table>
+  <form method="post" style="margin-top:12px">{% csrf_token %}<input type="hidden" name="action" value="add">
+    <label for="newEmail">Add an address</label> <input type="email" id="newEmail" name="email" placeholder="ops@example.com" maxlength="254" required>
+    <button class="btn primary" type="submit">Add</button></form>
+  <p class="muted">A new address receives a link to confirm; it gets alerts only after its owner opens it (an address of a verified member of your organization is confirmed at once). Every alert email ends with a link that stops it. Up to {{ limit }} addresses.</p>
+</section>
+
+<section class="panel pad" style="max-width:760px;margin-top:16px">
+  <h2>Webhook (Slack, Teams, Discord, or anything that takes a JSON POST)</h2>
+  {% if webhook_host %}<p>Alerts are posted to <strong>{{ webhook_host }}</strong> (the full address is a secret and is not shown).</p>
+  <form method="post">{% csrf_token %}<button class="btn danger" name="action" value="webhook_remove">Remove the webhook</button></form>{% endif %}
+  <form method="post" style="margin-top:8px">{% csrf_token %}<input type="hidden" name="action" value="webhook">
+    <label for="hook">{% if webhook_host %}Replace it with{% else %}Webhook address{% endif %}</label>
+    <input type="url" id="hook" name="webhook" placeholder="https://hooks.slack.com/services/…" maxlength="500" autocomplete="off" style="width:100%" required>
+    <button class="btn primary" type="submit">Save webhook</button></form>
+  <p class="muted">On this installation a webhook must use https and be on the public internet. PGDAS does not follow redirects. Up to {{ per_hour }} messages an hour are sent for your organization.</p>
+</section>
+
+<section class="panel pad" style="max-width:760px;margin-top:16px">
+  <h2>Check it works</h2>
+  <p><button class="btn" id="sendTest" type="button">Send a test message</button> <span id="testResult" class="muted" role="status"></span></p>
+</section>
+<script>
+document.getElementById("sendTest").addEventListener("click", function () {
+  var out = document.getElementById("testResult"), token = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || "";
+  out.textContent = "Sending…";
+  fetch("{% url 'watch_test_notify' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": token, "X-Requested-With": "fetch"}})
+    .then(function (r) { return r.json(); }).then(function (a) { out.textContent = a.ok ? a.message : (a.error || "Not sent."); })
+    .catch(function () { out.textContent = "The request did not complete."; });
+});
+</script>
+{% endblock %}

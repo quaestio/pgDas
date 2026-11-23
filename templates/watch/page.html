@@ -16,7 +16,7 @@
 </section>
 
 <section class="panel pad"><h2>Notifications</h2>
-  <p class="muted" id="wChannels"></p>
+  <p class="muted"><span id="wChannels"></span> <a href="{% url 'alert_settings' %}">Alert notifications</a></p>
   <p class="muted">When <code>manage.py run_watch</code> runs, a message is sent when an alert starts, every few hours while a critical one lasts, and when it is over. Set the channels in <code>.env</code> (see <code>.env.example</code>).</p>
   <button class="btn" type="button" id="wTest">Send a test notification</button> <span class="muted" id="wTestResult"></span></section>
 
@@ -57,7 +57,8 @@
     var parts = [];
     if (c.webhook) parts.push("webhook to " + c.webhook);
     if (c.email.length) parts.push("email to " + c.email.join(", "));
-    $("wChannels").textContent = parts.length ? "Sending alerts by " + parts.join(" and ") + "." : "No channel is set up, so nothing is sent: alerts show on this page only.";
+    var whose = c.source === "organization" ? " (your organization's own list)" : c.source === "installation" ? " (the installation's list: your organization has none of its own)" : "";
+    $("wChannels").textContent = parts.length ? "Sending alerts by " + parts.join(" and ") + whose + "." : "No channel is set up for your organization, so nothing is sent: alerts show on this page only.";
   }
 
   function show(d) {
