@@ -139,6 +139,36 @@ class FreeFormWriteTests(Writing):
         self.assertEqual(response.status_code, 400)
         self.assertIn("PostgreSQL blocked this", response.json()["error"])
 
+    def test_a_read_only_login_stops_an_editors_insert_with_the_second_gate_message(self):
+        """PGDAS lets the Editor insert, the server's saved login may not: PostgreSQL refuses, and the message says so and names the login."""
+        with shared.admin_connect("postgres") as conn:
+            conn.execute("DROP ROLE IF EXISTS pgdas_ro_gate")
+            conn.execute("CREATE ROLE pgdas_ro_gate LOGIN PASSWORD 'ro-gate-pass-1'")
+            conn.execute(f"GRANT CONNECT ON DATABASE {self.db} TO pgdas_ro_gate")
+        self.addCleanup(self.drop_role)
+        with shared.admin_connect(self.db) as conn:
+            conn.execute("GRANT USAGE ON SCHEMA pgdas_demo TO pgdas_ro_gate")
+            conn.execute("GRANT SELECT ON ALL TABLES IN SCHEMA pgdas_demo TO pgdas_ro_gate")
+        self.server.username = "pgdas_ro_gate"
+        self.server.set_password("ro-gate-pass-1")
+        self.server.save()
+        assign_database(self.admin, self.member, self.server, self.db, preset_permissions("editor"))
+        before = self.count()
+        response = self.write(self.person, "INSERT INTO pgdas_demo.people (name) VALUES ('stopped by PostgreSQL')")
+        self.assertEqual(response.status_code, 400)
+        error = response.json()["error"]
+        self.assertIn("PostgreSQL blocked this", error)
+        self.assertIn('"pgdas_ro_gate"', error)
+        self.assertIn("PGDAS allowed it", error)
+        self.assertEqual(self.count(), before)
+
+    def drop_role(self):
+        with shared.admin_connect(self.db) as conn:
+            conn.execute("REVOKE ALL ON ALL TABLES IN SCHEMA pgdas_demo FROM pgdas_ro_gate")
+            conn.execute("REVOKE ALL ON SCHEMA pgdas_demo FROM pgdas_ro_gate")
+        with shared.admin_connect("postgres") as conn:
+            conn.execute(f"REVOKE ALL ON DATABASE {self.db} FROM pgdas_ro_gate")
+            conn.execute("DROP ROLE IF EXISTS pgdas_ro_gate")
 
 class StructureDialogTests(Writing):
     """Constraints, column types and defaults, partitions and column order are open to a Designer, not to an Editor; owners and privileges are not."""

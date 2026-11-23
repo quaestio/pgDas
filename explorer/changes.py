@@ -56,6 +56,8 @@ def _run(conn, statement, params=None):
         return conn.execute(statement, params)
     except psycopg.Error as error:
         diag = error.diag
+        if getattr(error, "sqlstate", None) in ("42501", "25006") or getattr(diag, "sqlstate", None) in ("42501", "25006"):
+            raise PgError(pg._message(error))             # the second gate: PostgreSQL refused what the saved login may not do, said in the same words everywhere
         detail = "; ".join(line.strip() for line in (diag.message_detail or "").splitlines() if line.strip())   # one line per object
         parts = [diag.message_primary or str(error), detail, diag.message_hint]
         raise PgError(" ".join(part.strip() for part in parts if part))
