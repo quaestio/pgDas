@@ -34,3 +34,9 @@
 .dash-wide { grid-column: 1 / -1; overflow-x: auto; }
 .dash-foot { margin-top: 18px; }
 @media (max-width: 520px) { .dash-grid { grid-template-columns: 1fr; } }.dash-live .dash-panel { min-height: 120px; }
+.h-finding { background: rgba(4, 19, 41, .85); border: 1px solid #125079; border-left: 4px solid #5ec8ff; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; }
+.h-finding.critical { border-left-color: #ff6b6b; } .h-finding.warning { border-left-color: #ffd166; }
+.h-head { font-size: 13px; color: #d4edff; } .h-finding p { margin: 4px 0 6px; font-size: 12px; }
+.h-badge { display: inline-block; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 1px 6px; border-radius: 3px; margin-right: 6px; background: #125079; color: #fff; }
+.h-badge.critical { background: #b02a2a; } .h-badge.warning { background: #9a7410; }
+.h-sql { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; } .h-sql code { background: #031125; padding: 4px 8px; border-radius: 3px; font-size: 12px; word-break: break-all; }

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Table & index health · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">MONITORING / <span>HEALTH</span></div><h1>Table &amp; index health</h1></div>
+  <div class="dash-controls">
+    <label>Server <select id="hServer">{% for s in servers %}<option value="{{ s.sid }}"{% if s.sid == selected %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
+    <label>Database <select id="hDatabase"><option value="">Loading…</option></select></label>
+    <label>Biggest <select id="hLimit">{% for n in limits %}<option value="{{ n }}"{% if n == 150 %} selected{% endif %}>{{ n }} tables</option>{% endfor %}</select></label>
+    <button type="button" class="btn" id="hRefresh">Read again</button>
+    <a class="btn" href="{% url 'dashboards' %}">Dashboards</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>
+  </div></div>
+{% if not servers %}<section class="panel pad">No servers are saved yet.</section>{% else %}
+<p class="muted">Read from the database itself when you open this page (nothing is installed, nothing is changed): which tables need vacuuming, which indexes are never used or duplicated, and how close each table is to a forced vacuum. Each finding says why it matters and gives the SQL that deals with it.</p>
+<div id="hStatus" class="dash-status" role="status"></div>
+<section class="dash-tiles" id="hTiles"></section>
+<div id="hBody" data-url="{% url 'health_data' %}" data-dbs-url="{% url 'health_databases' %}" data-measure-url="{% url 'health_bloat' %}" data-maintenance-url-template="/c/__SID__/maintenance/"></div>
+{% endif %}
+{% endblock %}
+{% block scripts %}<link rel="stylesheet" href="{% static 'dashboards.css' %}"><script src="{% static 'health.js' %}"></script>{% endblock %}

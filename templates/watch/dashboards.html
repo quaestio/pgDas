@@ -9,7 +9,7 @@
     <label>Period <select id="dashRange">{% for r in ranges %}<option value="{{ r }}"{% if r == default_range %} selected{% endif %}>Last {{ r }}</option>{% endfor %}</select></label>
     <label>Refresh <select id="dashRefresh"><option value="0">Off</option><option value="10">every 10 s</option><option value="30" selected>every 30 s</option><option value="60">every minute</option></select></label>
     <button type="button" class="btn" id="dashSample" title="Take a sample of this server now">Sample now</button>
-    <a class="btn" href="{% url 'monitor' %}">Live sessions</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>
+    <a class="btn" href="{% url 'health' %}">Table &amp; index health</a> <a class="btn" href="{% url 'monitor' %}">Live sessions</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>
   </div></div>
 {% if not servers %}<section class="panel pad">No servers are saved yet. Add one on the home page; PGDAS then samples it every {{ interval }} seconds.</section>{% else %}
 <div id="dashStatus" class="dash-status" role="status"></div>

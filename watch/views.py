@@ -16,7 +16,7 @@ from explorer.pg import PgError
 from servers import ids
 from servers.models import ServerConnection
 
-from . import alerts, metrics, notify, sampling, series, server_settings
+from . import alerts, health, metrics, notify, sampling, series, server_settings
 from .models import MetricSample
 
 staff_required = user_passes_test(lambda user: user.is_staff)
@@ -240,3 +240,78 @@ def alert_stop(request, token):
     """The link at the end of every alert email: removes the address."""
     from . import recipients
     return _recipient_page(request, token, recipients.STOP_SALT, None, "Stop alerts", "Stop sending alerts to this address", lambda r: r.delete())
+
+# ---- table and index health (on demand) ------------------------------------------------------------------------------------------------------------
+
+@login_required
+@staff_required
+def health_page(request):
+    servers = list(runtime.servers().order_by("name"))
+    chosen = next((s for s in servers if str(s.pk) == str(request.GET.get("server") or "")), servers[0] if servers else None)
+    return render(request, "watch/health.html", {"servers": servers, "selected": chosen.sid if chosen else "", "limits": (50, 150, 300)})
+
+
+@login_required
+@staff_required
+def health_databases(request):
+    """The databases of a server, for the picker (cached for a minute: the page asks again whenever the server changes)."""
+    server = get_object_or_404(runtime.servers(), pk=request.GET.get("server") or 0)
+    key = f"pgdas-health-dbs:{server.pk}"
+    names = cache.get(key)
+    if names is None:
+        from explorer import pg
+        try:
+            with pg.connect(server) as conn:
+                names = [d["name"] for d in pg.list_databases(conn)]
+        except PgError as error:
+            return JsonResponse({"ok": False, "error": str(error)}, status=502)
+        cache.set(key, names, 60)
+    return JsonResponse({"ok": True, "databases": names})
+
+
+@login_required
+@staff_required
+def health_data(request):
+    """Tables and indexes of one database with what is wrong and how to fix it. Read live, so it is cached for a minute per (server, database, size of list):
+    asking again and again costs the monitored server nothing."""
+    server = get_object_or_404(runtime.servers(), pk=request.GET.get("server") or 0)
+    database = (request.GET.get("db") or "").strip()
+    if not database:
+        return JsonResponse({"ok": False, "error": "Choose a database."}, status=400)
+    try:
+        limit = int(request.GET.get("limit") or 150)
+    except ValueError:
+        limit = 150
+    limit = limit if limit in (50, 150, 300) else 150
+    key = f"pgdas-health:{server.pk}:{database}:{limit}"
+    payload = cache.get(key)
+    if payload is None or request.GET.get("fresh"):
+        try:
+            data = health.collect(server, database, limit)
+        except PgError as error:
+            return JsonResponse({"ok": False, "error": str(error)}, status=502)
+        payload = {"ok": True, "server": {"id": server.sid, "name": server.name}, **data}
+        cache.set(key, payload, 60)
+    return JsonResponse(payload)
+
+
+@login_required
+@staff_required
+@require_POST
+def health_bloat(request):
+    """Exact dead space of one table (pgstattuple), on request."""
+    try:
+        body = json.loads(request.body or b"{}")
+        number = ids.decode(body.get("server"))
+        database, schema, table = (str(body.get(k) or "") for k in ("db", "schema", "table"))
+        if not (number and database and schema and table):
+            raise ValueError
+        server = get_object_or_404(runtime.servers(), pk=number)
+    except (ValueError, AttributeError):
+        return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+    try:
+        result = health.bloat(server, database, schema, table)
+    except PgError as error:
+        return JsonResponse({"ok": False, "error": str(error)}, status=400)
+    record(request.user, "health.measure", server, f"{schema}.{table}", payload={"database": database})
+    return JsonResponse({"ok": True, **result})
