@@ -6,7 +6,7 @@
   var serverSel = document.getElementById("dashServer"), dbSel = document.getElementById("dashDatabase"), rangeSel = document.getElementById("dashRange");
   var refresh = document.getElementById("dashRefresh"), status = document.getElementById("dashStatus"), tilesEl = document.getElementById("dashTiles");
   var liveTiles = document.getElementById("dashLiveTiles"), liveCharts = document.getElementById("dashLiveCharts"), liveNote = document.getElementById("dashLiveNote");
-  var live = null, lastLoad = 0, liveBusy = false;
+  var live = null, lastLoad = 0, liveBusy = false, restricted = body.getAttribute("data-restricted") === "1";
   var tip = document.getElementById("dashTip"), timer = null, current = null, hidden = {};
   var PALETTE = ["#5ec8ff", "#4cc38a", "#ffd166", "#ff6b6b", "#9d8cff", "#ff9f6b", "#6bf0e0", "#e86bd0"];
   var SECTIONS = [
@@ -167,6 +167,15 @@
   }
   function renderTiles(t) {
     tilesEl.textContent = "";
+    if (restricted) {                                              // an employee: the figures of their own database only
+      tilesEl.appendChild(tile("Connected", t.connections === null || t.connections === undefined ? "–" : String(t.connections), "to this database"));
+      tilesEl.appendChild(tile("Active now", t.active === null || t.active === undefined ? "–" : String(t.active), ""));
+      tilesEl.appendChild(tile("Transactions", fmt("per_s", t.tps), "commits + rollbacks"));
+      tilesEl.appendChild(tile("Cache hit", t.cache_hit === null || t.cache_hit === undefined ? "–" : t.cache_hit.toFixed(1) + " %", "reads served from memory", t.cache_hit !== null && t.cache_hit !== undefined && t.cache_hit < 90 ? "warn" : ""));
+      tilesEl.appendChild(tile("Size", fmt("bytes", t.size), ""));
+      tilesEl.appendChild(tile("Transaction ID age", t.xid_percent === null || t.xid_percent === undefined ? "–" : t.xid_percent + " %", "of the forced-vacuum limit", t.xid_percent > 50 ? "warn" : "good"));
+      return;
+    }
     var use = t.connections !== null && t.max_connections ? t.connections * 100 / t.max_connections : null;
     tilesEl.appendChild(tile("Connections", t.connections === null ? "–" : t.connections + " / " + t.max_connections, use === null ? "" : use.toFixed(0) + " % of the limit", use > 90 ? "bad" : use > 75 ? "warn" : "good"));
     tilesEl.appendChild(tile("Active now", t.active === null ? "–" : String(t.active), t.idle_in_transaction ? t.idle_in_transaction + " idle in transaction" : ""));
@@ -203,41 +212,42 @@
     var t = d.tiles, parts = [];
     status.textContent = "";
     var add = function (text, cls) { var s = el("span", cls ? {"class": cls} : {}, text); status.appendChild(s); status.appendChild(document.createTextNode("   ")); };
-    if (!t.samples) { add("No samples yet: run  manage.py run_watch  (or press Sample now).", "bad"); return; }
+    if (!t.samples) { add(restricted ? "No samples yet for this database: the person who runs PGDAS must run the sampler (manage.py run_watch)." : "No samples yet: run  manage.py run_watch  (or press Sample now).", "bad"); return; }
     add("Last sample " + (t.last_sample_age === null ? "–" : seconds(t.last_sample_age) + " ago"), t.last_sample_age > d.range.interval * 3 ? "bad" : "ok");
     add(d.range.samples + " samples in this period, every " + seconds(d.range.interval));
     if (t.failures) { add("The last " + t.failures + " attempt" + (t.failures === 1 ? "" : "s") + " failed: " + t.last_error, "bad"); }
     if (t.skipped && t.skipped.length) { add("Not collected: " + t.skipped.join("; "), "bad"); }
-    if (!t.statements_extension) { add("pg_stat_statements is not installed here: no statement history (Monitor, Features)."); }
+    if (!restricted && !t.statements_extension) { add("pg_stat_statements is not installed here: no statement history (Monitor, Features)."); }
   }
 
   function render(d) {
     current = d;
     renderTiles(d.tiles); renderStatus(d);
     var selected = dbSel.value;
-    dbSel.textContent = ""; dbSel.appendChild(el("option", {value: ""}, "All databases"));
+    dbSel.textContent = ""; if (!restricted) { dbSel.appendChild(el("option", {value: ""}, "All databases")); }
     d.databases.forEach(function (name) { var o = el("option", {value: name}, name); if (name === d.database) { o.selected = true; } dbSel.appendChild(o); });
     body.textContent = "";
     SECTIONS.forEach(function (section) {
+      var present = section[1].filter(function (id) { return d.panels[id]; });
+      if (!present.length) { return; }                             // an employee's view has no replication or WAL panels: no empty headings
       body.appendChild(el("div", {"class": "dash-section"}, section[0]));
       var grid = el("div", {"class": "dash-grid"});
-      section[1].forEach(function (id) {
-        if (!d.panels[id]) { return; }
+      present.forEach(function (id) {
         var host = el("div", {"class": "dash-panel", "data-panel": id}); grid.appendChild(host); chart(host, id, d.panels[id], d.range);
       });
       body.appendChild(grid);
     });
     var tables = el("div", {"class": "dash-grid"});
     body.appendChild(el("div", {"class": "dash-section"}, "Details"));
-    tables.appendChild(table("Costliest statements in this period", [["Statement", "query", "code"], ["Calls", "calls", "n"], ["Total", "total_ms", "n", function (v) { return fmt("ms", v); }],
+    if (!restricted) tables.appendChild(table("Costliest statements in this period", [["Statement", "query", "code"], ["Calls", "calls", "n"], ["Total", "total_ms", "n", function (v) { return fmt("ms", v); }],
       ["Mean", "mean_ms", "n", function (v) { return fmt("ms", v); }], ["Rows", "rows", "n"], ["Cache hit", "hit_percent", "n", function (v) { return v === null ? "–" : v + " %"; }]], d.tables.statements, true));
     tables.appendChild(table("Databases", [["Database", "database"], ["Size", "size", "n", function (v) { return fmt("bytes", v); }], ["Connections", "connections", "n"], ["Active", "active", "n"],
       ["TPS", "tps", "n"], ["Cache hit", "cache_hit", "n", function (v) { return v === null ? "–" : v + " %"; }], ["Deadlocks", "deadlocks", "n"], ["XID age", "xid_percent", "n", function (v) { return v + " %"; }]], d.tables.databases, true));
-    tables.appendChild(table("Standbys", [["Name", "name"], ["Address", "client"], ["State", "state"], ["Sync", "sync"], ["Replay lag", "replay_lag", "n", function (v) { return fmt("bytes", v); }],
+    if (!restricted) tables.appendChild(table("Standbys", [["Name", "name"], ["Address", "client"], ["State", "state"], ["Sync", "sync"], ["Replay lag", "replay_lag", "n", function (v) { return fmt("bytes", v); }],
       ["Replay lag (time)", "replay_lag_s", "n", function (v) { return v === null ? "–" : fmt("s", v); }]], d.tables.standbys, false));
-    tables.appendChild(table("Replication slots", [["Slot", "name"], ["Type", "type"], ["Active", "active", "", function (v) { return v ? "yes" : "NO"; }], ["WAL kept", "retained", "n", function (v) { return fmt("bytes", v); }],
+    if (!restricted) tables.appendChild(table("Replication slots", [["Slot", "name"], ["Type", "type"], ["Active", "active", "", function (v) { return v ? "yes" : "NO"; }], ["WAL kept", "retained", "n", function (v) { return fmt("bytes", v); }],
       ["Status", "wal_status"]], d.tables.slots, false));
-    tables.appendChild(settingsPanel(d));
+    if (!restricted) tables.appendChild(settingsPanel(d));
     body.appendChild(tables);
   }
 
@@ -318,6 +328,7 @@
 
   // ---- the live strip: a direct reading of the server each time the page refreshes (counters turned into rates between two readings) -------------
   function resetLive() {
+    if (restricted) { live = null; return; }
     live = {prev: null, tps: [], hit: [], written: [], active: [], idletx: [], blocked: []};
     liveTiles.textContent = ""; liveCharts.textContent = ""; liveNote.textContent = "";
     ["tps", "sessions"].forEach(function (id) { liveCharts.appendChild(el("div", {"class": "dash-panel", "data-live": id})); });
@@ -345,7 +356,7 @@
     liveCharts.querySelectorAll("[data-live]").forEach(function (host) { chart(host, "live-" + host.getAttribute("data-live"), panels[host.getAttribute("data-live")], range); });
   }
   function pollLive() {
-    if (liveBusy || !live) { return; }
+    if (liveBusy || !live || restricted) { return; }
     liveBusy = true;
     fetch(body.getAttribute("data-live-url") + "?server=" + encodeURIComponent(serverSel.value), {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}})
       .then(function (r) { return r.json(); }).then(function (a) {
@@ -369,6 +380,12 @@
     var url = body.getAttribute("data-url") + "?server=" + encodeURIComponent(serverSel.value) + "&range=" + encodeURIComponent(rangeSel.value) + "&db=" + encodeURIComponent(dbSel.value);
     fetch(url, {credentials: "same-origin", headers: {"X-Requested-With": "fetch"}}).then(function (r) { return r.json(); }).then(function (d) {
       if (!d.ok) { status.textContent = d.error || "Could not load."; return; }
+      if (d.need_database) {                                         // an employee picks one of the databases they may read
+        dbSel.textContent = "";
+        d.databases.forEach(function (name) { dbSel.appendChild(el("option", {value: name}, name)); });
+        if (!d.databases.length) { status.textContent = "You do not have access to a database on this server."; body.textContent = ""; tilesEl.textContent = ""; return; }
+        dbSel.value = d.databases[0]; load(); return;
+      }
       render(d);
     }).catch(function () { status.textContent = "Could not load the dashboards. Try again."; });
   }
@@ -380,7 +397,8 @@
   }
   serverSel.addEventListener("change", function () { dbSel.value = ""; resetLive(); load(); pollLive(); });
   dbSel.addEventListener("change", load); rangeSel.addEventListener("change", load); refresh.addEventListener("change", schedule);
-  document.getElementById("dashSample").addEventListener("click", function () {
+  var sampleButton = document.getElementById("dashSample");
+  if (sampleButton) sampleButton.addEventListener("click", function () {
     var button = this, token = (document.querySelector("input[name=csrfmiddlewaretoken]") || {}).value || (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
     button.disabled = true; status.textContent = "Sampling…";
     var data = new FormData(); data.append("server", serverSel.value);

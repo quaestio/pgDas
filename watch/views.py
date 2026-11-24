@@ -20,6 +20,31 @@ from . import alerts, health, metrics, notify, sampling, series, server_settings
 from .models import MetricSample
 
 staff_required = user_passes_test(lambda user: user.is_staff)
+
+
+def _grants(user):
+    """The databases a non-Super-User may read, as {server pk: [database names]} (what the employee versions of the dashboards and the health page may show)."""
+    from access_control.models import DatabaseGrant
+    from access_control.policy import membership_for
+    member = membership_for(user)
+    found = {}
+    if member is not None:
+        for grant in DatabaseGrant.objects.filter(membership=member, read=True).order_by("database"):
+            found.setdefault(grant.server_id, []).append(grant.database)
+    return found
+
+
+def monitor_required(view):
+    """Super Users, and anyone who may read at least one database (they see only their own databases: see series.restricted_view)."""
+    from functools import wraps
+    from django.core.exceptions import PermissionDenied
+
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        if not (request.user.is_staff or _grants(request.user)):
+            raise PermissionDenied("Monitoring is for Super Users and for people with access to a database.")
+        return view(request, *args, **kwargs)
+    return wrapped
 PERIODS = (1, 7, 30, 90)
 
 
@@ -76,29 +101,39 @@ def watch_test_notify(request):
     return JsonResponse({"ok": True, "message": "Test sent on " + " and ".join(done) + "."})
 
 @login_required
-@staff_required
+@monitor_required
 def dashboards_page(request):
     """Charts of everything PostgreSQL reports about itself, sampled over time (see series.py). Super Users of an organization see their own servers."""
     servers = list(runtime.servers().order_by("name"))
     chosen = next((s for s in servers if str(s.pk) == str(request.GET.get("server") or "")), servers[0] if servers else None)
     selected = chosen.sid if chosen else ""
     return render(request, "watch/dashboards.html", {"servers": servers, "selected": selected, "ranges": list(series.RANGES), "default_range": "6h",
-                                                      "interval": settings.WATCH_INTERVAL_SECONDS, "keep_days": settings.WATCH_METRIC_KEEP_DAYS})
+                                                      "interval": settings.WATCH_INTERVAL_SECONDS, "keep_days": settings.WATCH_METRIC_KEEP_DAYS,
+                                                      "restricted": not request.user.is_staff})
 
 
 @login_required
-@staff_required
+@monitor_required
 def dashboards_data(request):
     """The JSON behind the page. Short-lived cache: many people (and tabs) looking at the same server cost the database one query set per 20 seconds."""
     server = get_object_or_404(runtime.servers(), pk=request.GET.get("server") or 0)
     window = request.GET.get("range") if request.GET.get("range") in series.RANGES else "6h"
     database = (request.GET.get("db") or "")[:200]
-    key = f"pgdas-dash:{server.pk}:{cache.get(f'pgdas-dash-v:{server.pk}', 0)}:{window}:{database}"
+    restricted = not request.user.is_staff
+    if restricted:                                       # an employee sees one database they may read, never the server as a whole
+        readable = _grants(request.user).get(server.pk, [])
+        if not database:
+            return JsonResponse({"ok": True, "scope": "database", "need_database": True, "databases": readable, "server": {"id": server.sid, "name": server.name},
+                                 "database": "", "range_key": window, "panels": {}, "tiles": {}, "tables": {}, "range": {}})
+        if database not in readable:
+            return JsonResponse({"ok": False, "error": f"PGDAS blocked this: you have no access to {database!r} on {server.name!r}. Ask a Super User to give you access."}, status=403)
+    key = f"pgdas-dash:{server.pk}:{cache.get(f'pgdas-dash-v:{server.pk}', 0)}:{window}:{database}:{int(restricted)}"
     payload = cache.get(key)
     if payload is None:
-        data = series.dashboard(server, series.RANGES[window] / 3600, database)
-        names = list(MetricSample.objects.filter(server=server, taken_at__gte=timezone.now() - timedelta(hours=series.RANGES[window] / 3600))
-                     .exclude(database="").order_by().values_list("database", flat=True).distinct())
+        data = series.dashboard(server, series.RANGES[window] / 3600, database, restricted=restricted)
+        names = _grants(request.user).get(server.pk, []) if restricted else list(
+            MetricSample.objects.filter(server=server, taken_at__gte=timezone.now() - timedelta(hours=series.RANGES[window] / 3600))
+            .exclude(database="").order_by().values_list("database", flat=True).distinct())
         payload = {"ok": True, "server": {"id": server.sid, "name": server.name}, "databases": sorted(names), "range_key": window, "database": database, **data}
         cache.set(key, payload, 20)
     return JsonResponse({**payload, "can_edit_settings": runtime.is_admin(request.user)})          # who is looking is not part of the cached answer
@@ -244,18 +279,20 @@ def alert_stop(request, token):
 # ---- table and index health (on demand) ------------------------------------------------------------------------------------------------------------
 
 @login_required
-@staff_required
+@monitor_required
 def health_page(request):
     servers = list(runtime.servers().order_by("name"))
     chosen = next((s for s in servers if str(s.pk) == str(request.GET.get("server") or "")), servers[0] if servers else None)
-    return render(request, "watch/health.html", {"servers": servers, "selected": chosen.sid if chosen else "", "limits": (50, 150, 300)})
+    return render(request, "watch/health.html", {"servers": servers, "selected": chosen.sid if chosen else "", "limits": (50, 150, 300), "restricted": not request.user.is_staff})
 
 
 @login_required
-@staff_required
+@monitor_required
 def health_databases(request):
-    """The databases of a server, for the picker (cached for a minute: the page asks again whenever the server changes)."""
+    """The databases of a server, for the picker (cached for a minute: the page asks again whenever the server changes). An employee gets only their own."""
     server = get_object_or_404(runtime.servers(), pk=request.GET.get("server") or 0)
+    if not request.user.is_staff:
+        return JsonResponse({"ok": True, "databases": _grants(request.user).get(server.pk, [])})
     key = f"pgdas-health-dbs:{server.pk}"
     names = cache.get(key)
     if names is None:
@@ -270,7 +307,7 @@ def health_databases(request):
 
 
 @login_required
-@staff_required
+@monitor_required
 def health_data(request):
     """Tables and indexes of one database with what is wrong and how to fix it. Read live, so it is cached for a minute per (server, database, size of list):
     asking again and again costs the monitored server nothing."""
@@ -278,6 +315,8 @@ def health_data(request):
     database = (request.GET.get("db") or "").strip()
     if not database:
         return JsonResponse({"ok": False, "error": "Choose a database."}, status=400)
+    if not request.user.is_staff and database not in _grants(request.user).get(server.pk, []):
+        return JsonResponse({"ok": False, "error": f"PGDAS blocked this: you have no access to {database!r} on {server.name!r}. Ask a Super User to give you access."}, status=403)
     try:
         limit = int(request.GET.get("limit") or 150)
     except ValueError:
@@ -292,14 +331,16 @@ def health_data(request):
             return JsonResponse({"ok": False, "error": str(error)}, status=502)
         payload = {"ok": True, "server": {"id": server.sid, "name": server.name}, **data}
         cache.set(key, payload, 60)
-    return JsonResponse(payload)
+    from access_control.policy import permits
+    can_fix = request.user.is_staff or permits(request.user, "maintenance", server=server, database=database)      # who is looking is not part of the cached answer
+    return JsonResponse({**payload, "can_maintain": can_fix})
 
 
 @login_required
-@staff_required
+@monitor_required
 @require_POST
 def health_bloat(request):
-    """Exact dead space of one table (pgstattuple), on request."""
+    """Exact dead space of one table (pgstattuple), on request: Super Users, and people with the Maintenance permission on that database."""
     try:
         body = json.loads(request.body or b"{}")
         number = ids.decode(body.get("server"))
@@ -309,6 +350,8 @@ def health_bloat(request):
         server = get_object_or_404(runtime.servers(), pk=number)
     except (ValueError, AttributeError):
         return JsonResponse({"ok": False, "error": "That request was not understood."}, status=400)
+    from access_control.policy import require
+    require(request.user, "maintenance", server=server, database=database)
     try:
         result = health.bloat(server, database, schema, table)
     except PgError as error:

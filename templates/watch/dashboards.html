@@ -5,20 +5,20 @@
 <div class="title-row"><div><div class="eyebrow">MONITORING / <span>DASHBOARDS</span></div><h1>Dashboards</h1></div>
   <div class="dash-controls">
     <label>Server <select id="dashServer">{% for s in servers %}<option value="{{ s.sid }}"{% if s.sid == selected %} selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
-    <label>Database <select id="dashDatabase"><option value="">All databases</option></select></label>
+    <label>Database <select id="dashDatabase">{% if not restricted %}<option value="">All databases</option>{% endif %}</select></label>
     <label>Period <select id="dashRange">{% for r in ranges %}<option value="{{ r }}"{% if r == default_range %} selected{% endif %}>Last {{ r }}</option>{% endfor %}</select></label>
     <label>Refresh <select id="dashRefresh"><option value="0">Off</option><option value="10">every 10 s</option><option value="30" selected>every 30 s</option><option value="60">every minute</option></select></label>
-    <button type="button" class="btn" id="dashSample" title="Take a sample of this server now">Sample now</button>
-    <a class="btn" href="{% url 'health' %}">Table &amp; index health</a> <a class="btn" href="{% url 'monitor' %}">Live sessions</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>
+    {% if not restricted %}<button type="button" class="btn" id="dashSample" title="Take a sample of this server now">Sample now</button>{% endif %}
+    <a class="btn" href="{% url 'health' %}">Table &amp; index health</a>{% if not restricted %} <a class="btn" href="{% url 'monitor' %}">Live sessions</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>{% endif %}
   </div></div>
 {% if not servers %}<section class="panel pad">No servers are saved yet. Add one on the home page; PGDAS then samples it every {{ interval }} seconds.</section>{% else %}
 <div id="dashStatus" class="dash-status" role="status"></div>
-<div class="dash-section" id="dashLiveTitle">Live <span class="muted" id="dashLiveNote"></span></div>
+{% if not restricted %}<div class="dash-section" id="dashLiveTitle">Live <span class="muted" id="dashLiveNote"></span></div>
 <section class="dash-tiles" id="dashLiveTiles" aria-label="Live"></section>
-<div class="dash-grid dash-live" id="dashLiveCharts"></div>
+<div class="dash-grid dash-live" id="dashLiveCharts"></div>{% else %}<p class="muted">You see the figures of the databases you have access to. Numbers about the whole server (other databases, total connections, WAL, replication) are for Super Users.</p><span id="dashLiveNote" hidden></span><section id="dashLiveTiles" hidden></section><div id="dashLiveCharts" hidden></div>{% endif %}
 <div class="dash-section">Summary of the sampled period</div>
 <section class="dash-tiles" id="dashTiles" aria-label="Summary"></section>
-<div id="dashBody" class="dash-body" data-url="{% url 'dashboards_data' %}" data-sample-url="{% url 'watch_sample' %}" data-live-url="{% url 'dashboards_live' %}" data-setting-preview-url="{% url 'setting_preview' %}" data-setting-url="{% url 'setting_apply' %}"></div>
+<div id="dashBody" class="dash-body" data-url="{% url 'dashboards_data' %}" data-sample-url="{% url 'watch_sample' %}" data-live-url="{% url 'dashboards_live' %}" data-restricted="{{ restricted|yesno:'1,0' }}" data-setting-preview-url="{% url 'setting_preview' %}" data-setting-url="{% url 'setting_apply' %}"></div>
 <p class="muted dash-foot">The <strong>Live</strong> strip reads the server directly each time the page refreshes. The charts below come from samples taken every {{ interval }} seconds by <code>manage.py run_watch</code> (put it in cron, every minute); detailed history is kept {{ keep_days }} days. Nothing is installed on your servers: everything comes from PostgreSQL's own statistics, with short read-only queries.</p>
 {% endif %}
 <div id="dashTip" class="dash-tip" hidden></div>

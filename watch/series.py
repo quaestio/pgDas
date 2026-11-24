@@ -124,7 +124,10 @@ def _panel(title, unit, series, note="", stacked=False, minimum=None, maximum=No
             "description": description, "empty": not series}
 
 
-def dashboard(server, hours, database=""):
+DATABASE_PANELS = ("tps", "rows", "cache", "db_connections", "states_time", "session_events", "trouble", "temp", "size", "io_wait", "xid")
+
+
+def dashboard(server, hours, database="", restricted=False):
     """Everything the Dashboards page shows for one server (and optionally one database), for the last `hours` hours."""
     now = timezone.now()
     end, start = now.timestamp(), (now - timedelta(hours=hours)).timestamp()
@@ -225,6 +228,10 @@ def dashboard(server, hours, database=""):
     for key, panel in panels.items():
         if panel["empty"] and not panel["note"]:
             panel["note"] = "No data in this period yet." if server_rows else "No samples yet: the sampler (manage.py run_watch) has not run for this server."
+    panels["db_connections"] = _panel(f"Connections to {database or 'this database'}", "count", [
+        S("connected", gauge(db_rows, "conn_total"), "max", "#5ec8ff"), S("active", gauge(db_rows, "conn_active"), "max", "#4cc38a")]) if database else _panel("", "count", [])
+    if restricted:
+        return restricted_view(server, since, panels, db_rows, interval, health, database, hours, start, end, server_rows)
     return {"panels": panels, "tiles": tiles(server, server_rows, db_rows, interval, health, database), "tables": tables(server, since, server_rows, interval, health),
             "range": {"hours": hours, "start": start, "end": end, "samples": len(server_rows), "interval": interval}}
 
@@ -290,3 +297,32 @@ def tables(server, since, server_rows, interval, health):
                         "xid_percent": round((data.get("xid_age") or 0) * 100 / WRAPAROUND, 2)}
     out["databases"] = sorted(latest.values(), key=lambda r: -(r["size"] or 0))
     return out
+
+def restricted_view(server, since, panels, db_rows, interval, health, database, hours, start, end, server_rows):
+    """What an employee may see about ONE database they can read: that database's own counters and nothing about the rest of the server (no total
+    connections, other databases, WAL, replication, settings or statements, which describe the whole server and everybody on it)."""
+    allowed = {key: panels[key] for key in DATABASE_PANELS if key in panels}
+    for key, panel in allowed.items():
+        panel["title"] = panel["title"].replace("(all databases)", f"({database})")
+    for key in ("tps", "rows", "cache", "trouble", "temp", "io_wait", "states_time", "session_events", "db_connections", "size", "xid"):
+        if key in allowed and allowed[key]["note"] == "" and allowed[key]["empty"]:
+            allowed[key]["note"] = "No data in this period yet." if db_rows else "No samples yet: the sampler has not run for this server."
+    hit = ratio(db_rows, ["blks_hit"], ["blks_hit", "blks_read"], interval)
+    commits, rollbacks = rate(db_rows, "xact_commit", interval), rate(db_rows, "xact_rollback", interval)
+    last = db_rows[-1][1] if db_rows else {}
+    now = timezone.now().timestamp()
+    tiles_out = {"connections": last.get("conn_total"), "active": last.get("conn_active"), "tps": ((_last(commits) or 0) + (_last(rollbacks) or 0)) if commits else None,
+                 "cache_hit": _last(hit), "size": last.get("size"), "xid_percent": round((last.get("xid_age") or 0) * 100 / WRAPAROUND, 2) if last else None,
+                 "last_sample_age": (now - db_rows[-1][0]) if db_rows else None, "version": health.version_text if health else "", "samples": health.sample_count if health else 0,
+                 "failures": 0, "last_error": "", "skipped": [], "statements_extension": False}
+    databases = []
+    if db_rows:
+        data = db_rows[-1][1]
+        tps = rate(db_rows, "xact_commit", interval)
+        databases = [{"database": database, "size": data.get("size"), "connections": data.get("conn_total", 0), "active": data.get("conn_active", 0),
+                      "tps": round(_last(tps), 2) if tps else None, "cache_hit": round(_last(hit), 1) if hit else None,
+                      "deadlocks": int((db_rows[-1][1].get("deadlocks") or 0) - (db_rows[0][1].get("deadlocks") or 0)) if len(db_rows) > 1 else 0,
+                      "xid_percent": round((data.get("xid_age") or 0) * 100 / WRAPAROUND, 2)}]
+    return {"scope": "database", "panels": allowed, "tiles": tiles_out,
+            "tables": {"statements": [], "standbys": [], "slots": [], "databases": databases, "settings": {}},
+            "range": {"hours": hours, "start": start, "end": end, "samples": len(db_rows), "interval": interval}}

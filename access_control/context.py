@@ -23,4 +23,5 @@ def installation(request):
         can_edit = member.role == "super_user" or member.database_grants.filter(read=True).filter(_any_write()).exists()
     from servers.models import ServerConnection
     from django.conf import settings
-    return {"kerberos_enabled": getattr(settings, "KERBEROS", False), "ssl_modes": [value for value, _ in ServerConnection.SSL_MODES], "pgdas_shared": mode.is_shared(), "pgdas_organization": member.organization.name if member is not None else "", "pgdas_can_edit": can_edit}
+    can_monitor = member is not None and (member.role == "super_user" or member.database_grants.filter(read=True).exists())
+    return {"pgdas_can_monitor": can_monitor, "kerberos_enabled": getattr(settings, "KERBEROS", False), "ssl_modes": [value for value, _ in ServerConnection.SSL_MODES], "pgdas_shared": mode.is_shared(), "pgdas_organization": member.organization.name if member is not None else "", "pgdas_can_edit": can_edit}

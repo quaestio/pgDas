@@ -8,7 +8,7 @@
     <label>Database <select id="hDatabase"><option value="">Loading…</option></select></label>
     <label>Biggest <select id="hLimit">{% for n in limits %}<option value="{{ n }}"{% if n == 150 %} selected{% endif %}>{{ n }} tables</option>{% endfor %}</select></label>
     <button type="button" class="btn" id="hRefresh">Read again</button>
-    <a class="btn" href="{% url 'dashboards' %}">Dashboards</a> <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>
+    <a class="btn" href="{% url 'dashboards' %}">Dashboards</a>{% if not restricted %} <a class="btn" href="{% url 'watch' %}">Alerts &amp; trends</a>{% endif %}
   </div></div>
 {% if not servers %}<section class="panel pad">No servers are saved yet.</section>{% else %}
 <p class="muted">Read from the database itself when you open this page (nothing is installed, nothing is changed): which tables need vacuuming, which indexes are never used or duplicated, and how close each table is to a forced vacuum. Each finding says why it matters and gives the SQL that deals with it.</p>

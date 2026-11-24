@@ -4,6 +4,7 @@
   var body = document.getElementById("hBody");
   if (!body) { return; }
   var serverSel = document.getElementById("hServer"), dbSel = document.getElementById("hDatabase"), limitSel = document.getElementById("hLimit"), status = document.getElementById("hStatus"), tilesEl = document.getElementById("hTiles");
+  var restricted = body.hasAttribute("data-restricted") ? body.getAttribute("data-restricted") === "1" : false;
   var current = null, sortState = {tables: ["total", -1], indexes: ["size", -1]};
 
   function el(tag, attrs, text) {
@@ -63,7 +64,7 @@
       var row = el("div", {"class": "h-sql"}); row.appendChild(el("code", {}, f.sql));
       var copy = el("button", {type: "button", "class": "btn"}, "Copy"); copy.addEventListener("click", function () { if (navigator.clipboard) { navigator.clipboard.writeText(f.sql); } copy.textContent = "Copied"; });
       row.appendChild(copy);
-      if (f.table && OPERATION[f.kind]) {
+      if (f.table && OPERATION[f.kind] && d.can_maintain) {
         var run = el("button", {type: "button", "class": "btn primary"}, "Run it now");
         run.addEventListener("click", function () { maintain(run, f, d); }); row.appendChild(run);
       }
@@ -112,13 +113,13 @@
     sorted(rows, order.key, sortState[id][1], order.value).forEach(function (r) {
       var tr = el("tr");
       columns.forEach(function (c) { var td = el("td", {"class": c.numeric ? "n" : ""}); td.textContent = c.text(r); if (c.title) { td.title = c.title(r); } tr.appendChild(td); });
-      if (id === "tables" && d.pgstattuple) {
+      if (id === "tables" && d.pgstattuple && d.can_maintain) {
         var td = el("td"); var b = el("button", {type: "button", "class": "btn"}, "Measure"); b.title = "Exact dead space (pgstattuple)";
         b.addEventListener("click", function () { measure(b, r, d); }); td.appendChild(b); tr.appendChild(td);
       }
       tb.appendChild(tr);
     });
-    if (id === "tables" && d.pgstattuple) { hr.appendChild(el("th", {}, "")); }
+    if (id === "tables" && d.pgstattuple && d.can_maintain) { hr.appendChild(el("th", {}, "")); }
     tbl.appendChild(tb); box.appendChild(tbl);
     return box;
   }
@@ -173,7 +174,7 @@
     body.appendChild(table("Tables, biggest first (click a heading to sort)", "tables", d.tables, tableColumns(), d));
     body.appendChild(el("div", {"class": "dash-section"}, "Indexes"));
     body.appendChild(table("Indexes, biggest first (hover an index for its definition)", "indexes", d.indexes, indexColumns(), d));
-    if (!d.pgstattuple) { body.appendChild(el("p", {"class": "muted"}, "Dead rows here are PostgreSQL's own estimates. Install the pgstattuple extension (CREATE EXTENSION pgstattuple) to get an exact measure of a table with the Measure button.")); }
+    if (!d.pgstattuple && d.can_maintain) { body.appendChild(el("p", {"class": "muted"}, "Dead rows here are PostgreSQL's own estimates. Install the pgstattuple extension (CREATE EXTENSION pgstattuple) to get an exact measure of a table with the Measure button.")); }
   }
 
   function load(fresh) {

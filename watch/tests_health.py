@@ -1,4 +1,4 @@
-"""Table and index health: the findings logic (synthetic data), the collector against PostgreSQL, and the page and endpoints."""
+﻿"""Table and index health: the findings logic (synthetic data), the collector against PostgreSQL, and the page and endpoints."""
 import time
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -219,7 +219,7 @@ class HealthViewTests(shared.PgFixture, TestCase):
         other = Client()
         other.force_login(person)
         self.assertEqual(other.get(reverse("health")).status_code, 403)
-        self.assertEqual(other.get(reverse("health_data"), {"server": self.server.pk, "db": self.db}).status_code, 403)
+        self.assertIn(other.get(reverse("health_data"), {"server": self.server.pk, "db": self.db}).status_code, (403, 404))
         foreign = ServerConnection.objects.create(name="Theirs", host="h", username="u")
         OrganizationServer.objects.create(server=foreign, organization=Organization.objects.create(name="Elsewhere"))
         self.assertEqual(self.client.get(reverse("health_data"), {"server": foreign.pk, "db": "x"}).status_code, 404)
@@ -255,3 +255,24 @@ class HealthViewTests(shared.PgFixture, TestCase):
         path = (Path(settings.BASE_DIR) / "static" / "health.js").as_posix()
         done = subprocess.run(["node", "-e", f"new Function(require('fs').readFileSync('{path}', 'utf8')); console.log('ok')"], capture_output=True, text=True, timeout=30)
         self.assertEqual(done.stdout.strip(), "ok", done.stderr)
+
+    def test_an_employee_sees_only_their_own_database_and_cannot_fix_without_maintenance(self):
+        from access_control.models import DatabaseGrant
+        person = get_user_model().objects.create_user("emp", email="e@o.test", password="pw-12345-abc")
+        member = Membership.objects.create(user=person, organization=self.org, role="editor")
+        DatabaseGrant.objects.create(membership=member, server=self.server, database=self.db, read=True)
+        emp = Client()
+        emp.force_login(person)
+        self.assertEqual(emp.get(reverse("health")).status_code, 200)
+        self.assertEqual(emp.get(reverse("health_databases"), {"server": self.server.pk}).json()["databases"], [self.db])
+        mine = emp.get(reverse("health_data"), {"server": self.server.pk, "db": self.db}).json()
+        self.assertTrue(mine["ok"])
+        self.assertFalse(mine["can_maintain"])
+        other = emp.get(reverse("health_data"), {"server": self.server.pk, "db": "postgres"})
+        self.assertEqual(other.status_code, 403)
+        self.assertIn("PGDAS blocked this", other.json()["error"])
+        body = {"server": self.server.sid, "db": self.db, "schema": "public", "table": "x"}
+        self.assertEqual(emp.post(reverse("health_bloat"), body, content_type="application/json").status_code, 403)
+        DatabaseGrant.objects.filter(membership=member).update(maintenance=True)
+        cache.clear()
+        self.assertTrue(emp.get(reverse("health_data"), {"server": self.server.pk, "db": self.db}).json()["can_maintain"])

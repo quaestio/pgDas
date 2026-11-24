@@ -1,4 +1,4 @@
-"""The Dashboards page and its data endpoint: who sees what, caching, and that the sampler's output reaches the charts."""
+﻿"""The Dashboards page and its data endpoint: who sees what, caching, and that the sampler's output reaches the charts."""
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -62,7 +62,7 @@ class DashboardViewTests(TestCase):
         other = Client()
         other.force_login(person)
         self.assertEqual(other.get(reverse("dashboards")).status_code, 403)
-        self.assertEqual(self.data(other).status_code, 403)
+        self.assertIn(self.data(other).status_code, (403, 404))      # a server nobody gave them is simply not there
 
     def test_another_organizations_server_is_not_there(self):
         stranger = Organization.objects.create(name="Elsewhere")
@@ -177,3 +177,54 @@ class LiveReadingTests(shared.PgFixture, TestCase):
         page = self.client.get(reverse("dashboards"))
         for needle in ("dashLiveTiles", "dashRefresh", 'value="10"', 'value="30" selected', "data-live-url"):
             self.assertContains(page, needle)
+
+class EmployeeDashboardTests(DashboardViewTests):
+    """A person who may read a database sees only that database's figures; nothing about the server as a whole."""
+    def setUp(self):
+        super().setUp()
+        from access_control.models import DatabaseGrant
+        self.person = get_user_model().objects.create_user("emp", email="e@o.test", password="pw-12345-abc")
+        self.member = Membership.objects.create(user=self.person, organization=self.org, role="editor")
+        DatabaseGrant.objects.create(membership=self.member, server=self.server, database="appdb", read=True)
+        MetricSample.objects.create(server=self.server, database="secretdb", taken_at=timezone.now(), data={"size": 77})
+        self.emp = Client()
+        self.emp.force_login(self.person)
+
+    def test_the_page_opens_without_the_server_wide_parts(self):
+        page = self.emp.get(reverse("dashboards"))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'data-restricted="1"')
+        self.assertNotContains(page, "Sample now")
+        self.assertNotContains(page, "All databases")
+
+    def test_without_a_database_the_employee_gets_only_their_own_list(self):
+        payload = self.data(self.emp).json()
+        self.assertTrue(payload["need_database"])
+        self.assertEqual(payload["databases"], ["appdb"])
+        self.assertNotIn("secretdb", str(payload))
+
+    def test_their_database_has_figures_but_no_server_wide_keys(self):
+        payload = self.data(self.emp, db="appdb").json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["scope"], "database")
+        self.assertEqual(payload["databases"], ["appdb"])
+        for key in ("max_connections", "wal_rate", "blocked", "uptime", "role"):
+            self.assertNotIn(key, payload["tiles"])
+        self.assertEqual(payload["tables"]["statements"], [])
+        self.assertEqual(payload["tables"]["standbys"], [])
+        self.assertEqual(payload["tables"]["slots"], [])
+        self.assertNotIn("secretdb", str(payload))
+
+    def test_another_database_is_refused(self):
+        answer = self.data(self.emp, db="secretdb")
+        self.assertEqual(answer.status_code, 403)
+        self.assertIn("PGDAS blocked this", answer.json()["error"])
+
+    def test_the_live_strip_and_sampling_stay_for_super_users(self):
+        self.assertEqual(self.emp.get(reverse("dashboards_live"), {"server": self.server.pk}).status_code, 403)
+        self.assertEqual(self.emp.post(reverse("watch_sample"), {"server": self.server.pk}).status_code, 403)
+
+    def test_super_users_still_see_everything(self):
+        payload = self.data(db="").json()
+        self.assertIn("secretdb", payload["databases"])
+        self.assertNotIn("scope", payload)
