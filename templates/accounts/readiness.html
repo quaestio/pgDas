@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Setup check · PGDAS{% endblock %}
+{% block content %}
+<div class="title-row"><div><div class="eyebrow">SETTINGS / <span>SETUP CHECK</span></div><h1>Setup check</h1></div></div>
+<p class="muted">What is set up, what is missing, and how to fix each thing. Nothing here changes anything.
+{% if shared %}Settings of the machine itself (HTTPS, email server, cron jobs) belong to the person who runs PGDAS and are not shown here.{% endif %}</p>
+<section class="dash-tiles" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:12px 0">
+  <div class="panel pad"><div class="muted">Need fixing</div><strong style="font-size:24px;color:#ff8a8a">{{ counts.fail }}</strong></div>
+  <div class="panel pad"><div class="muted">Worth a look</div><strong style="font-size:24px;color:#ffd166">{{ counts.warn }}</strong></div>
+  <div class="panel pad"><div class="muted">In order</div><strong style="font-size:24px;color:#6be59a">{{ counts.ok }}</strong></div>
+</section>
+<section class="panel pad" style="max-width:860px">
+  {% for c in checks %}
+  <div class="check check-{{ c.status }}" style="padding:10px 0;border-bottom:1px solid rgba(31,159,255,.2)">
+    <span class="badge {% if c.status == 'ok' %}ok{% elif c.status == 'info' %}{% else %}warn{% endif %}" style="min-width:64px;display:inline-block;text-align:center">{% if c.status == "fail" %}FIX{% elif c.status == "warn" %}CHECK{% elif c.status == "ok" %}OK{% else %}INFO{% endif %}</span>
+    <strong>{{ c.title }}</strong>
+    <div>{{ c.detail }}</div>
+    {% if c.fix %}<div class="muted"><strong>How:</strong> {{ c.fix }}</div>{% endif %}
+    {% if c.id == "email" %}<div style="margin-top:6px"><button class="btn" type="button" id="mailTest">Send a test email to me</button> <span id="mailResult" class="muted" role="status"></span></div>{% endif %}
+  </div>
+  {% endfor %}
+  {% if email_ready and shared %}<div style="padding:10px 0"><button class="btn" type="button" id="mailTest">Send a test email to me</button> <span id="mailResult" class="muted" role="status"></span></div>{% endif %}
+</section>
+<script>
+(function () {
+  var button = document.getElementById("mailTest"), out = document.getElementById("mailResult");
+  if (!button) { return; }
+  button.addEventListener("click", function () {
+    var token = (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || "";
+    out.textContent = "Sending…"; button.disabled = true;
+    fetch("{% url 'readiness_mail' %}", {method: "POST", credentials: "same-origin", headers: {"X-CSRFToken": token, "X-Requested-With": "fetch"}})
+      .then(function (r) { return r.json(); }).then(function (a) { out.textContent = a.ok ? a.message : (a.error || "Not sent."); })
+      .catch(function () { out.textContent = "The request did not complete."; }).then(function () { button.disabled = false; });
+  });
+})();
+</script>
+{% endblock %}

@@ -335,3 +335,37 @@ def organization_create(request):
     return render(request, "accounts/form.html", {"form": form, "title": "Create organization",
                                                   "note": "The new organization starts with one Super User, who then adds its people and servers. "
                                                           "Nothing of it is visible to you afterwards."})
+
+@login_required
+def readiness(request):
+    """What is set up and what is missing, in plain words. Super Users see their organization's checks; on a dedicated installation also the machine's."""
+    from access_control import readiness as checks_module
+    admin = administrator(request)
+    checks = checks_module.organization_checks(admin.organization, request.user)
+    if not mode.is_shared():
+        checks = checks_module.installation_checks(request) + checks
+    order = {"fail": 0, "warn": 1, "info": 2, "ok": 3}
+    checks.sort(key=lambda c: order[c["status"]])
+    return render(request, "accounts/readiness.html", {"checks": checks, "counts": checks_module.summary(checks), "shared": mode.is_shared(), "email_ready": bool(settings.EMAIL_HOST)})
+
+
+@login_required
+@require_POST
+def readiness_mail(request):
+    """Send one test email to the signed-in Super User's own address, so the mail settings can be proved without registering anyone."""
+    from django.core.cache import cache
+    from django.http import JsonResponse
+    from . import mailer
+    administrator(request)
+    if not settings.EMAIL_HOST:
+        return JsonResponse({"ok": False, "error": "No mail server is set (PGDAS_EMAIL_HOST in .env)."}, status=400)
+    if not request.user.email:
+        return JsonResponse({"ok": False, "error": "Your account has no email address."}, status=400)
+    key = f"pgdas-readiness-mail:{request.user.pk}"
+    cache.add(key, 0, 3600)
+    if cache.incr(key) > 5:
+        return JsonResponse({"ok": False, "error": "Five test emails an hour is the limit. Try again later."}, status=429)
+    sent = mailer.send("PGDAS test email", "This is a test message from PGDAS. If you can read it, outgoing email works.", request.user.email, purpose="test")
+    if not sent:
+        return JsonResponse({"ok": False, "error": "The mail server refused it. The reason is in the service log (and the audit log: email.failed)."}, status=502)
+    return JsonResponse({"ok": True, "message": f"A test email was sent to {request.user.email}. If it does not arrive in a few minutes, check the spam folder."})
